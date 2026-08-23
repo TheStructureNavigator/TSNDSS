@@ -68,6 +68,10 @@ export async function createProject(slug: string): Promise<ProjectSummary> {
   return payload.project;
 }
 
+export async function deleteProject(slug: string): Promise<void> {
+  await sendDelete(`/api/projects/${encodeURIComponent(slug)}`);
+}
+
 export async function updateProjectSkyTarget(slug: string, skyTarget: string): Promise<ProjectSummary> {
   const payload = await sendJson<{ project: ProjectSummary }>(
     `/api/projects/${encodeURIComponent(slug)}/sky-target`,
@@ -148,4 +152,21 @@ async function sendJson<T>(path: string, payload: object): Promise<T> {
     throw new Error(responseBody.message ?? `API request failed: ${response.status} ${response.statusText}`);
   }
   return responseBody;
+}
+
+async function sendDelete(path: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    method: 'DELETE',
+  });
+
+  let responseBody: { message?: string } | null = null;
+  try {
+    responseBody = (await response.json()) as { message?: string };
+  } catch {
+    responseBody = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(responseBody?.message ?? `API request failed: ${response.status} ${response.statusText}`);
+  }
 }

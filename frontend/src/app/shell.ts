@@ -24,13 +24,29 @@ export type AppState = {
   error: string | null;
   busy: boolean;
   projectDetailTab: ProjectDetailTab;
+  processingDetailTab: ProcessingDetailTab;
+  createProjectModalOpen: boolean;
+  createRunModalOpen: boolean;
 };
 
-export type ProjectDetailTab = 'import' | 'target' | 'details';
+export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
+export type ProcessingDetailTab = 'overview' | 'logs';
 
 export function renderAppShell(state: AppState): string {
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
   const latestRun = state.activeRun ?? state.projectRuns[0] ?? null;
+  const apiStatusLabel = state.health?.status === 'ok' ? 'API online' : 'API offline';
+  const apiStatusDetail = state.health
+    ? `${state.health.service} | ${state.health.status} | ${getApiBaseUrl()} | ${state.health.default_siril_executable ?? 'siril-cli'}`
+    : `API unavailable | ${getApiBaseUrl()}`;
+  const activeProjectLabel = primaryProject?.slug ?? 'No active project';
+  const activeProjectDetail = primaryProject
+    ? [
+        primaryProject.sky_target ?? 'No sky target',
+        `${primaryProject.capture_count} capture${primaryProject.capture_count === 1 ? '' : 's'}`,
+        `${primaryProject.run_count} run${primaryProject.run_count === 1 ? '' : 's'}`,
+      ].join(' | ')
+    : 'Select or create a project';
 
   return `
     <div class="app-frame">
@@ -41,38 +57,35 @@ export function renderAppShell(state: AppState): string {
             <h1>TSN | DSS</h1>
           </div>
         </div>
-        <div class="status-pill">${state.health?.status === 'ok' ? 'API online' : 'API offline'}</div>
+        <div class="topbar__status-group">
+          <div class="status-pill status-pill--interactive" title="${escapeHtml(apiStatusDetail)}">
+            <span class="status-pill__label">API</span>
+            <strong>${apiStatusLabel}</strong>
+            <span class="status-pill__tooltip">${escapeHtml(apiStatusDetail)}</span>
+          </div>
+          <div class="status-pill status-pill--interactive" title="${escapeHtml(activeProjectDetail)}">
+            <span class="status-pill__label">Project</span>
+            <strong>${escapeHtml(activeProjectLabel)}</strong>
+            <span class="status-pill__tooltip">${escapeHtml(activeProjectDetail)}</span>
+          </div>
+        </div>
       </header>
 
       <div class="app-shell">
         <aside class="sidebar">
-          <p class="sidebar__intro">Projects, processing and sky view are now split into separate workspaces.</p>
-
           <nav class="nav">
             ${renderNavItem('projects', 'Projects', state.currentView)}
             ${renderNavItem('processing', 'Processing', state.currentView)}
             ${renderNavItem('sky', 'Sky', state.currentView)}
           </nav>
 
-          <section class="sidebar-section">
-            <h2>Current focus</h2>
-            <ul class="sidebar-list">
-              <li>${primaryProject?.slug ?? 'Waiting for project data'}</li>
-              <li>${latestRun?.status ?? 'No processing run yet'}</li>
-              <li>${state.currentView === 'sky' ? 'Aladin Lite mount ready' : latestRun?.stage ?? 'Ready'}</li>
-            </ul>
-          </section>
+          <div class="sidebar-watermark" aria-hidden="true">
+            <img class="sidebar-watermark__icon" src="${iconUrl}" alt="" />
+          </div>
         </aside>
 
         <main class="workspace">
-          <header class="workspace__header">
-            <div>
-              <p class="workspace__eyebrow">${eyebrowForView(state.currentView)}</p>
-              <h2>${titleForView(state.currentView)}</h2>
-            </div>
-          </header>
-
-          ${renderBanner(state)}
+          ${state.currentView === 'sky' ? renderWorkspaceHeader(state.currentView) : ''}
           ${renderView(state, primaryProject, latestRun)}
         </main>
       </div>
@@ -80,6 +93,10 @@ export function renderAppShell(state: AppState): string {
       <footer class="app-footer">
         <span>TSN DSS | TheStructureNavigator | ${APP_VERSION}</span>
       </footer>
+
+      ${state.createProjectModalOpen ? renderCreateProjectModal(state.busy) : ''}
+      ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject) : ''}
+      ${renderToast(state)}
     </div>
   `;
 }
@@ -103,56 +120,15 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
 
 function renderProjectsView(state: AppState, primaryProject: ProjectSummary | null): string {
   return `
-    <section class="hero-panel">
-      <div>
-        <h3>Project management is separated now</h3>
-        <p>
-          This workspace focuses only on creating projects, importing captures and browsing project structure.
-        </p>
-      </div>
-      <div class="hero-metrics">
-        <article class="metric-card">
-          <span class="metric-card__label">Projects</span>
-          <strong>${state.projects.length}</strong>
-          <span>${primaryProject ? `${primaryProject.capture_count} captures in focus` : 'No local projects yet'}</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Selected project</span>
-          <strong>${primaryProject?.slug ?? 'None'}</strong>
-          <span>${primaryProject?.sky_target ?? (primaryProject ? 'Set sky target next' : 'Create a project to begin')}</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">API endpoint</span>
-          <strong>${state.health?.service ?? 'Unavailable'}</strong>
-          <span>${getApiBaseUrl()}</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">API health</span>
-          <strong>${state.health?.status ?? 'offline'}</strong>
-          <span>${state.health?.default_siril_executable ?? 'siril-cli'}</span>
-        </article>
-      </div>
-    </section>
-
-    <section class="projects-layout">
-      <article class="panel projects-sidebar-panel">
+    <section class="projects-workspace">
+      <article class="panel project-tabs-panel">
         <div class="panel__header">
-          <h3>Create project</h3>
-          <span>${state.busy ? 'working...' : 'ready'}</span>
-        </div>
-        <form class="form-stack" data-form="create-project">
-          <label class="field">
-            <span>Project slug</span>
-            <input name="slug" type="text" placeholder="m42_rebuild" required />
-          </label>
-          <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Create project</button>
-        </form>
-
-        <div class="panel__header projects-sidebar-panel__header">
           <h3>Projects</h3>
-          <span>${state.projects.length} loaded</span>
+          <button class="action-button" type="button" data-open-create-project-modal ${state.busy ? 'disabled' : ''}>
+            Create project
+          </button>
         </div>
-        ${renderProjects(state.projects, primaryProject?.slug ?? null)}
+        ${renderProjectTabs(state.projects, primaryProject?.slug ?? null)}
       </article>
 
       <div class="projects-detail-column">
@@ -181,13 +157,13 @@ function renderSelectedProjectPanel(state: AppState, project: ProjectSummary | n
     <article class="panel project-detail-panel">
       <div class="panel__header">
         <h3>${project.slug}</h3>
-        <span>${project.capture_count} captures</span>
       </div>
 
       <nav class="tab-strip" aria-label="Project details">
+        ${renderProjectTab('details', 'Project details', state.projectDetailTab)}
         ${renderProjectTab('import', 'Import capture', state.projectDetailTab)}
         ${renderProjectTab('target', 'Sky target', state.projectDetailTab)}
-        ${renderProjectTab('details', 'Project details', state.projectDetailTab)}
+        ${renderProjectTab('settings', 'Project settings', state.projectDetailTab)}
       </nav>
 
       <div class="project-detail-stack">
@@ -203,6 +179,29 @@ function renderProjectTab(tab: ProjectDetailTab, label: string, activeTab: Proje
 }
 
 function renderSelectedProjectTab(state: AppState, project: ProjectSummary): string {
+  if (state.projectDetailTab === 'settings') {
+    return `
+      <section class="detail-stack">
+        <div class="panel__header panel__header--nested">
+          <h3>Project settings</h3>
+          <span>${project.slug}</span>
+        </div>
+        <div class="detail-stack">
+          <p class="muted">Administrative actions for this project live here.</p>
+          <div class="danger-zone">
+            <div class="danger-zone__copy">
+              <h4>Delete project</h4>
+              <p class="muted">Remove the entire project with all captures, runs, logs and generated outputs.</p>
+            </div>
+            <button class="action-button action-button--danger" type="button" data-delete-project-slug="${project.slug}" ${state.busy ? 'disabled' : ''}>
+              Delete project
+            </button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   if (state.projectDetailTab === 'target') {
     return `
       <section class="detail-stack">
@@ -217,7 +216,7 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
           </label>
           <label class="field">
             <span>Sky target</span>
-            <input name="sky_target" type="text" value="${project.sky_target ?? 'M42'}" placeholder="M42 / NGC 1976 / Orion Nebula" required />
+            <input name="sky_target" type="text" value="${project.sky_target ?? ''}" placeholder="M42 / NGC 1976 / Orion Nebula" required />
           </label>
           <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Save target</button>
         </form>
@@ -231,7 +230,6 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
       <section class="detail-stack">
         <div class="panel__header panel__header--nested">
           <h3>Project details</h3>
-          <span>${project.run_count} runs</span>
         </div>
         ${renderProjectDetails(project, latestProjectRun)}
       </section>
@@ -244,6 +242,12 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
         <h3>Import capture</h3>
         <span>${project.slug}</span>
       </div>
+      <section class="detail-stack">
+        <div>
+          <h4>Imported captures</h4>
+          ${renderTagList(project.capture_names, 'No captures imported yet')}
+        </div>
+      </section>
       <form class="form-stack" data-form="import-capture">
         <label class="field">
           <span>Project slug</span>
@@ -251,7 +255,7 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
         </label>
         <label class="field">
           <span>Capture name</span>
-          <input name="capture_name" type="text" value="OrionNebula" placeholder="OrionNebula" required />
+          <input name="capture_name" type="text" value="" placeholder="OrionNebula" required />
         </label>
         <label class="field">
           <span>Source folder</span>
@@ -268,169 +272,179 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
 }
 
 function renderProcessingView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
-  return `
-    <section class="hero-panel">
-      <div>
-        <h3>Processing has its own workspace now</h3>
-        <p>
-          Launch Siril runs here and keep all status, progress and logs away from project management.
-        </p>
-      </div>
-      <div class="hero-metrics">
-        <article class="metric-card">
-          <span class="metric-card__label">Latest run</span>
-          <strong>${latestRun?.status ?? 'Idle'}</strong>
-          <span>${latestRun?.stage ?? 'Ready to launch Siril'}</span>
+  if (primaryProject === null) {
+    return `
+      <section class="processing-workspace">
+        <article class="panel">
+          <div class="panel__header">
+            <h3>Processing</h3>
+          </div>
+          <p class="muted">Select the active project in the Projects tab first, then come back here to run processing.</p>
         </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Selected project</span>
-          <strong>${primaryProject?.slug ?? 'None'}</strong>
-          <span>${primaryProject?.capture_names[0] ?? 'Import a capture first'}</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Siril executable</span>
-          <strong>${state.health?.default_siril_executable ?? 'siril-cli'}</strong>
-          <span>Default run target</span>
-        </article>
-      </div>
-    </section>
+      </section>
+    `;
+  }
 
-    <section class="grid">
-      <article class="panel">
+  return `
+    <section class="processing-workspace">
+      <article class="panel project-tabs-panel">
         <div class="panel__header">
-          <h3>Run project processing</h3>
+          <h3>Runs</h3>
+          <button class="action-button" type="button" data-open-create-run-modal ${state.busy ? 'disabled' : ''}>
+            Create run
+          </button>
+        </div>
+        ${renderRunTabs(state.projectRuns, latestRun?.id ?? null)}
+      </article>
+
+      <article class="panel processing-detail-panel">
+        <div class="panel__header">
+          <h3>Processing</h3>
           <span>${latestRun?.status ?? 'idle'}</span>
         </div>
-        <form class="form-stack" data-form="start-run">
-          <label class="field">
-            <span>Project slug</span>
-            <input name="project_slug" type="text" value="${primaryProject?.slug ?? ''}" placeholder="m42_rebuild" required />
-          </label>
-          <label class="field">
-            <span>Capture name</span>
-            <input name="capture_name" type="text" value="${primaryProject?.capture_names[0] ?? 'OrionNebula'}" placeholder="OrionNebula" required />
-          </label>
-          <label class="field">
-            <span>Siril executable</span>
-            <input
-              name="executable"
-              type="text"
-              value="${state.health?.default_siril_executable ?? 'siril-cli'}"
-              placeholder="siril-cli"
-            />
-          </label>
-          <label class="field">
-            <span>OSC script path</span>
-            <input name="script_path" type="text" placeholder="default repo OSC_Preprocessing.ssf" />
-          </label>
-          <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Run OSC_Preprocessing</button>
-        </form>
-      </article>
 
-      <article class="panel">
-        <div class="panel__header">
-          <h3>Run folders</h3>
-          <span>${primaryProject?.run_count ?? 0} folders</span>
-        </div>
-        ${renderTagList(primaryProject?.run_names ?? [], 'No run folders yet')}
-      </article>
+        <div class="processing-layout">
+          <section class="detail-stack">
+            <div class="panel__header panel__header--nested">
+              <h3>Run setup</h3>
+              <span>${primaryProject.slug}</span>
+            </div>
+            <dl class="health-list">
+              <div>
+                <dt>Active project</dt>
+                <dd>${primaryProject.slug}</dd>
+              </div>
+              <div>
+                <dt>Sky target</dt>
+                <dd>${primaryProject.sky_target ?? 'not set'}</dd>
+              </div>
+            </dl>
+            <p class="muted">Create a new run from the Runs header, then use the tabs on the right to inspect its current state or history.</p>
 
-      <article class="panel">
-        <div class="panel__header">
-          <h3>Recent runs</h3>
-          <span>${state.projectRuns.length}</span>
-        </div>
-        ${renderRunList(state.projectRuns, latestRun?.id ?? null)}
-      </article>
+            <div class="detail-columns">
+              <section>
+                <h4>Captures</h4>
+                ${renderTagList(primaryProject.capture_names, 'No captures imported yet')}
+              </section>
+              <section>
+                <h4>Run folders</h4>
+                ${renderTagList(primaryProject.run_names, 'No run folders yet')}
+              </section>
+            </div>
+          </section>
 
-      <article class="panel panel--wide">
-        <div class="panel__header">
-          <h3>Run monitor</h3>
-          <span>${latestRun?.id ?? 'no run selected'}</span>
+          <section class="detail-stack">
+            <div class="panel__header panel__header--nested">
+              <h3>Selected run</h3>
+              <span>${latestRun?.id ?? 'no run selected'}</span>
+            </div>
+            ${renderRunDetailTabs(state.processingDetailTab, latestRun)}
+            ${renderRunDetailPanel(state.processingDetailTab, latestRun)}
+          </section>
         </div>
-        ${renderRunMonitor(latestRun)}
       </article>
     </section>
   `;
 }
 
 function renderSkyView(primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+  if (primaryProject === null) {
+    return `
+      <section class="sky-workspace">
+        <article class="panel">
+          <div class="panel__header">
+            <h3>Sky</h3>
+          </div>
+          <p class="muted">Select the active project in the Projects tab first, then come back here to inspect the sky view.</p>
+        </article>
+      </section>
+    `;
+  }
+
   return `
-    <section class="hero-panel">
-      <div>
-        <h3>Sky view is prepared for Aladin Lite</h3>
-        <p>
-          This workspace is now reserved for sky navigation, framing and later target / dataset overlays.
-        </p>
-      </div>
-      <div class="hero-metrics">
-        <article class="metric-card">
-          <span class="metric-card__label">Current target</span>
-          <strong>${primaryProject?.sky_target ?? 'M42'}</strong>
-          <span>${primaryProject?.sky_target ? 'Project-centered sky focus' : 'Bootstrap sky focus'}</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Selected project</span>
-          <strong>${primaryProject?.slug ?? 'None'}</strong>
-          <span>${primaryProject?.capture_count ?? 0} captures</span>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Latest processing</span>
-          <strong>${latestRun?.status ?? 'Idle'}</strong>
-          <span>${latestRun?.output_path ?? 'No output yet'}</span>
-        </article>
-      </div>
-    </section>
-
-    <section class="grid sky-grid">
-      <article class="panel panel--wide sky-panel">
-        <div class="panel__header">
-          <h3>Sky viewer</h3>
-          <span>Aladin Lite</span>
-        </div>
-        <div id="aladin-sky-view" class="aladin-container"></div>
-      </article>
-
+    <section class="sky-workspace">
       <article class="panel">
         <div class="panel__header">
-          <h3>Sky context</h3>
-          <span>${primaryProject?.sky_target ?? 'M42'}</span>
+          <h3>Sky</h3>
+          <span>${primaryProject.slug}</span>
         </div>
-        <div class="detail-stack">
-          <p class="muted">
-            Aladin Lite is centered on the current project target when available, otherwise it falls back to M42.
-          </p>
-          ${primaryProject ? `<code class="command">${primaryProject.project_root}</code>` : '<p class="muted">No selected project.</p>'}
+        <div class="detail-columns">
+          <section>
+            <dl class="health-list">
+              <div>
+                <dt>Active project</dt>
+                <dd>${primaryProject.slug}</dd>
+              </div>
+              <div>
+                <dt>Sky target</dt>
+                <dd>${primaryProject.sky_target ?? 'not set'}</dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <dl class="health-list">
+              <div>
+                <dt>Captures</dt>
+                <dd>${primaryProject.capture_count}</dd>
+              </div>
+              <div>
+                <dt>Latest run</dt>
+                <dd>${latestRun?.status ?? 'idle'}</dd>
+              </div>
+            </dl>
+          </section>
         </div>
       </article>
 
-      <article class="panel">
-        <div class="panel__header">
-          <h3>What comes next</h3>
-          <span>Planned</span>
-        </div>
-        <ul class="sidebar-list">
-          <li>project target centering</li>
-          <li>frame footprint overlays</li>
-          <li>dataset highlight / selection</li>
-          <li>processing result preview hooks</li>
-        </ul>
-      </article>
+      <section class="sky-layout">
+        <article class="panel sky-panel">
+          <div class="panel__header">
+            <h3>Sky viewer</h3>
+            <span>${primaryProject.sky_target ?? 'M42'}</span>
+          </div>
+          <div id="aladin-sky-view" class="aladin-container"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel__header">
+            <h3>Sky context</h3>
+            <span>${latestRun?.status ?? 'idle'}</span>
+          </div>
+          <div class="detail-stack">
+            <p class="muted">
+              Aladin Lite is centered on the current project target when available, otherwise it falls back to M42.
+            </p>
+            <dl class="health-list">
+              <div>
+                <dt>Project root</dt>
+                <dd>${primaryProject.project_root}</dd>
+              </div>
+              <div>
+                <dt>Latest output</dt>
+                <dd>${latestRun?.output_path ?? 'No output yet'}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel__header">
+            <h3>What comes next</h3>
+            <span>Planned</span>
+          </div>
+          <ul class="sidebar-list">
+            <li>project target centering</li>
+            <li>frame footprint overlays</li>
+            <li>dataset highlight / selection</li>
+            <li>processing result preview hooks</li>
+          </ul>
+        </article>
+      </section>
     </section>
   `;
 }
 
-function renderBanner(state: AppState): string {
-  if (state.error) {
-    return `<div class="banner banner--error">${state.error}</div>`;
-  }
-  if (state.message) {
-    return `<div class="banner banner--success">${state.message}</div>`;
-  }
-  return '';
-}
-
-function renderProjects(projects: ProjectSummary[], selectedSlug: string | null): string {
+function renderProjectTabs(projects: ProjectSummary[], selectedSlug: string | null): string {
   if (!projects.length) {
     return `
       <p class="muted">
@@ -440,27 +454,13 @@ function renderProjects(projects: ProjectSummary[], selectedSlug: string | null)
   }
 
   return `
-    <div class="project-list">
+    <div class="project-tab-list">
       ${projects
         .map((project) => {
-          const selectedClass = project.slug === selectedSlug ? ' project-card--selected' : '';
+          const selectedClass = project.slug === selectedSlug ? ' project-tab-button--active' : '';
           return `
-            <button class="project-card${selectedClass}" type="button" data-project-slug="${project.slug}">
-              <div class="project-card__header">
-                <h4>${project.slug}</h4>
-                <span>${project.run_count} run folders</span>
-              </div>
-              <dl class="project-meta">
-                <div>
-                  <dt>Captures</dt>
-                  <dd>${project.capture_count}</dd>
-                </div>
-                <div>
-                  <dt>Runs</dt>
-                  <dd>${project.run_count}</dd>
-                </div>
-              </dl>
-              <p class="project-path">${project.project_root}</p>
+            <button class="project-tab-button${selectedClass}" type="button" data-project-slug="${project.slug}">
+              ${project.slug}
             </button>
           `;
         })
@@ -469,11 +469,12 @@ function renderProjects(projects: ProjectSummary[], selectedSlug: string | null)
   `;
 }
 
-function renderRunMonitor(run: ProjectRun | null): string {
+function renderRunMonitor(run: ProjectRun | null, options?: { includeLogs?: boolean }): string {
   if (run === null) {
     return `<p class="muted">No processing run yet. Import a capture and launch Siril.</p>`;
   }
 
+  const includeLogs = options?.includeLogs ?? true;
   const outputPath = run.output_path ? `<code class="command">${run.output_path}</code>` : '<p class="muted">No output yet.</p>';
   const errorBlock = run.error_message ? `<div class="banner banner--error">${run.error_message}</div>` : '';
   const previewBlock = renderRunPreview(run);
@@ -538,35 +539,71 @@ function renderRunMonitor(run: ProjectRun | null): string {
         ${previewBlock}
       </section>
 
+      ${includeLogs
+        ? `
       <section>
         <h4>Live logs</h4>
-        <pre class="log-view">${escapeHtml(run.combined_log || 'Waiting for process output...')}</pre>
-      </section>
+        <pre class="log-view">${escapeHtml(formatLogForDisplay(run.combined_log || 'Waiting for process output...'))}</pre>
+      </section>`
+        : ''}
     </div>
   `;
 }
 
-function renderRunList(runs: ProjectRun[], selectedRunId: string | null): string {
+function renderRunTabs(runs: ProjectRun[], selectedRunId: string | null): string {
   if (!runs.length) {
     return '<p class="muted">No runs recorded for this project yet.</p>';
   }
 
   return `
-    <div class="run-list">
+    <div class="run-tab-list">
       ${runs
         .map((run) => {
-          const selectedClass = run.id === selectedRunId ? ' run-list__item--selected' : '';
+          const selectedClass = run.id === selectedRunId ? ' run-tab-button--active' : '';
           return `
-            <button class="run-list__item${selectedClass}" type="button" data-run-id="${run.id}">
-              <strong>${run.capture_name}</strong>
-              <span>${run.status}</span>
-              <small>${run.stage}</small>
+            <button class="run-tab-button${selectedClass}" type="button" data-run-id="${run.id}">
+              ${escapeHtml(run.capture_name)}
             </button>
           `;
         })
         .join('')}
     </div>
   `;
+}
+
+function renderRunDetailTabs(activeTab: ProcessingDetailTab, run: ProjectRun | null): string {
+  if (run === null) {
+    return '';
+  }
+
+  return `
+    <nav class="tab-strip" aria-label="Run details">
+      ${renderProcessingTab('overview', 'Overview', activeTab)}
+      ${renderProcessingTab('logs', 'Logs', activeTab)}
+    </nav>
+  `;
+}
+
+function renderProcessingTab(tab: ProcessingDetailTab, label: string, activeTab: ProcessingDetailTab): string {
+  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
+  return `<button class="tab-strip__button${activeClass}" type="button" data-processing-tab="${tab}">${label}</button>`;
+}
+
+function renderRunDetailPanel(activeTab: ProcessingDetailTab, run: ProjectRun | null): string {
+  if (run === null) {
+    return '<p class="muted">No runs recorded for this project yet. Create a new run to begin processing.</p>';
+  }
+
+  if (activeTab === 'logs') {
+    return `
+      <section>
+        <h4>Live logs</h4>
+        <pre class="log-view">${escapeHtml(formatLogForDisplay(run.combined_log || 'Waiting for process output...'))}</pre>
+      </section>
+    `;
+  }
+
+  return renderRunMonitor(run, { includeLogs: false });
 }
 
 function renderRunPreview(run: ProjectRun): string {
@@ -578,10 +615,6 @@ function renderRunPreview(run: ProjectRun): string {
           src="${getProjectRunPreviewUrl(run.id)}"
           alt="Preview for run ${run.id}"
         />
-        <div class="inline-actions">
-          <a class="secondary-link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">Open preview image</a>
-          <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">Open FITS</a>
-        </div>
       </div>
     `;
   }
@@ -651,8 +684,7 @@ function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: 
         </div>
       </div>
 
-      <section class="detail-stack">
-        <h4>Latest preview</h4>
+      <section class="detail-stack project-preview-panel">
         ${renderProjectPreviewPanel(latestProjectRun)}
       </section>
     </div>
@@ -697,10 +729,6 @@ function renderProjectPreviewPanel(run: ProjectRun | null): string {
           src="${getProjectRunPreviewUrl(run.id)}"
           alt="Latest preview for project run ${run.id}"
         />
-        <div class="inline-actions">
-          <a class="secondary-link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">Open preview image</a>
-          <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">Open FITS</a>
-        </div>
       </div>
     `;
   }
@@ -731,6 +759,95 @@ function renderTagList(values: string[], emptyLabel: string): string {
   return `<div class="project-tags">${values.map((value) => `<span>${value}</span>`).join('')}</div>`;
 }
 
+function renderCreateProjectModal(busy: boolean): string {
+  return `
+    <div class="modal-backdrop" data-close-create-project-modal>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Create project" data-modal-card>
+        <div class="panel__header">
+          <h3>Create project</h3>
+          <button class="action-button action-button--secondary" type="button" data-close-create-project-modal ${busy ? 'disabled' : ''}>
+            Close
+          </button>
+        </div>
+        <form class="form-stack" data-form="create-project">
+          <label class="field">
+            <span>Project slug</span>
+            <input name="slug" type="text" placeholder="m42_rebuild" required autofocus />
+          </label>
+          <button class="action-button" type="submit" ${busy ? 'disabled' : ''}>Create project</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderCreateRunModal(state: AppState, project: ProjectSummary | null): string {
+  return `
+    <div class="modal-backdrop" data-close-create-run-modal>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Create run" data-run-modal-card>
+        <div class="panel__header">
+          <h3>Create run</h3>
+          <button class="action-button action-button--secondary" type="button" data-close-create-run-modal ${state.busy ? 'disabled' : ''}>
+            Close
+          </button>
+        </div>
+        <form class="form-stack" data-form="start-run">
+          <label class="field">
+            <span>Project slug</span>
+            <input name="project_slug" type="text" value="${project?.slug ?? ''}" readonly />
+          </label>
+          <label class="field">
+            <span>Capture name</span>
+            <input name="capture_name" type="text" value="${project?.capture_names[0] ?? ''}" placeholder="OrionNebula" required />
+          </label>
+          <label class="field">
+            <span>Siril executable</span>
+            <input
+              name="executable"
+              type="text"
+              value="${state.health?.default_siril_executable ?? 'siril-cli'}"
+              placeholder="siril-cli"
+            />
+          </label>
+          <label class="field">
+            <span>OSC script path</span>
+            <input name="script_path" type="text" placeholder="default repo OSC_Preprocessing.ssf" />
+          </label>
+          <button class="action-button" type="submit" ${state.busy || project === null ? 'disabled' : ''}>Run OSC_Preprocessing</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderToast(state: AppState): string {
+  if (!state.error && !state.message) {
+    return '';
+  }
+
+  const variant = state.error ? 'error' : 'success';
+  const content = state.error ?? state.message ?? '';
+
+  return `
+    <div class="toast-stack">
+      <div class="toast toast--${variant}">
+        ${escapeHtml(content)}
+      </div>
+    </div>
+  `;
+}
+
+function renderWorkspaceHeader(view: ViewName): string {
+  return `
+    <header class="workspace__header">
+      <div>
+        <p class="workspace__eyebrow">${eyebrowForView(view)}</p>
+        <h2>${titleForView(view)}</h2>
+      </div>
+    </header>
+  `;
+}
+
 function titleForView(view: ViewName): string {
   if (view === 'processing') {
     return 'Processing workspace';
@@ -756,4 +873,12 @@ function escapeHtml(value: string): string {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function formatLogForDisplay(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .reverse()
+    .join('\n');
 }

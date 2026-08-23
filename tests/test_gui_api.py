@@ -152,6 +152,18 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertTrue((self.projects_root / "m42_gui" / "captures").is_dir())
         self.assertTrue((self.projects_root / "m42_gui" / "runs").is_dir())
 
+    def test_delete_project_endpoint_removes_entire_project_tree(self) -> None:
+        self.assertTrue((self.projects_root / "orion_nebula").exists())
+
+        payload = self._send_delete("/api/projects/orion_nebula")
+
+        self.assertTrue(payload["deleted"])
+        self.assertEqual(payload["project_slug"], "orion_nebula")
+        self.assertFalse((self.projects_root / "orion_nebula").exists())
+
+        projects_payload = self._read_json("/api/projects")
+        self.assertEqual(projects_payload["projects"], [])
+
     def test_import_capture_endpoint_copies_capture_into_project(self) -> None:
         self._send_json("/api/projects", {"slug": "m42_gui"})
 
@@ -315,6 +327,14 @@ class GuiApiServerTests(unittest.TestCase):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
+        )
+        with urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _send_delete(self, path: str) -> dict[str, object]:
+        request = Request(
+            f"{self.base_url}{path}",
+            method="DELETE",
         )
         with urlopen(request) as response:
             return json.loads(response.read().decode("utf-8"))

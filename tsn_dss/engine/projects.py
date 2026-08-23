@@ -111,6 +111,20 @@ class ProjectStorage:
             ),
         )
 
+    def delete_project(self, project_slug: str) -> None:
+        project_root = (self.projects_root / project_slug).resolve()
+        projects_root = self.projects_root.resolve()
+
+        try:
+            project_root.relative_to(projects_root)
+        except ValueError as error:
+            raise ValueError(f"Project path escapes projects root: {project_slug}") from error
+
+        if not project_root.exists() or not project_root.is_dir():
+            raise FileNotFoundError(f"Project not found: {project_slug}")
+
+        shutil.rmtree(project_root)
+
     def set_project_sky_target(self, project_slug: str, sky_target: str | None) -> ProjectSummary:
         layout = self.ensure_project(project_slug)
         metadata = self._read_project_metadata(layout.project_root)

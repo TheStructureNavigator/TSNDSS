@@ -1,6 +1,7 @@
 import './style.css';
 import {
   createProject,
+  deleteProject,
   fetchHealth,
   fetchProject,
   fetchProjectRun,
@@ -13,7 +14,7 @@ import {
   type ProjectSummary,
 } from './app/api';
 import { mountSkyView } from './app/sky';
-import { renderAppShell, type AppState, type ProjectDetailTab, type ViewName } from './app/shell';
+import { renderAppShell, type AppState, type ProcessingDetailTab, type ProjectDetailTab, type ViewName } from './app/shell';
 
 const appElement = document.querySelector<HTMLDivElement>('#app');
 
@@ -23,6 +24,8 @@ if (appElement === null) {
 
 const rootElement = appElement;
 let activeRunPollTimer: number | null = null;
+let toastTimer: number | null = null;
+const TOAST_DURATION_MS = 3200;
 
 const state: AppState = {
   health: null,
@@ -34,7 +37,10 @@ const state: AppState = {
   message: null,
   error: null,
   busy: false,
-  projectDetailTab: 'import',
+  projectDetailTab: 'details',
+  processingDetailTab: 'overview',
+  createProjectModalOpen: false,
+  createRunModalOpen: false,
 };
 
 void bootstrap();
@@ -73,6 +79,10 @@ function render(): void {
   bindNavigation();
   bindProjectSelection();
   bindProjectTabs();
+  bindProcessingTabs();
+  bindProjectActions();
+  bindCreateProjectModal();
+  bindCreateRunModal();
   bindRunSelection();
   bindPreviewActions();
   bindForms();
@@ -118,6 +128,75 @@ function bindProjectTabs(): void {
   });
 }
 
+function bindProcessingTabs(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-processing-tab]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.processingTab as ProcessingDetailTab | undefined;
+      if (nextTab === undefined) {
+        return;
+      }
+      state.processingDetailTab = nextTab;
+      render();
+    });
+  });
+}
+
+function bindProjectActions(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-project-slug]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const slug = button.dataset.deleteProjectSlug ?? '';
+      if (!slug) {
+        return;
+      }
+      void handleDeleteProject(slug);
+    });
+  });
+}
+
+function bindCreateProjectModal(): void {
+  const openButton = rootElement.querySelector<HTMLButtonElement>('[data-open-create-project-modal]');
+  openButton?.addEventListener('click', () => {
+    state.createProjectModalOpen = true;
+    render();
+  });
+
+  const closeButtons = rootElement.querySelectorAll<HTMLElement>('[data-close-create-project-modal]');
+  closeButtons.forEach((element) => {
+    element.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const modalCard = rootElement.querySelector<HTMLElement>('[data-modal-card]');
+      if (modalCard && target && modalCard.contains(target) && !target.hasAttribute('data-close-create-project-modal')) {
+        return;
+      }
+      state.createProjectModalOpen = false;
+      render();
+    });
+  });
+}
+
+function bindCreateRunModal(): void {
+  const openButton = rootElement.querySelector<HTMLButtonElement>('[data-open-create-run-modal]');
+  openButton?.addEventListener('click', () => {
+    state.createRunModalOpen = true;
+    render();
+  });
+
+  const closeButtons = rootElement.querySelectorAll<HTMLElement>('[data-close-create-run-modal]');
+  closeButtons.forEach((element) => {
+    element.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const modalCard = rootElement.querySelector<HTMLElement>('[data-run-modal-card]');
+      if (modalCard && target && modalCard.contains(target) && !target.hasAttribute('data-close-create-run-modal')) {
+        return;
+      }
+      state.createRunModalOpen = false;
+      render();
+    });
+  });
+}
+
 function bindRunSelection(): void {
   const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-run-id]');
   buttons.forEach((button) => {
@@ -131,6 +210,7 @@ function bindRunSelection(): void {
         return;
       }
       state.activeRun = selectedRun;
+      state.processingDetailTab = 'overview';
       syncRunPolling();
       render();
     });
@@ -188,6 +268,7 @@ async function handleCreateProject(form: HTMLFormElement): Promise<void> {
   setBusy(true);
   try {
     const project = await createProject(slug);
+    state.createProjectModalOpen = false;
     setMessage(`Project created: ${project.slug}`);
     await refreshState(project.slug);
     form.reset();
@@ -247,7 +328,9 @@ async function handleStartRun(form: HTMLFormElement): Promise<void> {
       executable: executable || undefined,
       script_path: scriptPath || undefined,
     });
+    state.createRunModalOpen = false;
     state.activeRun = run;
+    state.processingDetailTab = 'overview';
     state.currentView = 'processing';
     setMessage(`Run started: ${run.id}`);
     await refreshState(projectSlug);
@@ -299,13 +382,39 @@ async function handleGeneratePreview(runId: string): Promise<void> {
   }
 }
 
+async function handleDeleteProject(slug: string): Promise<void> {
+  const confirmed = window.confirm(`Delete project "${slug}" with all captures, runs, logs and outputs?`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(true);
+  try {
+    await deleteProject(slug);
+    if (state.selectedProject?.slug === slug) {
+      state.selectedProject = null;
+      state.projectRuns = [];
+      state.activeRun = null;
+      syncRunPolling();
+    }
+    state.projectDetailTab = 'details';
+    setMessage(`Project deleted: ${slug}`);
+    await refreshState();
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function selectProject(slug: string): Promise<void> {
   if (!slug) {
     return;
   }
 
   state.selectedProject = await loadProjectDetails(slug, state.projects);
-  state.projectDetailTab = 'import';
+  state.projectDetailTab = 'details';
+  state.processingDetailTab = 'overview';
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
   state.activeRun = state.projectRuns[0] ?? null;
   syncRunPolling();
@@ -367,12 +476,29 @@ function setBusy(nextBusy: boolean): void {
 function setMessage(message: string): void {
   state.message = message;
   state.error = null;
+  scheduleToastDismiss();
+  render();
 }
 
 function setError(message: string): void {
   state.error = message;
   state.message = null;
+  scheduleToastDismiss();
   render();
+}
+
+function scheduleToastDismiss(): void {
+  if (toastTimer !== null) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+
+  toastTimer = window.setTimeout(() => {
+    state.message = null;
+    state.error = null;
+    toastTimer = null;
+    render();
+  }, TOAST_DURATION_MS);
 }
 
 function getErrorMessage(error: unknown): string {

@@ -319,10 +319,47 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 },
             )
 
+        def do_DELETE(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+
+            if path.startswith("/api/projects/"):
+                project_slug = unquote(path.removeprefix("/api/projects/")).split("/", 1)[0]
+                try:
+                    context.storage.delete_project(project_slug)
+                except FileNotFoundError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {
+                            "error": "project_not_found",
+                            "message": f"Unknown project: {project_slug}",
+                        },
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "project_delete_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"deleted": True, "project_slug": project_slug},
+                )
+                return
+
+            self._write_json(
+                HTTPStatus.NOT_FOUND,
+                {
+                    "error": "not_found",
+                    "message": f"Unknown endpoint: {path}",
+                },
+            )
+
         def do_OPTIONS(self) -> None:  # noqa: N802
             self.send_response(HTTPStatus.NO_CONTENT)
             self._send_cors_headers()
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.end_headers()
 
