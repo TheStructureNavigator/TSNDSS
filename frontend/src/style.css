@@ -392,6 +392,10 @@ pre {
   gap: 0.8rem;
 }
 
+.sky-context-layout {
+  align-items: start;
+}
+
 .processing-layout,
 .details-split-layout {
   display: grid;
@@ -403,17 +407,6 @@ pre {
 .details-split-layout > section,
 .details-split-layout > div {
   min-width: 0;
-}
-
-.sky-layout {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.8rem;
-  align-items: start;
-}
-
-.sky-support-grid {
-  align-items: start;
 }
 
 .projects-detail-column,
@@ -938,7 +931,7 @@ pre {
 }
 
 .sky-panel {
-  min-height: 560px;
+  min-height: 780px;
 }
 
 .sky-panel--full {
@@ -947,7 +940,7 @@ pre {
 
 .aladin-container {
   width: 100%;
-  min-height: 500px;
+  min-height: 720px;
   border-radius: 2px;
   overflow: hidden;
   background: rgba(9, 18, 34, 0.72);
@@ -989,8 +982,8 @@ pre {
   .grid,
   .processing-layout,
   .run-overview-layout,
-  .sky-layout,
   .project-details-layout,
+  .sky-context-layout,
   .hero-metrics,
   .detail-columns,
   .run-monitor__summary,
@@ -1016,6 +1009,6 @@ pre {
   }
 
   .aladin-container {
-    min-height: 420px;
+    min-height: 580px;
   }
 }

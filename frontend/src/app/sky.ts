@@ -38,7 +38,7 @@ export async function mountSkyView(containerId: string, target: string): Promise
       fov: 2.5,
       cooFrame: 'equatorial',
       projection: 'SIN',
-      showCooGrid: true,
+      showCooGrid: false,
       showCooGridControl: true,
       showSimbadPointerControl: true,
       showFullscreenControl: true,

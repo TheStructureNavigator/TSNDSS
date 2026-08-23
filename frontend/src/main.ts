@@ -15,7 +15,7 @@ import {
   type ProjectSummary,
 } from './app/api';
 import { mountSkyView } from './app/sky';
-import { renderAppShell, type AppState, type ProcessingDetailTab, type ProjectDetailTab, type ViewName } from './app/shell';
+import { renderAppShell, type AppState, type ProcessingDetailTab, type ProjectDetailTab, type SkyDetailTab, type ViewName } from './app/shell';
 
 const appElement = document.querySelector<HTMLDivElement>('#app');
 
@@ -41,6 +41,7 @@ const state: AppState = {
   busy: false,
   projectDetailTab: 'details',
   processingDetailTab: 'overview',
+  skyDetailTab: 'viewer',
   createProjectModalOpen: false,
   createRunModalOpen: false,
 };
@@ -81,12 +82,14 @@ function render(): void {
   bindProjectSelection();
   bindProjectTabs();
   bindProcessingTabs();
+  bindSkyTabs();
   bindProcessingCaptureSelection();
   bindProjectActions();
   bindCreateProjectModal();
   bindCreateRunModal();
   bindRunSelection();
   bindPreviewActions();
+  bindPreviewImageFallbacks();
   bindForms();
   if (state.currentView === 'sky') {
     void mountSkyView('aladin-sky-view', state.selectedProject?.sky_target ?? 'M42');
@@ -139,6 +142,20 @@ function bindProcessingTabs(): void {
         return;
       }
       state.processingDetailTab = nextTab;
+      render();
+    });
+  });
+}
+
+function bindSkyTabs(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-sky-tab]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.skyTab as SkyDetailTab | undefined;
+      if (nextTab === undefined) {
+        return;
+      }
+      state.skyDetailTab = nextTab;
       render();
     });
   });
@@ -258,6 +275,20 @@ function bindPreviewActions(): void {
       }
       void handleGeneratePreview(runId);
     });
+  });
+}
+
+function bindPreviewImageFallbacks(): void {
+  const images = rootElement.querySelectorAll<HTMLImageElement>('[data-preview-image]');
+  images.forEach((image) => {
+    image.addEventListener('error', () => {
+      const previewCard = image.closest('.preview-card');
+      if (previewCard === null) {
+        return;
+      }
+      const fallbackMessage = image.dataset.previewFallback ?? 'Preview image is not available yet.';
+      previewCard.innerHTML = `<p class="muted">${escapeHtml(fallbackMessage)}</p>`;
+    }, { once: true });
   });
 }
 
@@ -612,4 +643,11 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
   return 'Unexpected error.';
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }

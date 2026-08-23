@@ -229,11 +229,9 @@ class ProjectRunManager:
             shutil.copy2(output, artifact_output)
             self._update_run(
                 run_id,
-                status="completed",
-                progress_pct=100,
-                stage="Completed",
+                progress_pct=94,
+                stage="Generating preview",
                 exit_code=exit_code,
-                finished_at=_utc_timestamp(),
                 output_path=str(artifact_output),
             )
             preview_path, preview_log_path, preview_error = self._generate_preview_image(
@@ -244,6 +242,12 @@ class ProjectRunManager:
             )
             self._update_run(
                 run_id,
+                status="completed",
+                progress_pct=100,
+                stage="Completed",
+                exit_code=exit_code,
+                finished_at=_utc_timestamp(),
+                output_path=str(artifact_output),
                 preview_path=preview_path,
                 preview_log_path=preview_log_path,
                 preview_error=preview_error,

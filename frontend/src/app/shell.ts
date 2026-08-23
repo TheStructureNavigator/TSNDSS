@@ -26,12 +26,14 @@ export type AppState = {
   busy: boolean;
   projectDetailTab: ProjectDetailTab;
   processingDetailTab: ProcessingDetailTab;
+  skyDetailTab: SkyDetailTab;
   createProjectModalOpen: boolean;
   createRunModalOpen: boolean;
 };
 
 export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
+export type SkyDetailTab = 'viewer' | 'context' | 'planned';
 
 export function renderAppShell(state: AppState): string {
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
@@ -86,7 +88,6 @@ export function renderAppShell(state: AppState): string {
         </aside>
 
         <main class="workspace">
-          ${state.currentView === 'sky' ? renderWorkspaceHeader(state.currentView) : ''}
           ${renderView(state, primaryProject, latestRun)}
         </main>
       </div>
@@ -113,7 +114,7 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
   }
 
   if (state.currentView === 'sky') {
-    return renderSkyView(primaryProject, latestRun);
+    return renderSkyView(state, primaryProject, latestRun);
   }
 
   return renderProjectsView(state, primaryProject);
@@ -322,7 +323,7 @@ function renderProcessingView(state: AppState, primaryProject: ProjectSummary | 
   `;
 }
 
-function renderSkyView(primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
   if (primaryProject === null) {
     return `
       <section class="sky-workspace">
@@ -338,85 +339,93 @@ function renderSkyView(primaryProject: ProjectSummary | null, latestRun: Project
 
   return `
     <section class="sky-workspace">
-      <article class="panel">
+      <article class="panel processing-detail-panel">
         <div class="panel__header">
-          <h3>Sky</h3>
-          <span>${primaryProject.slug}</span>
+          <h3>${primaryProject.sky_target ?? 'M42'}</h3>
+          <span>Sky: ${primaryProject.slug}</span>
         </div>
-        <div class="detail-columns">
-          <section>
-            <dl class="health-list">
-              <div>
-                <dt>Active project</dt>
-                <dd>${primaryProject.slug}</dd>
-              </div>
-              <div>
-                <dt>Sky target</dt>
-                <dd>${primaryProject.sky_target ?? 'not set'}</dd>
-              </div>
-            </dl>
-          </section>
-          <section>
-            <dl class="health-list">
-              <div>
-                <dt>Captures</dt>
-                <dd>${primaryProject.capture_count}</dd>
-              </div>
-              <div>
-                <dt>Latest run</dt>
-                <dd>${latestRun?.status ?? 'idle'}</dd>
-              </div>
-            </dl>
-          </section>
-        </div>
+
+        <section class="detail-stack">
+          <nav class="tab-strip" aria-label="Sky details">
+            ${renderSkyTab('viewer', 'Sky viewer', state.skyDetailTab)}
+            ${renderSkyTab('context', 'Sky context', state.skyDetailTab)}
+            ${renderSkyTab('planned', 'Planned', state.skyDetailTab)}
+          </nav>
+          ${renderSkyDetailPanel(state.skyDetailTab, primaryProject, latestRun)}
+        </section>
       </article>
+    </section>
+  `;
+}
 
-      <section class="sky-layout">
-        <article class="panel sky-panel sky-panel--full">
-          <div class="panel__header">
-            <h3>Sky viewer</h3>
-            <span>${primaryProject.sky_target ?? 'M42'}</span>
-          </div>
-          <div id="aladin-sky-view" class="aladin-container"></div>
-        </article>
-      </section>
+function renderSkyTab(tab: SkyDetailTab, label: string, activeTab: SkyDetailTab): string {
+  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
+  return `<button class="tab-strip__button${activeClass}" type="button" data-sky-tab="${tab}">${label}</button>`;
+}
 
-      <section class="grid sky-support-grid">
-        <article class="panel">
-          <div class="panel__header">
-            <h3>Sky context</h3>
-            <span>${latestRun?.status ?? 'idle'}</span>
-          </div>
-          <div class="detail-stack">
-            <p class="muted">
-              Aladin Lite is centered on the current project target when available, otherwise it falls back to M42.
-            </p>
+function renderSkyDetailPanel(activeTab: SkyDetailTab, primaryProject: ProjectSummary, latestRun: ProjectRun | null): string {
+  if (activeTab === 'context') {
+    return `
+      <section class="detail-stack">
+        <p class="muted">
+          Aladin Lite is centered on the current project target when available, otherwise it falls back to M42.
+        </p>
+        <div class="details-split-layout sky-context-layout">
+          <section class="detail-stack">
             <dl class="health-list">
               <div>
                 <dt>Project root</dt>
                 <dd>${primaryProject.project_root}</dd>
               </div>
               <div>
+                <dt>Captures dir</dt>
+                <dd>${primaryProject.captures_dir}</dd>
+              </div>
+              <div>
+                <dt>Runs dir</dt>
+                <dd>${primaryProject.runs_dir}</dd>
+              </div>
+              <div>
                 <dt>Latest output</dt>
                 <dd>${latestRun?.output_path ?? 'No output yet'}</dd>
               </div>
             </dl>
-          </div>
-        </article>
-
-        <article class="panel">
-          <div class="panel__header">
-            <h3>What comes next</h3>
-            <span>Planned</span>
-          </div>
-          <ul class="sidebar-list">
-            <li>project target centering</li>
-            <li>frame footprint overlays</li>
-            <li>dataset highlight / selection</li>
-            <li>processing result preview hooks</li>
-          </ul>
-        </article>
+          </section>
+          <section class="detail-stack details-preview-panel">
+            <div class="detail-columns">
+              <section>
+                <h4>Captures</h4>
+                ${renderTagList(primaryProject.capture_names, 'No captures')}
+              </section>
+              <section>
+                <h4>Run folders</h4>
+                ${renderTagList(primaryProject.run_names, 'No run folders yet')}
+              </section>
+            </div>
+          </section>
+        </div>
       </section>
+    `;
+  }
+
+  if (activeTab === 'planned') {
+    return `
+      <section class="detail-stack">
+        <ul class="sidebar-list">
+          <li>project target centering</li>
+          <li>frame footprint overlays</li>
+          <li>dataset highlight / selection</li>
+          <li>processing result preview hooks</li>
+        </ul>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="detail-stack">
+      <article class="panel sky-panel sky-panel--full">
+        <div id="aladin-sky-view" class="aladin-container"></div>
+      </article>
     </section>
   `;
 }
@@ -523,7 +532,6 @@ function renderRunMonitor(run: ProjectRun | null, options?: { includeLogs?: bool
       ${includeLogs
         ? `
       <section>
-        <h4>Live logs</h4>
         <pre class="log-view">${escapeHtml(formatLogForDisplay(run.combined_log || 'Waiting for process output...'))}</pre>
       </section>`
         : ''}
@@ -625,6 +633,8 @@ function renderRunPreview(run: ProjectRun): string {
             class="preview-card__image preview-card__image--project"
             src="${getProjectRunPreviewUrl(run.id)}"
             alt="Preview for run ${run.id}"
+            data-preview-image
+            data-preview-fallback="Preview image is not available yet."
           />
         </a>
       </div>
@@ -712,6 +722,8 @@ function renderProjectPreviewPanel(run: ProjectRun | null): string {
             class="preview-card__image preview-card__image--project"
             src="${getProjectRunPreviewUrl(run.id)}"
             alt="Latest preview for project run ${run.id}"
+            data-preview-image
+            data-preview-fallback="Preview image is not available yet."
           />
         </a>
       </div>
@@ -841,37 +853,6 @@ function renderToast(state: AppState): string {
       </div>
     </div>
   `;
-}
-
-function renderWorkspaceHeader(view: ViewName): string {
-  return `
-    <header class="workspace__header">
-      <div>
-        <p class="workspace__eyebrow">${eyebrowForView(view)}</p>
-        <h2>${titleForView(view)}</h2>
-      </div>
-    </header>
-  `;
-}
-
-function titleForView(view: ViewName): string {
-  if (view === 'processing') {
-    return 'Processing workspace';
-  }
-  if (view === 'sky') {
-    return 'Sky workspace';
-  }
-  return 'Projects workspace';
-}
-
-function eyebrowForView(view: ViewName): string {
-  if (view === 'processing') {
-    return 'Siril runs and logs';
-  }
-  if (view === 'sky') {
-    return 'Aladin Lite sky view';
-  }
-  return 'Projects and captures';
 }
 
 function escapeHtml(value: string): string {
