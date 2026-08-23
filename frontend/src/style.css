@@ -22,7 +22,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -391,24 +392,27 @@ pre {
   gap: 0.8rem;
 }
 
-.processing-layout {
+.processing-layout,
+.details-split-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.8fr) minmax(420px, 1.2fr);
-  gap: 0.9rem;
-  align-items: start;
-}
-
-.sky-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.15fr);
   gap: 0.8rem;
   align-items: start;
 }
 
-.project-details-layout {
+.details-split-layout > section,
+.details-split-layout > div {
+  min-width: 0;
+}
+
+.sky-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(420px, 1.15fr);
-  gap: 0.9rem;
+  grid-template-columns: 1fr;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.sky-support-grid {
   align-items: start;
 }
 
@@ -421,8 +425,46 @@ pre {
   gap: 0.8rem;
 }
 
-.project-preview-panel {
+.details-preview-panel,
+.project-preview-panel,
+.run-overview-preview {
   align-self: start;
+}
+
+.run-overview-layout .run-monitor__summary {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.run-overview-layout .detail-columns {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.run-overview-layout .detail-stack,
+.run-overview-layout .run-monitor {
+  gap: 0.65rem;
+}
+
+.run-overview-layout .panel__header--nested {
+  margin-top: 0.25rem;
+}
+
+.run-overview-layout .health-list div {
+  padding: 0.45rem 0.5rem;
+}
+
+.run-overview-layout .command {
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.run-overview-layout .inline-actions {
+  margin-top: 0.45rem;
+}
+
+.run-overview-layout .progress-block {
+  gap: 0.35rem;
 }
 
 .projects-sidebar-panel {
@@ -559,7 +601,8 @@ pre {
   font-size: 0.84rem;
 }
 
-.field input[type="text"] {
+.field input[type="text"],
+.field select {
   width: 100%;
   padding: 0.6rem 0.7rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -734,6 +777,8 @@ pre {
 .project-meta dd,
 .health-list dd {
   margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .project-tags {
@@ -801,6 +846,10 @@ pre {
   gap: 0.65rem;
 }
 
+.preview-card__link {
+  display: block;
+}
+
 .preview-card__image {
   display: block;
   width: 100%;
@@ -809,6 +858,10 @@ pre {
   border-radius: 2px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(9, 18, 34, 0.72);
+}
+
+.run-overview-preview .preview-card__image {
+  max-height: 460px;
 }
 
 .preview-card__image--project {
@@ -841,7 +894,9 @@ pre {
 }
 
 .log-view {
-  max-height: 260px;
+  height: min(50vh, calc(100vh - 380px));
+  min-height: 320px;
+  max-height: none;
   overflow: auto;
   margin: 0;
   padding: 0.7rem;
@@ -854,8 +909,40 @@ pre {
   font-size: 0.8rem;
 }
 
+.run-log-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.run-log-meta__row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.run-log-meta__label {
+  color: #74b7ff;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}
+
+.run-log-meta__value {
+  margin-top: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  padding: 0.32rem 0.42rem;
+}
+
 .sky-panel {
   min-height: 560px;
+}
+
+.sky-panel--full {
+  width: 100%;
 }
 
 .aladin-container {
@@ -901,6 +988,7 @@ pre {
   .hero-panel,
   .grid,
   .processing-layout,
+  .run-overview-layout,
   .sky-layout,
   .project-details-layout,
   .hero-metrics,

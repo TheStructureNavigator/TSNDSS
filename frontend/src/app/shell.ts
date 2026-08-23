@@ -9,7 +9,7 @@ import {
   type ProjectSummary,
 } from './api';
 
-const APP_VERSION = '0.0.0';
+const APP_VERSION = '0.1.0';
 
 export type ViewName = 'projects' | 'processing' | 'sky';
 
@@ -19,6 +19,7 @@ export type AppState = {
   selectedProject: ProjectSummary | null;
   projectRuns: ProjectRun[];
   activeRun: ProjectRun | null;
+  selectedProcessingCapture: string | null;
   currentView: ViewName;
   message: string | null;
   error: string | null;
@@ -30,7 +31,7 @@ export type AppState = {
 };
 
 export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
-export type ProcessingDetailTab = 'overview' | 'logs';
+export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 
 export function renderAppShell(state: AppState): string {
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
@@ -95,7 +96,7 @@ export function renderAppShell(state: AppState): string {
       </footer>
 
       ${state.createProjectModalOpen ? renderCreateProjectModal(state.busy) : ''}
-      ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject) : ''}
+      ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject, state.selectedProcessingCapture) : ''}
       ${renderToast(state)}
     </div>
   `;
@@ -228,9 +229,6 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
     const latestProjectRun = state.projectRuns[0] ?? null;
     return `
       <section class="detail-stack">
-        <div class="panel__header panel__header--nested">
-          <h3>Project details</h3>
-        </div>
         ${renderProjectDetails(project, latestProjectRun)}
       </section>
     `;
@@ -285,63 +283,40 @@ function renderProcessingView(state: AppState, primaryProject: ProjectSummary | 
     `;
   }
 
+  const selectedCapture = state.selectedProcessingCapture;
+  const runsForCapture = selectedCapture
+    ? state.projectRuns.filter((run) => run.capture_name === selectedCapture)
+    : [];
+  const activeProcessingRun =
+    latestRun !== null && latestRun.capture_name === selectedCapture ? latestRun : (runsForCapture[0] ?? null);
+
   return `
     <section class="processing-workspace">
       <article class="panel project-tabs-panel">
         <div class="panel__header">
-          <h3>Runs</h3>
+          <h3>Captures</h3>
           <button class="action-button" type="button" data-open-create-run-modal ${state.busy ? 'disabled' : ''}>
             Create run
           </button>
         </div>
-        ${renderRunTabs(state.projectRuns, latestRun?.id ?? null)}
+        ${renderProcessingCaptureTabs(primaryProject.capture_names, selectedCapture)}
+        <div class="panel__header panel__header--nested">
+          <h3>Runs</h3>
+          <span>${selectedCapture ?? 'none'}</span>
+        </div>
+        ${renderRunTabs(runsForCapture, activeProcessingRun?.id ?? null)}
       </article>
 
       <article class="panel processing-detail-panel">
         <div class="panel__header">
-          <h3>Processing</h3>
-          <span>${latestRun?.status ?? 'idle'}</span>
+          <h3>${activeProcessingRun?.id ?? 'none'}</h3>
+          <span>Processing: ${activeProcessingRun?.status ?? 'idle'}</span>
         </div>
 
-        <div class="processing-layout">
-          <section class="detail-stack">
-            <div class="panel__header panel__header--nested">
-              <h3>Run setup</h3>
-              <span>${primaryProject.slug}</span>
-            </div>
-            <dl class="health-list">
-              <div>
-                <dt>Active project</dt>
-                <dd>${primaryProject.slug}</dd>
-              </div>
-              <div>
-                <dt>Sky target</dt>
-                <dd>${primaryProject.sky_target ?? 'not set'}</dd>
-              </div>
-            </dl>
-            <p class="muted">Create a new run from the Runs header, then use the tabs on the right to inspect its current state or history.</p>
-
-            <div class="detail-columns">
-              <section>
-                <h4>Captures</h4>
-                ${renderTagList(primaryProject.capture_names, 'No captures imported yet')}
-              </section>
-              <section>
-                <h4>Run folders</h4>
-                ${renderTagList(primaryProject.run_names, 'No run folders yet')}
-              </section>
-            </div>
-          </section>
-
-          <section class="detail-stack">
-            <div class="panel__header panel__header--nested">
-              <h3>Selected run</h3>
-              <span>${latestRun?.id ?? 'no run selected'}</span>
-            </div>
-            ${renderRunDetailTabs(state.processingDetailTab, latestRun)}
-            ${renderRunDetailPanel(state.processingDetailTab, latestRun)}
-          </section>
-        </div>
+        <section class="detail-stack">
+          ${renderRunDetailTabs(state.processingDetailTab, activeProcessingRun)}
+          ${renderRunDetailPanel(state.processingDetailTab, activeProcessingRun)}
+        </section>
       </article>
     </section>
   `;
@@ -397,14 +372,16 @@ function renderSkyView(primaryProject: ProjectSummary | null, latestRun: Project
       </article>
 
       <section class="sky-layout">
-        <article class="panel sky-panel">
+        <article class="panel sky-panel sky-panel--full">
           <div class="panel__header">
             <h3>Sky viewer</h3>
             <span>${primaryProject.sky_target ?? 'M42'}</span>
           </div>
           <div id="aladin-sky-view" class="aladin-container"></div>
         </article>
+      </section>
 
+      <section class="grid sky-support-grid">
         <article class="panel">
           <div class="panel__header">
             <h3>Sky context</h3>
@@ -469,75 +446,79 @@ function renderProjectTabs(projects: ProjectSummary[], selectedSlug: string | nu
   `;
 }
 
+function renderProcessingCaptureTabs(captureNames: string[], selectedCapture: string | null): string {
+  if (!captureNames.length) {
+    return '<p class="muted">No captures imported for this project yet.</p>';
+  }
+
+  return `
+    <div class="project-tab-list">
+      ${captureNames
+        .map((captureName) => {
+          const selectedClass = captureName === selectedCapture ? ' project-tab-button--active' : '';
+          return `
+            <button class="project-tab-button${selectedClass}" type="button" data-processing-capture="${escapeHtml(captureName)}">
+              ${escapeHtml(captureName)}
+            </button>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
 function renderRunMonitor(run: ProjectRun | null, options?: { includeLogs?: boolean }): string {
   if (run === null) {
     return `<p class="muted">No processing run yet. Import a capture and launch Siril.</p>`;
   }
 
   const includeLogs = options?.includeLogs ?? true;
-  const outputPath = run.output_path ? `<code class="command">${run.output_path}</code>` : '<p class="muted">No output yet.</p>';
   const errorBlock = run.error_message ? `<div class="banner banner--error">${run.error_message}</div>` : '';
   const previewBlock = renderRunPreview(run);
-  const outputActions = run.output_path
-    ? `
-        <div class="inline-actions">
-          <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">Open output FITS</a>
-        </div>
-      `
-    : '';
 
   return `
     <div class="run-monitor">
-      <div class="run-monitor__summary">
-        <div class="progress-block">
-          <div class="progress-block__top">
-            <strong>${run.status}</strong>
-            <span>${run.progress_pct}%</span>
+      <div class="details-split-layout run-overview-layout">
+        <section class="detail-stack">
+          <div class="run-monitor__summary">
+            <dl class="health-list">
+              <div>
+                <dt>Capture</dt>
+                <dd>${run.capture_name}</dd>
+              </div>
+              <div>
+                <dt>Workspace</dt>
+                <dd>${run.workspace_dir}</dd>
+              </div>
+              <div>
+                <dt>Artifacts</dt>
+                <dd>${run.artifacts_dir}</dd>
+              </div>
+              <div>
+                <dt>Output</dt>
+                <dd>${run.output_path ?? 'pending'}</dd>
+              </div>
+            </dl>
           </div>
-          <div class="progress-bar">
-            <div class="progress-bar__fill" style="width: ${run.progress_pct}%"></div>
-          </div>
-          <p class="muted">${run.stage}</p>
-        </div>
 
-        <dl class="health-list">
-          <div>
-            <dt>Capture</dt>
-            <dd>${run.capture_name}</dd>
-          </div>
-          <div>
-            <dt>Workspace</dt>
-            <dd>${run.workspace_dir}</dd>
-          </div>
-          <div>
-            <dt>Artifacts</dt>
-            <dd>${run.artifacts_dir}</dd>
-          </div>
-          <div>
-            <dt>Output</dt>
-            <dd>${run.output_path ?? 'pending'}</dd>
-          </div>
-        </dl>
-      </div>
+          ${errorBlock}
 
-      ${errorBlock}
-
-      <div class="detail-columns">
-        <section>
-          <h4>Output</h4>
-          ${outputPath}
-          ${outputActions}
+          <div class="progress-block">
+            <div class="progress-block__top">
+              <strong>${run.status}</strong>
+              <span>${run.progress_pct}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-bar__fill" style="width: ${run.progress_pct}%"></div>
+            </div>
+            <p class="muted">${run.stage}</p>
+          </div>
         </section>
-        <section>
-          <h4>Command</h4>
-          <code class="command">${run.command.join(' ')}</code>
+
+        <section class="detail-stack details-preview-panel run-overview-preview">
+          ${previewBlock}
         </section>
       </div>
-
-      <section>
-        <h4>Preview</h4>
-        ${previewBlock}
-      </section>
 
       ${includeLogs
         ? `
@@ -552,7 +533,7 @@ function renderRunMonitor(run: ProjectRun | null, options?: { includeLogs?: bool
 
 function renderRunTabs(runs: ProjectRun[], selectedRunId: string | null): string {
   if (!runs.length) {
-    return '<p class="muted">No runs recorded for this project yet.</p>';
+    return '<p class="muted">No runs recorded for this capture yet.</p>';
   }
 
   return `
@@ -562,7 +543,7 @@ function renderRunTabs(runs: ProjectRun[], selectedRunId: string | null): string
           const selectedClass = run.id === selectedRunId ? ' run-tab-button--active' : '';
           return `
             <button class="run-tab-button${selectedClass}" type="button" data-run-id="${run.id}">
-              ${escapeHtml(run.capture_name)}
+              ${escapeHtml(formatRunTabLabel(run))}
             </button>
           `;
         })
@@ -580,6 +561,7 @@ function renderRunDetailTabs(activeTab: ProcessingDetailTab, run: ProjectRun | n
     <nav class="tab-strip" aria-label="Run details">
       ${renderProcessingTab('overview', 'Overview', activeTab)}
       ${renderProcessingTab('logs', 'Logs', activeTab)}
+      ${renderProcessingTab('settings', 'Run settings', activeTab)}
     </nav>
   `;
 }
@@ -594,11 +576,39 @@ function renderRunDetailPanel(activeTab: ProcessingDetailTab, run: ProjectRun | 
     return '<p class="muted">No runs recorded for this project yet. Create a new run to begin processing.</p>';
   }
 
+  if (activeTab === 'settings') {
+    return `
+      <section class="detail-stack">
+        <p class="muted">Administrative actions for this run live here.</p>
+        <div class="danger-zone">
+          <div class="danger-zone__copy">
+            <h4>Delete run</h4>
+            <p class="muted">Remove the run workspace, artifacts, logs and generated outputs for this run.</p>
+          </div>
+          <button class="action-button action-button--danger" type="button" data-delete-run-id="${run.id}">
+            Delete run
+          </button>
+        </div>
+      </section>
+    `;
+  }
+
   if (activeTab === 'logs') {
     return `
-      <section>
-        <h4>Live logs</h4>
-        <pre class="log-view">${escapeHtml(formatLogForDisplay(run.combined_log || 'Waiting for process output...'))}</pre>
+      <section class="detail-stack">
+        <div class="run-log-meta">
+          <div class="run-log-meta__row">
+            <span class="run-log-meta__label">command</span>
+            <code class="command run-log-meta__value">${run.command.join(' ')}</code>
+          </div>
+          <div class="run-log-meta__row">
+            <span class="run-log-meta__label">output</span>
+            <code class="command run-log-meta__value">${run.output_path ?? 'pending'}</code>
+          </div>
+        </div>
+        <section>
+          <pre class="log-view">${escapeHtml(formatLogForDisplay(run.combined_log || 'Waiting for process output...'))}</pre>
+        </section>
       </section>
     `;
   }
@@ -610,11 +620,13 @@ function renderRunPreview(run: ProjectRun): string {
   if (run.preview_path) {
     return `
       <div class="preview-card">
-        <img
-          class="preview-card__image"
-          src="${getProjectRunPreviewUrl(run.id)}"
-          alt="Preview for run ${run.id}"
-        />
+        <a class="preview-card__link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">
+          <img
+            class="preview-card__image preview-card__image--project"
+            src="${getProjectRunPreviewUrl(run.id)}"
+            alt="Preview for run ${run.id}"
+          />
+        </a>
       </div>
     `;
   }
@@ -651,7 +663,7 @@ function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: 
   }
 
   return `
-    <div class="project-details-layout">
+    <div class="details-split-layout project-details-layout">
       <div class="detail-stack">
         <dl class="health-list">
           <div>
@@ -665,10 +677,6 @@ function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: 
           <div>
             <dt>Runs dir</dt>
             <dd>${project.runs_dir}</dd>
-          </div>
-          <div>
-            <dt>Latest output</dt>
-            <dd>${renderProjectOutputInline(latestProjectRun)}</dd>
           </div>
         </dl>
 
@@ -684,36 +692,11 @@ function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: 
         </div>
       </div>
 
-      <section class="detail-stack project-preview-panel">
+      <section class="detail-stack details-preview-panel project-preview-panel">
         ${renderProjectPreviewPanel(latestProjectRun)}
       </section>
     </div>
   `;
-}
-
-function renderProjectOutputInline(run: ProjectRun | null): string {
-  if (run === null) {
-    return '<span class="muted">No output yet</span>';
-  }
-
-  if (run.preview_path) {
-    return `
-      <span class="inline-output-links">
-        <a class="secondary-link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">Preview</a>
-        <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">FITS</a>
-      </span>
-    `;
-  }
-
-  if (run.output_path) {
-    return `
-      <span class="inline-output-links">
-        <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">FITS only</a>
-      </span>
-    `;
-  }
-
-  return `<span class="muted">${escapeHtml(run.status)}</span>`;
 }
 
 function renderProjectPreviewPanel(run: ProjectRun | null): string {
@@ -724,11 +707,13 @@ function renderProjectPreviewPanel(run: ProjectRun | null): string {
   if (run.preview_path) {
     return `
       <div class="preview-card">
-        <img
-          class="preview-card__image preview-card__image--project"
-          src="${getProjectRunPreviewUrl(run.id)}"
-          alt="Latest preview for project run ${run.id}"
-        />
+        <a class="preview-card__link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">
+          <img
+            class="preview-card__image preview-card__image--project"
+            src="${getProjectRunPreviewUrl(run.id)}"
+            alt="Latest preview for project run ${run.id}"
+          />
+        </a>
       </div>
     `;
   }
@@ -781,7 +766,12 @@ function renderCreateProjectModal(busy: boolean): string {
   `;
 }
 
-function renderCreateRunModal(state: AppState, project: ProjectSummary | null): string {
+function renderCreateRunModal(state: AppState, project: ProjectSummary | null, selectedCapture: string | null): string {
+  const selectedCaptureValue =
+    (selectedCapture && project?.capture_names.includes(selectedCapture) ? selectedCapture : null)
+    ?? project?.capture_names[0]
+    ?? '';
+
   return `
     <div class="modal-backdrop" data-close-create-run-modal>
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Create run" data-run-modal-card>
@@ -798,7 +788,19 @@ function renderCreateRunModal(state: AppState, project: ProjectSummary | null): 
           </label>
           <label class="field">
             <span>Capture name</span>
-            <input name="capture_name" type="text" value="${project?.capture_names[0] ?? ''}" placeholder="OrionNebula" required />
+            <select name="capture_name" required ${project?.capture_names.length ? '' : 'disabled'}>
+              ${project?.capture_names.length
+                ? project.capture_names
+                    .map(
+                      (captureName) => `
+                        <option value="${escapeHtml(captureName)}" ${captureName === selectedCaptureValue ? 'selected' : ''}>
+                          ${escapeHtml(captureName)}
+                        </option>
+                      `,
+                    )
+                    .join('')
+                : '<option value="">No captures available</option>'}
+            </select>
           </label>
           <label class="field">
             <span>Siril executable</span>
@@ -813,7 +815,11 @@ function renderCreateRunModal(state: AppState, project: ProjectSummary | null): 
             <span>OSC script path</span>
             <input name="script_path" type="text" placeholder="default repo OSC_Preprocessing.ssf" />
           </label>
-          <button class="action-button" type="submit" ${state.busy || project === null ? 'disabled' : ''}>Run OSC_Preprocessing</button>
+          <label class="checkbox-field">
+            <input name="keep_process_dir" type="checkbox" />
+            <span>Keep Siril process folder in workspace</span>
+          </label>
+          <button class="action-button" type="submit" ${state.busy || project === null || !project?.capture_names.length ? 'disabled' : ''}>Run OSC_Preprocessing</button>
         </form>
       </div>
     </div>
@@ -881,4 +887,20 @@ function formatLogForDisplay(value: string): string {
     .filter((line) => line.length > 0)
     .reverse()
     .join('\n');
+}
+
+function formatRunTabLabel(run: ProjectRun): string {
+  if (run.started_at) {
+    const date = new Date(run.started_at);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString([], {
+        year: '2-digit',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+  }
+  return run.id;
 }

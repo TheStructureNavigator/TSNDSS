@@ -152,7 +152,8 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
 
             if path == "/api/project-runs":
                 project_slug = self._get_query_param("project_slug")
-                runs = context.run_manager.list_runs(project_slug=project_slug)
+                capture_name = self._get_query_param("capture_name")
+                runs = context.run_manager.list_runs(project_slug=project_slug, capture_name=capture_name)
                 self._write_json(
                     HTTPStatus.OK,
                     {"runs": [asdict(run) for run in runs]},
@@ -255,6 +256,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 script_path = str(payload.get("script_path", "")).strip() or str(DEFAULT_OSC_SCRIPT_PATH)
                 executable = payload.get("executable", None)
                 executable_parts = payload.get("executable_parts", None)
+                keep_process_dir = bool(payload.get("keep_process_dir", False))
 
                 if not project_slug or not capture_name:
                     self._write_json(
@@ -278,6 +280,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         capture_name=capture_name,
                         executable=selected_executable,
                         script_path=script_path,
+                        keep_process_dir=keep_process_dir,
                     )
                 except Exception as error:
                     self._write_json(
@@ -321,6 +324,39 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
 
         def do_DELETE(self) -> None:  # noqa: N802
             path = self.path.split("?", 1)[0]
+
+            if path.startswith("/api/project-runs/"):
+                run_path = unquote(path.removeprefix("/api/project-runs/"))
+                run_id, suffix = _split_run_path(run_path)
+                if suffix is not None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {
+                            "error": "not_found",
+                            "message": f"Unknown endpoint: {path}",
+                        },
+                    )
+                    return
+                try:
+                    context.run_manager.delete_run(run_id)
+                except KeyError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "run_not_found", "message": f"Unknown run: {run_id}"},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "run_delete_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"deleted": True, "run_id": run_id},
+                )
+                return
 
             if path.startswith("/api/projects/"):
                 project_slug = unquote(path.removeprefix("/api/projects/")).split("/", 1)[0]

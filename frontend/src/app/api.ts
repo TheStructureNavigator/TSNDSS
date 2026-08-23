@@ -21,6 +21,7 @@ export type ProjectRun = {
   id: string;
   project_slug: string;
   capture_name: string;
+  keep_process_dir: boolean;
   status: string;
   progress_pct: number;
   stage: string;
@@ -94,6 +95,7 @@ export async function startProjectRun(input: {
   capture_name: string;
   executable?: string;
   script_path?: string;
+  keep_process_dir?: boolean;
 }): Promise<ProjectRun> {
   const payload = await sendJson<{ run: ProjectRun }>('/api/project-runs', input);
   return payload.run;
@@ -104,10 +106,12 @@ export async function fetchProjectRun(runId: string): Promise<ProjectRun> {
   return payload.run;
 }
 
-export async function fetchProjectRuns(projectSlug: string): Promise<ProjectRun[]> {
-  const payload = await getJson<{ runs: ProjectRun[] }>(
-    `/api/project-runs?project_slug=${encodeURIComponent(projectSlug)}`,
-  );
+export async function fetchProjectRuns(projectSlug: string, captureName?: string): Promise<ProjectRun[]> {
+  const query = new URLSearchParams({ project_slug: projectSlug });
+  if (captureName) {
+    query.set('capture_name', captureName);
+  }
+  const payload = await getJson<{ runs: ProjectRun[] }>(`/api/project-runs?${query.toString()}`);
   return payload.runs;
 }
 
@@ -117,6 +121,10 @@ export async function generateProjectRunPreview(runId: string): Promise<ProjectR
     {},
   );
   return payload.run;
+}
+
+export async function deleteProjectRun(runId: string): Promise<void> {
+  await sendDelete(`/api/project-runs/${encodeURIComponent(runId)}`);
 }
 
 export function getProjectRunPreviewUrl(runId: string): string {

@@ -1,6 +1,7 @@
 import './style.css';
 import {
   createProject,
+  deleteProjectRun,
   deleteProject,
   fetchHealth,
   fetchProject,
@@ -33,6 +34,7 @@ const state: AppState = {
   selectedProject: null,
   projectRuns: [],
   activeRun: null,
+  selectedProcessingCapture: null,
   currentView: 'projects',
   message: null,
   error: null,
@@ -61,15 +63,14 @@ async function refreshState(preferredSlug?: string): Promise<void> {
   const selectedSlug = preferredSlug ?? state.selectedProject?.slug ?? projects[0]?.slug ?? null;
   state.selectedProject = selectedSlug ? await loadProjectDetails(selectedSlug, projects) : null;
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
+  syncSelectedProcessingCapture();
   if (state.activeRun !== null) {
     const matched = state.projectRuns.find((run) => run.id === state.activeRun?.id);
     if (matched) {
       state.activeRun = matched;
     }
   }
-  if (state.activeRun === null && state.projectRuns.length > 0) {
-    state.activeRun = state.projectRuns[0];
-  }
+  syncActiveRunForSelectedCapture();
   syncRunPolling();
   render();
 }
@@ -80,6 +81,7 @@ function render(): void {
   bindProjectSelection();
   bindProjectTabs();
   bindProcessingTabs();
+  bindProcessingCaptureSelection();
   bindProjectActions();
   bindCreateProjectModal();
   bindCreateRunModal();
@@ -142,15 +144,43 @@ function bindProcessingTabs(): void {
   });
 }
 
-function bindProjectActions(): void {
-  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-project-slug]');
+function bindProcessingCaptureSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-processing-capture]');
   buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const captureName = button.dataset.processingCapture ?? '';
+      if (!captureName) {
+        return;
+      }
+      state.selectedProcessingCapture = captureName;
+      state.processingDetailTab = 'overview';
+      syncActiveRunForSelectedCapture();
+      syncRunPolling();
+      render();
+    });
+  });
+}
+
+function bindProjectActions(): void {
+  const projectButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-project-slug]');
+  projectButtons.forEach((button) => {
     button.addEventListener('click', () => {
       const slug = button.dataset.deleteProjectSlug ?? '';
       if (!slug) {
         return;
       }
       void handleDeleteProject(slug);
+    });
+  });
+
+  const runButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-run-id]');
+  runButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const runId = button.dataset.deleteRunId ?? '';
+      if (!runId) {
+        return;
+      }
+      void handleDeleteRun(runId);
     });
   });
 }
@@ -210,6 +240,7 @@ function bindRunSelection(): void {
         return;
       }
       state.activeRun = selectedRun;
+      state.selectedProcessingCapture = selectedRun.capture_name;
       state.processingDetailTab = 'overview';
       syncRunPolling();
       render();
@@ -314,6 +345,7 @@ async function handleStartRun(form: HTMLFormElement): Promise<void> {
   const captureName = String(formData.get('capture_name') ?? '').trim();
   const executable = String(formData.get('executable') ?? '').trim();
   const scriptPath = String(formData.get('script_path') ?? '').trim();
+  const keepProcessDir = formData.get('keep_process_dir') === 'on';
 
   if (!projectSlug || !captureName) {
     setError('Project slug and capture name are required to start a run.');
@@ -327,9 +359,11 @@ async function handleStartRun(form: HTMLFormElement): Promise<void> {
       capture_name: captureName,
       executable: executable || undefined,
       script_path: scriptPath || undefined,
+      keep_process_dir: keepProcessDir,
     });
     state.createRunModalOpen = false;
     state.activeRun = run;
+    state.selectedProcessingCapture = run.capture_name;
     state.processingDetailTab = 'overview';
     state.currentView = 'processing';
     setMessage(`Run started: ${run.id}`);
@@ -407,6 +441,32 @@ async function handleDeleteProject(slug: string): Promise<void> {
   }
 }
 
+async function handleDeleteRun(runId: string): Promise<void> {
+  const confirmed = window.confirm(`Delete run "${runId}" with all logs, outputs and workspace files?`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(true);
+  try {
+    await deleteProjectRun(runId);
+    if (state.activeRun?.id === runId) {
+      state.activeRun = null;
+    }
+    state.processingDetailTab = 'overview';
+    setMessage(`Run deleted: ${runId}`);
+    if (state.selectedProject !== null) {
+      await refreshState(state.selectedProject.slug);
+    } else {
+      await refreshState();
+    }
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function selectProject(slug: string): Promise<void> {
   if (!slug) {
     return;
@@ -416,7 +476,8 @@ async function selectProject(slug: string): Promise<void> {
   state.projectDetailTab = 'details';
   state.processingDetailTab = 'overview';
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
-  state.activeRun = state.projectRuns[0] ?? null;
+  syncSelectedProcessingCapture();
+  syncActiveRunForSelectedCapture();
   syncRunPolling();
   render();
 }
@@ -452,9 +513,12 @@ async function pollActiveRun(): Promise<void> {
   try {
     const run = await fetchProjectRun(state.activeRun.id);
     state.activeRun = run;
+    state.selectedProcessingCapture = run.capture_name;
     if (state.selectedProject !== null) {
       state.projectRuns = await fetchProjectRuns(state.selectedProject.slug).catch(() => state.projectRuns);
     }
+    syncSelectedProcessingCapture();
+    syncActiveRunForSelectedCapture();
     if (['completed', 'failed'].includes(run.status)) {
       syncRunPolling();
       if (state.selectedProject !== null) {
@@ -499,6 +563,48 @@ function scheduleToastDismiss(): void {
     toastTimer = null;
     render();
   }, TOAST_DURATION_MS);
+}
+
+function syncSelectedProcessingCapture(): void {
+  const captureNames = state.selectedProject?.capture_names ?? [];
+  if (!captureNames.length) {
+    state.selectedProcessingCapture = null;
+    return;
+  }
+
+  if (state.selectedProcessingCapture && captureNames.includes(state.selectedProcessingCapture)) {
+    return;
+  }
+
+  const activeRunCapture = state.activeRun?.capture_name;
+  if (activeRunCapture && captureNames.includes(activeRunCapture)) {
+    state.selectedProcessingCapture = activeRunCapture;
+    return;
+  }
+
+  state.selectedProcessingCapture = captureNames[0] ?? null;
+}
+
+function syncActiveRunForSelectedCapture(): void {
+  const selectedCapture = state.selectedProcessingCapture;
+  if (!selectedCapture) {
+    state.activeRun = state.projectRuns[0] ?? null;
+    return;
+  }
+
+  const matchingRuns = state.projectRuns.filter((run) => run.capture_name === selectedCapture);
+  if (!matchingRuns.length) {
+    state.activeRun = null;
+    return;
+  }
+
+  if (state.activeRun && state.activeRun.capture_name === selectedCapture) {
+    const refreshedActiveRun = matchingRuns.find((run) => run.id === state.activeRun?.id);
+    state.activeRun = refreshedActiveRun ?? matchingRuns[0] ?? null;
+    return;
+  }
+
+  state.activeRun = matchingRuns[0] ?? null;
 }
 
 function getErrorMessage(error: unknown): string {

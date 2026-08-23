@@ -22,6 +22,7 @@ class ProjectRunSnapshot:
     id: str
     project_slug: str
     capture_name: str
+    keep_process_dir: bool
     status: str
     progress_pct: int
     stage: str
@@ -58,6 +59,7 @@ class ProjectRunManager:
         capture_name: str,
         executable: str | Sequence[str] = DEFAULT_SIRIL_EXECUTABLE,
         script_path: str | Path = DEFAULT_OSC_SCRIPT_PATH,
+        keep_process_dir: bool = False,
     ) -> ProjectRunSnapshot:
         capture_root = self.project_storage.ensure_project(project_slug).captures_dir / capture_name
         frame_sources = self._collect_capture_frame_sources(capture_root)
@@ -81,6 +83,7 @@ class ProjectRunManager:
             id=run_id,
             project_slug=project_slug,
             capture_name=capture_name,
+            keep_process_dir=keep_process_dir,
             status="queued",
             progress_pct=10,
             stage="Workspace prepared",
@@ -113,11 +116,13 @@ class ProjectRunManager:
                 raise KeyError(f"Unknown project run: {run_id}")
             return _copy_snapshot(snapshot)
 
-    def list_runs(self, *, project_slug: str | None = None) -> list[ProjectRunSnapshot]:
+    def list_runs(self, *, project_slug: str | None = None, capture_name: str | None = None) -> list[ProjectRunSnapshot]:
         with self._lock:
             items = list(self._runs.values())
         if project_slug is not None:
             items = [item for item in items if item.project_slug == project_slug]
+        if capture_name is not None:
+            items = [item for item in items if item.capture_name == capture_name]
         items.sort(key=lambda item: item.id, reverse=True)
         return [_copy_snapshot(item) for item in items]
 
@@ -140,6 +145,24 @@ class ProjectRunManager:
             preview_error=preview_error,
         )
         return self.get_run(run_id)
+
+    def delete_run(self, run_id: str) -> None:
+        snapshot = self.get_run(run_id)
+        if snapshot.status not in TERMINAL_RUN_STATUSES:
+            raise ValueError("Cannot delete a run that is still in progress.")
+
+        run_root = Path(snapshot.status_path).resolve().parent
+        projects_root = self.project_storage.projects_root.resolve()
+        try:
+            run_root.relative_to(projects_root)
+        except ValueError as error:
+            raise ValueError(f"Run path escapes projects root: {run_id}") from error
+
+        if run_root.exists():
+            shutil.rmtree(run_root)
+
+        with self._lock:
+            self._runs.pop(run_id, None)
 
     def _run_osc_preprocessing(self, run_id: str, run_layout: RunLayout) -> None:
         snapshot = self.get_run(run_id)
@@ -175,55 +198,59 @@ class ProjectRunManager:
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
 
-        if exit_code != 0:
+        try:
+            if exit_code != 0:
+                self._update_run(
+                    run_id,
+                    status="failed",
+                    progress_pct=100,
+                    stage="Siril failed",
+                    exit_code=exit_code,
+                    finished_at=_utc_timestamp(),
+                    error_message=f"Siril exited with code {exit_code}.",
+                )
+                return
+
+            self._update_run(run_id, progress_pct=90, stage="Searching for output")
+            output = find_osc_preprocessing_result(run_layout.workspace_dir)
+            if output is None:
+                self._update_run(
+                    run_id,
+                    status="failed",
+                    progress_pct=100,
+                    stage="Output missing",
+                    exit_code=exit_code,
+                    finished_at=_utc_timestamp(),
+                    error_message="OSC_Preprocessing finished but no result*.fit was found.",
+                )
+                return
+
+            artifact_output = run_layout.artifacts_dir / output.name
+            shutil.copy2(output, artifact_output)
             self._update_run(
                 run_id,
-                status="failed",
+                status="completed",
                 progress_pct=100,
-                stage="Siril failed",
+                stage="Completed",
                 exit_code=exit_code,
                 finished_at=_utc_timestamp(),
-                error_message=f"Siril exited with code {exit_code}.",
+                output_path=str(artifact_output),
             )
-            return
-
-        self._update_run(run_id, progress_pct=90, stage="Searching for output")
-        output = find_osc_preprocessing_result(run_layout.workspace_dir)
-        if output is None:
-            self._update_run(
-                run_id,
-                status="failed",
-                progress_pct=100,
-                stage="Output missing",
-                exit_code=exit_code,
-                finished_at=_utc_timestamp(),
-                error_message="OSC_Preprocessing finished but no result*.fit was found.",
-            )
-            return
-
-        artifact_output = run_layout.artifacts_dir / output.name
-        shutil.copy2(output, artifact_output)
-        self._update_run(
-            run_id,
-            status="completed",
-            progress_pct=100,
-            stage="Completed",
-            exit_code=exit_code,
-            finished_at=_utc_timestamp(),
-            output_path=str(artifact_output),
-        )
-        preview_path, preview_log_path, preview_error = self._generate_preview_image(
+            preview_path, preview_log_path, preview_error = self._generate_preview_image(
                 executable_parts=_extract_executable_parts(snapshot.command),
                 output_path=artifact_output,
                 artifacts_dir=run_layout.artifacts_dir,
                 logs_dir=run_layout.logs_dir,
             )
-        self._update_run(
-            run_id,
-            preview_path=preview_path,
-            preview_log_path=preview_log_path,
-            preview_error=preview_error,
-        )
+            self._update_run(
+                run_id,
+                preview_path=preview_path,
+                preview_log_path=preview_log_path,
+                preview_error=preview_error,
+            )
+        finally:
+            if not snapshot.keep_process_dir:
+                self._cleanup_process_directory(run_layout.workspace_dir)
 
     def _consume_stream(
         self,
@@ -315,6 +342,7 @@ class ProjectRunManager:
                 id=str(payload["id"]),
                 project_slug=str(payload["project_slug"]),
                 capture_name=str(payload["capture_name"]),
+                keep_process_dir=bool(payload.get("keep_process_dir", False)),
                 status=str(payload["status"]),
                 progress_pct=int(payload["progress_pct"]),
                 stage=str(payload["stage"]),
@@ -422,6 +450,11 @@ class ProjectRunManager:
                 script_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    def _cleanup_process_directory(self, workspace_dir: Path) -> None:
+        process_dir = workspace_dir / "process"
+        if process_dir.exists() and process_dir.is_dir():
+            shutil.rmtree(process_dir, ignore_errors=True)
 
 
 def _normalize_executable(executable: str | Sequence[str]) -> tuple[str, ...]:

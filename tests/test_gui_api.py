@@ -90,6 +90,8 @@ class GuiApiServerTests(unittest.TestCase):
                     "time.sleep(0.05)",
                     "print('Stacking step...', flush=True)",
                     "time.sleep(0.05)",
+                    "(workdir / 'process').mkdir(parents=True, exist_ok=True)",
+                    "(workdir / 'process' / 'stacking.tmp').write_text('large intermediate', encoding='utf-8')",
                     "print('result_120s.fit written', flush=True)",
                     "(workdir / 'result_120s.fit').write_text('fake fits', encoding='utf-8')",
                     "sys.exit(0)",
@@ -222,6 +224,67 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["runs"]), 1)
         self.assertEqual(payload["runs"][0]["project_slug"], "orion_nebula")
 
+    def test_project_runs_can_be_filtered_by_capture_name(self) -> None:
+        second_capture_root = self.projects_root / "orion_nebula" / "captures" / "OrionNebulaWide"
+        self._copy_capture_tree(self.source_capture, second_capture_root)
+
+        self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebula",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+            },
+        )
+        self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebulaWide",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+            },
+        )
+
+        payload = self._read_json("/api/project-runs?project_slug=orion_nebula&capture_name=OrionNebulaWide")
+
+        self.assertEqual(len(payload["runs"]), 1)
+        self.assertEqual(payload["runs"][0]["capture_name"], "OrionNebulaWide")
+
+    def test_project_run_removes_process_directory_by_default(self) -> None:
+        payload = self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebula",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+            },
+        )
+
+        run = self._wait_for_run(payload["run"]["id"])["run"]
+        process_dir = Path(run["workspace_dir"]) / "process"
+
+        self.assertFalse(process_dir.exists())
+
+    def test_project_run_can_keep_process_directory_when_requested(self) -> None:
+        payload = self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebula",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+                "keep_process_dir": True,
+            },
+        )
+
+        run = self._wait_for_run(payload["run"]["id"])["run"]
+        process_dir = Path(run["workspace_dir"]) / "process"
+
+        self.assertTrue(process_dir.exists())
+
     def test_project_run_output_endpoint_serves_fits_artifact(self) -> None:
         payload = self._send_json(
             "/api/project-runs",
@@ -266,6 +329,30 @@ class GuiApiServerTests(unittest.TestCase):
         response = self._read_response(f"/api/project-runs/{run_id}/preview-log")
         self.assertEqual(response.status, 200)
         self.assertIn("Preview export skipped", response.read().decode("utf-8"))
+
+    def test_delete_run_endpoint_removes_run_tree_and_unregisters_run(self) -> None:
+        payload = self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebula",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+            },
+        )
+
+        run_id = payload["run"]["id"]
+        completed = self._wait_for_run(run_id)
+        run_root = Path(completed["run"]["status_path"]).parent
+        self.assertTrue(run_root.exists())
+
+        delete_payload = self._send_delete(f"/api/project-runs/{run_id}")
+        self.assertTrue(delete_payload["deleted"])
+        self.assertEqual(delete_payload["run_id"], run_id)
+        self.assertFalse(run_root.exists())
+
+        runs_payload = self._read_json("/api/project-runs?project_slug=orion_nebula")
+        self.assertEqual(runs_payload["runs"], [])
 
     def test_completed_runs_are_restored_after_server_restart(self) -> None:
         payload = self._send_json(
