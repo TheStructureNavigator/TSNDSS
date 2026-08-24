@@ -17,6 +17,7 @@ To API jest celowo cienkie i służy obecnie jako most między frontendem a loka
 Uruchomienie:
 
 ```bash
+py -m pip install -r requirements.txt
 py -m tsn_dss.gui.http_api --projects-root projects
 ```
 

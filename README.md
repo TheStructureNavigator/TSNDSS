@@ -35,6 +35,7 @@ Aktualny cel v0.1 został zamknięty:
 ## Jak uruchomić testy
 
 ```bash
+py -m pip install -r requirements.txt
 py -m unittest discover -s tests -v
 ```
 
@@ -43,6 +44,7 @@ py -m unittest discover -s tests -v
 W jednym terminalu uruchom lokalne API:
 
 ```bash
+py -m pip install -r requirements.txt
 py -m tsn_dss.gui.http_api --projects-root projects
 ```
 
@@ -75,7 +77,8 @@ Aktualnie z GUI możesz już:
 
 - utworzyć nowy projekt,
 - zaimportować istniejący folder capture zawierający `biases/`, `darks/`, `flats/`, `lights/`,
-- podejrzeć szczegóły projektu i listę capture / runów.
+- podejrzeć szczegóły projektu i listę capture / runów,
+- przeglądać capture w siatce miniaturek ładowanych z lokalnego cache.
 
 ## Gdzie patrzeć dalej
 

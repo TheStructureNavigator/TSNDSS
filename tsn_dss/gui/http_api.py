@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -8,8 +9,14 @@ from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 from typing import Any
+
+try:
+    from PIL import Image, ImageOps
+except ImportError:  # pragma: no cover - exercised only when optional dependency is missing
+    Image = None
+    ImageOps = None
 
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
@@ -63,7 +70,9 @@ def run_server(
 def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
     class TsnDssApiHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
-            path = self.path.split("?", 1)[0]
+            parsed_url = urlsplit(self.path)
+            path = parsed_url.path
+            query_params = parse_qs(parsed_url.query, keep_blank_values=True)
 
             if path == "/api/health":
                 self._write_json(
@@ -86,6 +95,115 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                             for project in context.storage.list_projects()
                         ]
                     },
+                )
+                return
+
+            if path.startswith("/api/projects/") and "/captures/" in path and "/files/" in path:
+                prefix = "/api/projects/"
+                remainder = unquote(path[len(prefix):])
+                project_slug, _, capture_remainder = remainder.partition("/captures/")
+                capture_name, _, relative_path = capture_remainder.partition("/files/")
+                if not project_slug or not capture_name or not relative_path:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "capture_file_not_found", "message": f"Unknown capture file endpoint: {path}"},
+                    )
+                    return
+                try:
+                    _, file_path = context.storage.resolve_capture_file(project_slug, capture_name, relative_path)
+                except ValueError:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_capture_file_path", "message": "Capture file path escapes capture root."},
+                    )
+                    return
+                except FileNotFoundError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "file_missing", "message": "Capture file is not available."},
+                    )
+                    return
+                self._write_filesystem_file(file_path, fallback_message="Capture file is not available.")
+                return
+
+            if path.startswith("/api/projects/") and "/captures/" in path and "/thumbnails/" in path:
+                prefix = "/api/projects/"
+                remainder = unquote(path[len(prefix):])
+                project_slug, _, capture_remainder = remainder.partition("/captures/")
+                capture_name, _, relative_path = capture_remainder.partition("/thumbnails/")
+                if not project_slug or not capture_name or not relative_path:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "capture_thumbnail_not_found", "message": f"Unknown capture thumbnail endpoint: {path}"},
+                    )
+                    return
+
+                try:
+                    _, source_path = context.storage.resolve_capture_file(project_slug, capture_name, relative_path)
+                except ValueError:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_capture_thumbnail_path", "message": "Capture thumbnail path escapes capture root."},
+                    )
+                    return
+                except FileNotFoundError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "file_missing", "message": "Capture file is not available."},
+                    )
+                    return
+
+                requested_size = query_params.get("size", ["384"])[0]
+                try:
+                    thumbnail_size = max(64, min(1024, int(requested_size)))
+                except ValueError:
+                    thumbnail_size = 384
+
+                try:
+                    thumbnail_path = _ensure_capture_thumbnail(
+                        context.storage,
+                        project_slug=project_slug,
+                        capture_name=capture_name,
+                        source_path=source_path,
+                        size=thumbnail_size,
+                    )
+                except RuntimeError as error:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "thumbnail_support_unavailable", "message": str(error)},
+                    )
+                    return
+                except OSError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "thumbnail_generation_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_filesystem_file(thumbnail_path, fallback_message="Capture thumbnail is not available.")
+                return
+
+            if path.startswith("/api/projects/") and "/captures/" in path:
+                prefix = "/api/projects/"
+                remainder = unquote(path[len(prefix):])
+                project_slug, _, capture_name = remainder.partition("/captures/")
+                if not project_slug or not capture_name:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "capture_not_found", "message": f"Unknown capture endpoint: {path}"},
+                    )
+                    return
+                try:
+                    capture = context.storage.describe_capture(project_slug, capture_name)
+                except FileNotFoundError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "capture_not_found", "message": f"Unknown capture: {capture_name}"},
+                    )
+                    return
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"capture": _capture_to_dict(capture)},
                 )
                 return
 
@@ -137,6 +255,26 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     self._write_run_file(snapshot.preview_log_path, fallback_message="Preview export log is not available for this run.")
                     return
 
+                if suffix and suffix.startswith("artifacts/"):
+                    relative_artifact_path = suffix.removeprefix("artifacts/")
+                    try:
+                        artifact_path = _resolve_run_artifact_file(snapshot, relative_artifact_path)
+                    except ValueError:
+                        self._write_json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid_run_artifact_path", "message": "Run artifact path escapes artifacts root."},
+                        )
+                        return
+                    except FileNotFoundError:
+                        self._write_json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": "run_artifact_missing", "message": "Run artifact is not available for this run."},
+                        )
+                        return
+
+                    self._write_filesystem_file(artifact_path, fallback_message="Run artifact is not available for this run.")
+                    return
+
                 if suffix is not None:
                     self._write_json(
                         HTTPStatus.NOT_FOUND,
@@ -147,7 +285,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     )
                     return
 
-                self._write_json(HTTPStatus.OK, {"run": asdict(snapshot)})
+                self._write_json(HTTPStatus.OK, {"run": _run_to_dict(snapshot)})
                 return
 
             if path == "/api/project-runs":
@@ -156,7 +294,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 runs = context.run_manager.list_runs(project_slug=project_slug, capture_name=capture_name)
                 self._write_json(
                     HTTPStatus.OK,
-                    {"runs": [asdict(run) for run in runs]},
+                    {"runs": [_run_to_dict(run) for run in runs]},
                 )
                 return
 
@@ -289,7 +427,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     )
                     return
 
-                self._write_json(HTTPStatus.CREATED, {"run": asdict(snapshot)})
+                self._write_json(HTTPStatus.CREATED, {"run": _run_to_dict(snapshot)})
                 return
 
             if path.startswith("/api/project-runs/") and path.endswith("/generate-preview"):
@@ -311,7 +449,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     )
                     return
 
-                self._write_json(HTTPStatus.OK, {"run": asdict(snapshot)})
+                self._write_json(HTTPStatus.OK, {"run": _run_to_dict(snapshot)})
                 return
 
             self._write_json(
@@ -436,16 +574,11 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
             self.send_header("Access-Control-Allow-Origin", "*")
 
         def _get_query_param(self, key: str) -> str | None:
-            if "?" not in self.path:
+            query = urlsplit(self.path).query
+            values = parse_qs(query, keep_blank_values=True).get(key)
+            if not values:
                 return None
-            query = self.path.split("?", 1)[1]
-            for part in query.split("&"):
-                if "=" not in part:
-                    continue
-                candidate_key, value = part.split("=", 1)
-                if candidate_key == key:
-                    return unquote(value)
-            return None
+            return unquote(values[0])
 
         def _write_run_file(self, path_value: str | None, *, fallback_message: str) -> None:
             if not path_value:
@@ -460,6 +593,24 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(
                     HTTPStatus.NOT_FOUND,
                     {"error": "run_file_missing", "message": fallback_message},
+                )
+                return
+
+            content = file_path.read_bytes()
+            content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+            self.send_response(HTTPStatus.OK)
+            self._send_cors_headers()
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Content-Disposition", f'inline; filename="{file_path.name}"')
+            self.end_headers()
+            self.wfile.write(content)
+
+        def _write_filesystem_file(self, file_path: Path, *, fallback_message: str) -> None:
+            if not file_path.exists() or not file_path.is_file():
+                self._write_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "file_missing", "message": fallback_message},
                 )
                 return
 
@@ -490,6 +641,75 @@ def _project_to_dict(project: Any) -> dict[str, Any]:
     }
 
 
+def _capture_to_dict(capture: Any) -> dict[str, Any]:
+    return {
+        "project_slug": capture.project_slug,
+        "capture_name": capture.capture_name,
+        "capture_root": str(capture.capture_root),
+        "folders": [
+            {
+                "name": folder.name,
+                "file_count": folder.file_count,
+                "files": [
+                    {
+                        "name": file_entry.name,
+                        "relative_path": file_entry.relative_path,
+                        "size_bytes": file_entry.size_bytes,
+                        "suffix": file_entry.suffix,
+                    }
+                    for file_entry in folder.files
+                ],
+            }
+            for folder in capture.folders
+        ],
+    }
+
+
+def _run_to_dict(snapshot: Any) -> dict[str, Any]:
+    payload = asdict(snapshot)
+    payload["artifact_images"] = _list_run_artifact_images(snapshot)
+    return payload
+
+
+def _list_run_artifact_images(snapshot: Any) -> list[dict[str, Any]]:
+    artifacts_dir = Path(snapshot.artifacts_dir)
+    if not artifacts_dir.exists() or not artifacts_dir.is_dir():
+        return []
+
+    preview_path = Path(snapshot.preview_path).resolve() if snapshot.preview_path else None
+    supported_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+    images: list[dict[str, Any]] = []
+    for artifact_path in sorted((path for path in artifacts_dir.rglob("*") if path.is_file()), key=lambda path: path.name.lower()):
+        if artifact_path.suffix.lower() not in supported_suffixes:
+            continue
+        if preview_path is not None and artifact_path.resolve() == preview_path:
+            continue
+
+        images.append(
+            {
+                "name": artifact_path.name,
+                "relative_path": str(artifact_path.relative_to(artifacts_dir)),
+                "size_bytes": artifact_path.stat().st_size,
+                "suffix": artifact_path.suffix,
+            }
+        )
+    return images
+
+
+def _resolve_run_artifact_file(snapshot: Any, relative_path: str | Path) -> Path:
+    artifacts_root = Path(snapshot.artifacts_dir).resolve()
+    artifact_path = (artifacts_root / Path(relative_path)).resolve()
+    try:
+        artifact_path.relative_to(artifacts_root)
+    except ValueError as error:
+        raise ValueError("Run artifact path escapes artifacts root.") from error
+
+    if not artifact_path.exists() or not artifact_path.is_file():
+        raise FileNotFoundError(f"Run artifact not found: {relative_path}")
+
+    return artifact_path
+
+
 def _split_run_path(run_path: str) -> tuple[str, str | None]:
     parts = [part for part in run_path.split("/") if part]
     if not parts:
@@ -497,6 +717,49 @@ def _split_run_path(run_path: str) -> tuple[str, str | None]:
     if len(parts) == 1:
         return parts[0], None
     return parts[0], "/".join(parts[1:])
+
+
+def _ensure_capture_thumbnail(
+    storage: ProjectStorage,
+    *,
+    project_slug: str,
+    capture_name: str,
+    source_path: Path,
+    size: int,
+) -> Path:
+    if Image is None or ImageOps is None:
+        raise RuntimeError("Thumbnail support requires Pillow. Install dependencies from requirements.txt.")
+
+    project_layout = storage.ensure_project(project_slug)
+    cache_root = project_layout.project_root / ".cache" / "capture_thumbnails" / capture_name
+    relative_source = source_path.relative_to((project_layout.captures_dir / capture_name).resolve())
+    thumbnail_dir = (cache_root / relative_source.parent).resolve()
+    thumbnail_dir.mkdir(parents=True, exist_ok=True)
+
+    source_stat = source_path.stat()
+    fingerprint = hashlib.sha1(
+        f"{relative_source.as_posix()}:{source_stat.st_mtime_ns}:{source_stat.st_size}:{size}".encode("utf-8")
+    ).hexdigest()[:12]
+    thumbnail_name = f"{source_path.stem}__{fingerprint}.jpg"
+    thumbnail_path = thumbnail_dir / thumbnail_name
+
+    if thumbnail_path.exists() and thumbnail_path.is_file():
+        return thumbnail_path
+
+    for stale_path in thumbnail_dir.glob(f"{source_path.stem}__*.jpg"):
+        if stale_path.name != thumbnail_name:
+            stale_path.unlink(missing_ok=True)
+
+    with Image.open(source_path) as image:
+        prepared = ImageOps.exif_transpose(image)
+        prepared.thumbnail((size, size))
+        if prepared.mode not in ("RGB", "L"):
+            prepared = prepared.convert("RGB")
+        elif prepared.mode == "L":
+            prepared = prepared.convert("RGB")
+        prepared.save(thumbnail_path, format="JPEG", quality=82, optimize=True)
+
+    return thumbnail_path
 
 
 def main(argv: list[str] | None = None) -> int:

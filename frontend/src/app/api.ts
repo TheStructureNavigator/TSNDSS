@@ -17,7 +17,28 @@ export type ProjectSummary = {
   sky_target: string | null;
 };
 
+export type CaptureFileEntry = {
+  name: string;
+  relative_path: string;
+  size_bytes: number;
+  suffix: string;
+};
+
+export type CaptureFolderEntry = {
+  name: string;
+  file_count: number;
+  files: CaptureFileEntry[];
+};
+
+export type CaptureDetails = {
+  project_slug: string;
+  capture_name: string;
+  capture_root: string;
+  folders: CaptureFolderEntry[];
+};
+
 export type ProjectRun = {
+  artifact_images: RunArtifactImage[];
   id: string;
   project_slug: string;
   capture_name: string;
@@ -42,6 +63,13 @@ export type ProjectRun = {
   preview_error: string | null;
   error_message: string | null;
   combined_log: string;
+};
+
+export type RunArtifactImage = {
+  name: string;
+  relative_path: string;
+  size_bytes: number;
+  suffix: string;
 };
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8765';
@@ -88,6 +116,36 @@ export async function importCapture(input: {
   move?: boolean;
 }): Promise<{ project: ProjectSummary; capture_root: string }> {
   return sendJson<{ project: ProjectSummary; capture_root: string }>('/api/import-capture', input);
+}
+
+export async function fetchCaptureDetails(projectSlug: string, captureName: string): Promise<CaptureDetails> {
+  const payload = await getJson<{ capture: CaptureDetails }>(
+    `/api/projects/${encodeURIComponent(projectSlug)}/captures/${encodeURIComponent(captureName)}`,
+  );
+  return payload.capture;
+}
+
+export function getCaptureFileUrl(projectSlug: string, captureName: string, relativePath: string): string {
+  const encodedRelativePath = encodeCaptureRelativePath(relativePath);
+  return `${getApiBaseUrl()}/api/projects/${encodeURIComponent(projectSlug)}/captures/${encodeURIComponent(captureName)}/files/${encodedRelativePath}`;
+}
+
+export function getCaptureThumbnailUrl(
+  projectSlug: string,
+  captureName: string,
+  relativePath: string,
+  size = 384,
+): string {
+  const encodedRelativePath = encodeCaptureRelativePath(relativePath);
+  return `${getApiBaseUrl()}/api/projects/${encodeURIComponent(projectSlug)}/captures/${encodeURIComponent(captureName)}/thumbnails/${encodedRelativePath}?size=${encodeURIComponent(String(size))}`;
+}
+
+function encodeCaptureRelativePath(relativePath: string): string {
+  const encodedParts = relativePath
+    .split(/[\\/]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => encodeURIComponent(part));
+  return encodedParts.join('/');
 }
 
 export async function startProjectRun(input: {
@@ -137,6 +195,10 @@ export function getProjectRunOutputUrl(runId: string): string {
 
 export function getProjectRunPreviewLogUrl(runId: string): string {
   return `${getApiBaseUrl()}/api/project-runs/${encodeURIComponent(runId)}/preview-log`;
+}
+
+export function getProjectRunArtifactUrl(runId: string, relativePath: string): string {
+  return `${getApiBaseUrl()}/api/project-runs/${encodeURIComponent(runId)}/artifacts/${encodeCaptureRelativePath(relativePath)}`;
 }
 
 async function getJson<T>(path: string): Promise<T> {

@@ -1,6 +1,7 @@
 import './style.css';
 import {
   createProject,
+  fetchCaptureDetails,
   deleteProjectRun,
   deleteProject,
   fetchHealth,
@@ -15,7 +16,15 @@ import {
   type ProjectSummary,
 } from './app/api';
 import { mountSkyView } from './app/sky';
-import { renderAppShell, type AppState, type ProcessingDetailTab, type ProjectDetailTab, type SkyDetailTab, type ViewName } from './app/shell';
+import {
+  renderAppShell,
+  type AppState,
+  type ProcessingDetailTab,
+  type ProjectDetailTab,
+  type ProjectPreviewTab,
+  type SkyDetailTab,
+  type ViewName,
+} from './app/shell';
 
 const appElement = document.querySelector<HTMLDivElement>('#app');
 
@@ -32,18 +41,24 @@ const state: AppState = {
   health: null,
   projects: [],
   selectedProject: null,
+  selectedProjectCapture: null,
+  selectedProjectCaptureDetails: null,
+  selectedProjectCaptureFile: null,
+  selectedProjectCaptureFolder: null,
   projectRuns: [],
   activeRun: null,
   selectedProcessingCapture: null,
-  currentView: 'projects',
+  currentView: 'core',
   message: null,
   error: null,
   busy: false,
   projectDetailTab: 'details',
+  projectPreviewTab: 'preview',
   processingDetailTab: 'overview',
   skyDetailTab: 'viewer',
   createProjectModalOpen: false,
   createRunModalOpen: false,
+  createImportCaptureModalOpen: false,
 };
 
 void bootstrap();
@@ -64,6 +79,7 @@ async function refreshState(preferredSlug?: string): Promise<void> {
   const selectedSlug = preferredSlug ?? state.selectedProject?.slug ?? projects[0]?.slug ?? null;
   state.selectedProject = selectedSlug ? await loadProjectDetails(selectedSlug, projects) : null;
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
+  await syncSelectedProjectCapture();
   syncSelectedProcessingCapture();
   if (state.activeRun !== null) {
     const matched = state.projectRuns.find((run) => run.id === state.activeRun?.id);
@@ -81,12 +97,17 @@ function render(): void {
   bindNavigation();
   bindProjectSelection();
   bindProjectTabs();
+  bindProjectPreviewTabs();
+  bindProjectCaptureSelection();
+  bindProjectCaptureFolderSelection();
+  bindProjectCaptureFileSelection();
   bindProcessingTabs();
   bindSkyTabs();
   bindProcessingCaptureSelection();
   bindProjectActions();
   bindCreateProjectModal();
   bindCreateRunModal();
+  bindImportCaptureModal();
   bindRunSelection();
   bindPreviewActions();
   bindPreviewImageFallbacks();
@@ -129,6 +150,66 @@ function bindProjectTabs(): void {
       }
       state.projectDetailTab = nextTab;
       render();
+    });
+  });
+}
+
+function bindProjectPreviewTabs(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-project-preview-tab]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.projectPreviewTab as ProjectPreviewTab | undefined;
+      if (nextTab === undefined) {
+        return;
+      }
+      state.projectPreviewTab = nextTab;
+      render();
+    });
+  });
+}
+
+function bindProjectCaptureSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-project-capture]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const captureName = button.dataset.projectCapture ?? '';
+      if (!captureName) {
+        return;
+      }
+      void selectProjectCapture(captureName);
+    });
+  });
+}
+
+function bindProjectCaptureFolderSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-capture-folder]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const folderName = button.dataset.captureFolder ?? '';
+      if (!folderName) {
+        return;
+      }
+      const workspaceScrollTop = getWorkspaceScrollTop();
+      state.selectedProjectCaptureFolder = folderName;
+      syncSelectedProjectCaptureFile();
+      render();
+      scheduleWorkspaceScrollRestore(workspaceScrollTop);
+    });
+  });
+}
+
+function bindProjectCaptureFileSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-capture-file]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const relativePath = button.dataset.captureFile ?? '';
+      if (!relativePath) {
+        return;
+      }
+      const workspaceScrollTop = getWorkspaceScrollTop();
+      state.selectedProjectCaptureFile = relativePath;
+      render();
+      scheduleWorkspaceScrollRestore(workspaceScrollTop);
     });
   });
 }
@@ -239,6 +320,27 @@ function bindCreateRunModal(): void {
         return;
       }
       state.createRunModalOpen = false;
+      render();
+    });
+  });
+}
+
+function bindImportCaptureModal(): void {
+  const openButton = rootElement.querySelector<HTMLButtonElement>('[data-open-import-capture-modal]');
+  openButton?.addEventListener('click', () => {
+    state.createImportCaptureModalOpen = true;
+    render();
+  });
+
+  const closeButtons = rootElement.querySelectorAll<HTMLElement>('[data-close-import-capture-modal]');
+  closeButtons.forEach((element) => {
+    element.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const modalCard = rootElement.querySelector<HTMLElement>('[data-import-capture-modal-card]');
+      if (modalCard && target && modalCard.contains(target) && !target.hasAttribute('data-close-import-capture-modal')) {
+        return;
+      }
+      state.createImportCaptureModalOpen = false;
       render();
     });
   });
@@ -361,6 +463,10 @@ async function handleImportCapture(form: HTMLFormElement): Promise<void> {
       source_dir: sourceDir,
       move,
     });
+    state.createImportCaptureModalOpen = false;
+    state.selectedProjectCapture = captureName;
+    state.selectedProjectCaptureFolder = null;
+    state.selectedProjectCaptureFile = null;
     setMessage(`Capture imported to ${result.project.slug}: ${captureName}`);
     await refreshState(result.project.slug);
   } catch (error) {
@@ -458,11 +564,16 @@ async function handleDeleteProject(slug: string): Promise<void> {
     await deleteProject(slug);
     if (state.selectedProject?.slug === slug) {
       state.selectedProject = null;
+      state.selectedProjectCapture = null;
+      state.selectedProjectCaptureDetails = null;
+      state.selectedProjectCaptureFolder = null;
+      state.selectedProjectCaptureFile = null;
       state.projectRuns = [];
       state.activeRun = null;
       syncRunPolling();
     }
     state.projectDetailTab = 'details';
+    state.projectPreviewTab = 'preview';
     setMessage(`Project deleted: ${slug}`);
     await refreshState();
   } catch (error) {
@@ -505,8 +616,10 @@ async function selectProject(slug: string): Promise<void> {
 
   state.selectedProject = await loadProjectDetails(slug, state.projects);
   state.projectDetailTab = 'details';
+  state.projectPreviewTab = 'preview';
   state.processingDetailTab = 'overview';
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
+  await syncSelectedProjectCapture();
   syncSelectedProcessingCapture();
   syncActiveRunForSelectedCapture();
   syncRunPolling();
@@ -519,6 +632,19 @@ async function loadProjectDetails(slug: string, projects: ProjectSummary[]): Pro
   } catch {
     return projects.find((project) => project.slug === slug) ?? null;
   }
+}
+
+async function selectProjectCapture(captureName: string): Promise<void> {
+  if (!state.selectedProject) {
+    return;
+  }
+
+  state.selectedProjectCapture = captureName;
+  state.selectedProjectCaptureFolder = null;
+  state.selectedProjectCaptureFile = null;
+  state.selectedProjectCaptureDetails = await fetchCaptureDetails(state.selectedProject.slug, captureName).catch(() => null);
+  syncSelectedProjectCaptureFile();
+  render();
 }
 
 function syncRunPolling(): void {
@@ -596,6 +722,67 @@ function scheduleToastDismiss(): void {
   }, TOAST_DURATION_MS);
 }
 
+async function syncSelectedProjectCapture(): Promise<void> {
+  const captureNames = state.selectedProject?.capture_names ?? [];
+  if (!captureNames.length) {
+    state.selectedProjectCapture = null;
+    state.selectedProjectCaptureDetails = null;
+    state.selectedProjectCaptureFolder = null;
+    state.selectedProjectCaptureFile = null;
+    return;
+  }
+
+  if (!state.selectedProjectCapture || !captureNames.includes(state.selectedProjectCapture)) {
+    state.selectedProjectCapture = captureNames[0] ?? null;
+  }
+
+  if (!state.selectedProjectCapture || !state.selectedProject) {
+    state.selectedProjectCaptureDetails = null;
+    state.selectedProjectCaptureFolder = null;
+    state.selectedProjectCaptureFile = null;
+    return;
+  }
+
+  state.selectedProjectCaptureDetails = await fetchCaptureDetails(
+    state.selectedProject.slug,
+    state.selectedProjectCapture,
+  ).catch(() => null);
+  syncSelectedProjectCaptureFile();
+}
+
+function syncSelectedProjectCaptureFile(): void {
+  const folders = state.selectedProjectCaptureDetails?.folders ?? [];
+  if (!folders.length) {
+    state.selectedProjectCaptureFolder = null;
+    state.selectedProjectCaptureFile = null;
+    return;
+  }
+
+  const selectedFolder =
+    (state.selectedProjectCaptureFolder
+      ? folders.find((folder) => folder.name === state.selectedProjectCaptureFolder)
+      : null)
+    ?? folders[0]
+    ?? null;
+
+  state.selectedProjectCaptureFolder = selectedFolder?.name ?? null;
+
+  const folderFiles = selectedFolder?.files ?? [];
+  if (!folderFiles.length) {
+    state.selectedProjectCaptureFile = null;
+    return;
+  }
+
+  if (
+    state.selectedProjectCaptureFile
+    && folderFiles.some((fileEntry) => fileEntry.relative_path === state.selectedProjectCaptureFile)
+  ) {
+    return;
+  }
+
+  state.selectedProjectCaptureFile = folderFiles[0]?.relative_path ?? null;
+}
+
 function syncSelectedProcessingCapture(): void {
   const captureNames = state.selectedProject?.capture_names ?? [];
   if (!captureNames.length) {
@@ -650,4 +837,24 @@ function escapeHtml(value: string): string {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function getWorkspaceScrollTop(): number {
+  return rootElement.querySelector<HTMLElement>('.workspace')?.scrollTop ?? 0;
+}
+
+function restoreWorkspaceScrollTop(value: number): void {
+  const workspace = rootElement.querySelector<HTMLElement>('.workspace');
+  if (workspace) {
+    workspace.scrollTop = value;
+  }
+}
+
+function scheduleWorkspaceScrollRestore(value: number): void {
+  window.requestAnimationFrame(() => {
+    restoreWorkspaceScrollTop(value);
+    window.requestAnimationFrame(() => {
+      restoreWorkspaceScrollTop(value);
+    });
+  });
 }

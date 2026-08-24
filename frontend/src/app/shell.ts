@@ -1,22 +1,32 @@
 import iconUrl from '../assets/tsn_dss_icon.png';
 import {
+  type CaptureDetails,
+  type CaptureFileEntry,
+  getCaptureFileUrl,
+  getCaptureThumbnailUrl,
   getApiBaseUrl,
+  getProjectRunArtifactUrl,
   getProjectRunOutputUrl,
   getProjectRunPreviewLogUrl,
   getProjectRunPreviewUrl,
   type ApiHealth,
   type ProjectRun,
   type ProjectSummary,
+  type RunArtifactImage,
 } from './api';
 
 const APP_VERSION = '0.1.0';
 
-export type ViewName = 'projects' | 'processing' | 'sky';
+export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
 
 export type AppState = {
   health: ApiHealth | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
+  selectedProjectCapture: string | null;
+  selectedProjectCaptureDetails: CaptureDetails | null;
+  selectedProjectCaptureFile: string | null;
+  selectedProjectCaptureFolder: string | null;
   projectRuns: ProjectRun[];
   activeRun: ProjectRun | null;
   selectedProcessingCapture: string | null;
@@ -25,13 +35,16 @@ export type AppState = {
   error: string | null;
   busy: boolean;
   projectDetailTab: ProjectDetailTab;
+  projectPreviewTab: ProjectPreviewTab;
   processingDetailTab: ProcessingDetailTab;
   skyDetailTab: SkyDetailTab;
   createProjectModalOpen: boolean;
   createRunModalOpen: boolean;
+  createImportCaptureModalOpen: boolean;
 };
 
 export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
+export type ProjectPreviewTab = 'preview' | 'edited';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 export type SkyDetailTab = 'viewer' | 'context' | 'planned';
 
@@ -77,6 +90,7 @@ export function renderAppShell(state: AppState): string {
       <div class="app-shell">
         <aside class="sidebar">
           <nav class="nav">
+            ${renderNavItem('core', 'Core', state.currentView)}
             ${renderNavItem('projects', 'Projects', state.currentView)}
             ${renderNavItem('processing', 'Processing', state.currentView)}
             ${renderNavItem('sky', 'Sky', state.currentView)}
@@ -98,6 +112,7 @@ export function renderAppShell(state: AppState): string {
 
       ${state.createProjectModalOpen ? renderCreateProjectModal(state.busy) : ''}
       ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject, state.selectedProcessingCapture) : ''}
+      ${state.createImportCaptureModalOpen ? renderImportCaptureModal(state, primaryProject, state.selectedProjectCapture) : ''}
       ${renderToast(state)}
     </div>
   `;
@@ -109,6 +124,10 @@ function renderNavItem(view: ViewName, label: string, currentView: ViewName): st
 }
 
 function renderView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+  if (state.currentView === 'core') {
+    return renderCoreView(state, primaryProject, latestRun);
+  }
+
   if (state.currentView === 'processing') {
     return renderProcessingView(state, primaryProject, latestRun);
   }
@@ -118,6 +137,94 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
   }
 
   return renderProjectsView(state, primaryProject);
+}
+
+function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+  return `
+    <section class="core-workspace">
+      <article class="panel core-hero-panel">
+        <div class="panel__header">
+          <h3>TSN DSS</h3>
+          <span>Core</span>
+        </div>
+        <div class="core-hero-grid">
+          <section class="detail-stack">
+            <p class="core-lead">
+              TheStructureNavigator Deep Space System — lokalny workspace do projektów, capture, preprocessingu i dalszej analizy.
+            </p>
+            <dl class="health-list">
+              <div>
+                <dt>Version</dt>
+                <dd>${APP_VERSION}</dd>
+              </div>
+              <div>
+                <dt>API</dt>
+                <dd>${state.health?.status === 'ok' ? 'online' : 'offline'}</dd>
+              </div>
+              <div>
+                <dt>Active project</dt>
+                <dd>${primaryProject?.slug ?? 'none'}</dd>
+              </div>
+              <div>
+                <dt>Latest run</dt>
+                <dd>${latestRun?.status ?? 'none'}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="detail-stack">
+            <div class="detail-columns">
+              <section>
+                <h4>Current scope</h4>
+                <div class="project-tags">
+                  <span>projects</span>
+                  <span>captures</span>
+                  <span>siril runs</span>
+                  <span>sky view</span>
+                </div>
+              </section>
+              <section>
+                <h4>Focus</h4>
+                <p class="muted">Uporządkowany lokalny workflow od importu capture do gotowego outputu.</p>
+              </section>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <div class="core-columns">
+        <article class="panel">
+          <div class="panel__header">
+            <h3>Changelog</h3>
+            <span>v0.1</span>
+          </div>
+          <ul class="core-list">
+            <li>SQLite foundation, schema versioning and integrity tests are in place.</li>
+            <li>Project storage supports isolated captures, runs and Siril workspaces.</li>
+            <li>OSC_Preprocessing can be launched headless through Siril CLI.</li>
+            <li>Processing runs persist logs, status, output FITS and generated previews.</li>
+            <li>GUI now has dedicated workspaces for Core, Projects, Processing and Sky.</li>
+            <li>Capture browser uses cached thumbnails instead of full-size image loads.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel__header">
+            <h3>TODO</h3>
+            <span>next</span>
+          </div>
+          <ul class="core-list">
+            <li>Stabilize capture browser scroll and selection behavior fully.</li>
+            <li>Add larger image preview / lightbox for selected capture assets.</li>
+            <li>Refine Core page into a true project dashboard.</li>
+            <li>Expand Processing with stronger run history and comparison flow.</li>
+            <li>Connect Sky workspace more tightly with project target and outputs.</li>
+            <li>Prepare next domain-facing workflow layers on top of the current engine.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  `;
 }
 
 function renderProjectsView(state: AppState, primaryProject: ProjectSummary | null): string {
@@ -230,7 +337,7 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
     const latestProjectRun = state.projectRuns[0] ?? null;
     return `
       <section class="detail-stack">
-        ${renderProjectDetails(project, latestProjectRun)}
+        ${renderProjectDetails(project, latestProjectRun, state.projectPreviewTab)}
       </section>
     `;
   }
@@ -238,34 +345,13 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
   return `
     <section class="detail-stack">
       <div class="panel__header panel__header--nested">
-        <h3>Import capture</h3>
-        <span>${project.slug}</span>
+        <h3>Captures</h3>
+        <button class="action-button" type="button" data-open-import-capture-modal ${state.busy ? 'disabled' : ''}>
+          Import capture
+        </button>
       </div>
-      <section class="detail-stack">
-        <div>
-          <h4>Imported captures</h4>
-          ${renderTagList(project.capture_names, 'No captures imported yet')}
-        </div>
-      </section>
-      <form class="form-stack" data-form="import-capture">
-        <label class="field">
-          <span>Project slug</span>
-          <input name="project_slug" type="text" value="${project.slug}" placeholder="m42_rebuild" required />
-        </label>
-        <label class="field">
-          <span>Capture name</span>
-          <input name="capture_name" type="text" value="" placeholder="OrionNebula" required />
-        </label>
-        <label class="field">
-          <span>Source folder</span>
-          <input name="source_dir" type="text" placeholder="C:\\path\\to\\OrionNebula" required />
-        </label>
-        <label class="checkbox-field">
-          <input name="move" type="checkbox" />
-          <span>Move instead of copy</span>
-        </label>
-        <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Import capture</button>
-      </form>
+      ${renderProjectCaptureTabs(project.capture_names, state.selectedProjectCapture)}
+      ${renderCaptureBrowser(state.selectedProjectCaptureDetails, state.selectedProjectCaptureFolder, state.selectedProjectCaptureFile)}
     </section>
   `;
 }
@@ -476,6 +562,128 @@ function renderProcessingCaptureTabs(captureNames: string[], selectedCapture: st
   `;
 }
 
+function renderProjectCaptureTabs(captureNames: string[], selectedCapture: string | null): string {
+  if (!captureNames.length) {
+    return '<p class="muted">No captures imported yet.</p>';
+  }
+
+  return `
+    <div class="project-tab-list">
+      ${captureNames
+        .map((captureName) => {
+          const selectedClass = captureName === selectedCapture ? ' project-tab-button--active' : '';
+          return `
+            <button class="project-tab-button${selectedClass}" type="button" data-project-capture="${escapeHtml(captureName)}">
+              ${escapeHtml(captureName)}
+            </button>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function renderCaptureBrowser(
+  capture: CaptureDetails | null,
+  selectedCaptureFolder: string | null,
+  selectedCaptureFile: string | null,
+): string {
+  if (capture === null) {
+    return '<p class="muted">Select a capture to inspect its folder structure.</p>';
+  }
+
+  const selectedFolder = findSelectedCaptureFolder(capture, selectedCaptureFolder);
+  const selectedFile = findSelectedCaptureFile(selectedFolder, selectedCaptureFile);
+
+  return `
+    <section class="detail-stack">
+      <div class="project-tab-list">
+        ${capture.folders
+          .map((folder) => {
+            const activeClass = folder.name === selectedFolder?.name ? ' project-tab-button--active' : '';
+            return `
+              <button class="project-tab-button${activeClass}" type="button" data-capture-folder="${escapeHtml(folder.name)}">
+                ${escapeHtml(folder.name)}
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+
+      <article class="capture-folder">
+        <div class="panel__header panel__header--nested">
+          <h4>${selectedFolder?.name ?? 'folder'}</h4>
+          <span>${selectedFolder?.file_count ?? 0} file${selectedFolder?.file_count === 1 ? '' : 's'}</span>
+        </div>
+        ${
+          selectedFolder && selectedFolder.files.length
+            ? `<ul class="capture-file-list">
+                ${selectedFolder.files
+                  .map((fileEntry) => renderCaptureFileItem(capture, fileEntry, selectedFile))
+                  .join('')}
+              </ul>`
+            : '<p class="muted">No files in this folder.</p>'
+        }
+      </article>
+    </section>
+  `;
+}
+
+function renderCaptureFileItem(
+  capture: CaptureDetails,
+  fileEntry: CaptureFileEntry,
+  selectedFile: CaptureFileEntry | null,
+): string {
+  const isSelected = selectedFile?.relative_path === fileEntry.relative_path;
+  const previewable = isPreviewableCaptureFile(fileEntry);
+  const fileUrl = getCaptureFileUrl(capture.project_slug, capture.capture_name, fileEntry.relative_path);
+  const thumbnailUrl = getCaptureThumbnailUrl(capture.project_slug, capture.capture_name, fileEntry.relative_path, 384);
+  return `
+    <li class="${isSelected ? 'capture-file-list__item capture-file-list__item--selected' : 'capture-file-list__item'}">
+      ${
+        isSelected
+          ? `<a
+              class="capture-file-button__open-link"
+              href="${fileUrl}"
+              target="_blank"
+              rel="noreferrer"
+              title="Open in new tab"
+              aria-label="Open ${escapeHtml(fileEntry.name)} in new tab"
+              data-capture-open-link
+            >
+              ↗
+            </a>`
+          : ''
+      }
+      <button
+        class="capture-file-button"
+        type="button"
+        data-capture-file="${escapeHtml(fileEntry.relative_path)}"
+        title="${escapeHtml(`${fileEntry.name} • ${formatBytes(fileEntry.size_bytes)}`)}"
+      >
+        ${
+          previewable
+            ? `<img
+                class="capture-file-button__image"
+                src="${thumbnailUrl}"
+                alt="${escapeHtml(fileEntry.name)}"
+                loading="lazy"
+                decoding="async"
+                fetchpriority="low"
+              />`
+            : `<div class="capture-file-button__placeholder">
+                <span>${escapeHtml((fileEntry.suffix || 'file').replace('.', '').toUpperCase())}</span>
+              </div>`
+        }
+        <div class="capture-file-button__overlay">
+          <strong>${escapeHtml(fileEntry.name)}</strong>
+          <small>${formatBytes(fileEntry.size_bytes)}</small>
+        </div>
+      </button>
+    </li>
+  `;
+}
+
 function renderRunMonitor(run: ProjectRun | null, options?: { includeLogs?: boolean }): string {
   if (run === null) {
     return `<p class="muted">No processing run yet. Import a capture and launch Siril.</p>`;
@@ -667,7 +875,11 @@ function renderRunPreview(run: ProjectRun): string {
   `;
 }
 
-function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: ProjectRun | null): string {
+function renderProjectDetails(
+  project: ProjectSummary | null,
+  latestProjectRun: ProjectRun | null,
+  projectPreviewTab: ProjectPreviewTab,
+): string {
   if (project === null) {
     return `<p class="muted">No project selected.</p>`;
   }
@@ -703,17 +915,34 @@ function renderProjectDetails(project: ProjectSummary | null, latestProjectRun: 
       </div>
 
       <section class="detail-stack details-preview-panel project-preview-panel">
-        ${renderProjectPreviewPanel(latestProjectRun)}
+        ${renderProjectPreviewPanel(latestProjectRun, projectPreviewTab)}
       </section>
     </div>
   `;
 }
 
-function renderProjectPreviewPanel(run: ProjectRun | null): string {
+function renderProjectPreviewPanel(run: ProjectRun | null, activeTab: ProjectPreviewTab): string {
   if (run === null) {
     return '<p class="muted">No processing output is available for this project yet.</p>';
   }
 
+  return `
+    <div class="detail-stack">
+      <nav class="tab-strip" aria-label="Project output preview">
+        ${renderProjectPreviewTab('preview', 'Preview', activeTab)}
+        ${renderProjectPreviewTab('edited', 'Edited', activeTab)}
+      </nav>
+      ${activeTab === 'edited' ? renderProjectEditedPanel(run) : renderProjectGeneratedPreviewPanel(run)}
+    </div>
+  `;
+}
+
+function renderProjectPreviewTab(tab: ProjectPreviewTab, label: string, activeTab: ProjectPreviewTab): string {
+  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
+  return `<button class="tab-strip__button${activeClass}" type="button" data-project-preview-tab="${tab}">${label}</button>`;
+}
+
+function renderProjectGeneratedPreviewPanel(run: ProjectRun): string {
   if (run.preview_path) {
     return `
       <div class="preview-card">
@@ -746,6 +975,37 @@ function renderProjectPreviewPanel(run: ProjectRun | null): string {
   }
 
   return `<p class="muted">The latest run has not produced an output file yet.</p>`;
+}
+
+function renderProjectEditedPanel(run: ProjectRun): string {
+  if (!run.artifact_images.length) {
+    return '<p class="muted">No edited images were found in this run artifacts folder yet.</p>';
+  }
+
+  return `
+    <div class="edited-image-grid">
+      ${run.artifact_images.map((image) => renderEditedImageCard(run, image)).join('')}
+    </div>
+  `;
+}
+
+function renderEditedImageCard(run: ProjectRun, image: RunArtifactImage): string {
+  const imageUrl = getProjectRunArtifactUrl(run.id, image.relative_path);
+  return `
+    <a class="edited-image-card" href="${imageUrl}" target="_blank" rel="noreferrer" title="${escapeHtml(image.name)}">
+      <img
+        class="edited-image-card__image"
+        src="${imageUrl}"
+        alt="${escapeHtml(image.name)}"
+        loading="lazy"
+        decoding="async"
+      />
+      <div class="edited-image-card__overlay">
+        <strong>${escapeHtml(image.name)}</strong>
+        <small>${formatBytes(image.size_bytes)}</small>
+      </div>
+    </a>
+  `;
 }
 
 function renderTagList(values: string[], emptyLabel: string): string {
@@ -838,6 +1098,40 @@ function renderCreateRunModal(state: AppState, project: ProjectSummary | null, s
   `;
 }
 
+function renderImportCaptureModal(state: AppState, project: ProjectSummary | null, selectedCapture: string | null): string {
+  return `
+    <div class="modal-backdrop" data-close-import-capture-modal>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Import capture" data-import-capture-modal-card>
+        <div class="panel__header">
+          <h3>Import capture</h3>
+          <button class="action-button action-button--secondary" type="button" data-close-import-capture-modal ${state.busy ? 'disabled' : ''}>
+            Close
+          </button>
+        </div>
+        <form class="form-stack" data-form="import-capture">
+          <label class="field">
+            <span>Project slug</span>
+            <input name="project_slug" type="text" value="${project?.slug ?? ''}" readonly />
+          </label>
+          <label class="field">
+            <span>Capture name</span>
+            <input name="capture_name" type="text" value="${selectedCapture ?? ''}" placeholder="OrionNebula" required />
+          </label>
+          <label class="field">
+            <span>Source folder</span>
+            <input name="source_dir" type="text" placeholder="C:\\path\\to\\OrionNebula" required />
+          </label>
+          <label class="checkbox-field">
+            <input name="move" type="checkbox" />
+            <span>Move instead of copy</span>
+          </label>
+          <button class="action-button" type="submit" ${state.busy || project === null ? 'disabled' : ''}>Import capture</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
 function renderToast(state: AppState): string {
   if (!state.error && !state.message) {
     return '';
@@ -884,4 +1178,43 @@ function formatRunTabLabel(run: ProjectRun): string {
     }
   }
   return run.id;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isPreviewableCaptureFile(fileEntry: CaptureFileEntry): boolean {
+  const suffix = fileEntry.suffix.toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(suffix);
+}
+
+function findSelectedCaptureFolder(capture: CaptureDetails, selectedFolderName: string | null) {
+  if (!capture.folders.length) {
+    return null;
+  }
+  if (selectedFolderName) {
+    return capture.folders.find((folder) => folder.name === selectedFolderName) ?? capture.folders[0] ?? null;
+  }
+  return capture.folders[0] ?? null;
+}
+
+function findSelectedCaptureFile(
+  folder: CaptureDetails['folders'][number] | null,
+  selectedRelativePath: string | null,
+): CaptureFileEntry | null {
+  const allFiles = folder?.files ?? [];
+  if (!allFiles.length) {
+    return null;
+  }
+  if (selectedRelativePath) {
+    return allFiles.find((fileEntry) => fileEntry.relative_path === selectedRelativePath) ?? allFiles[0] ?? null;
+  }
+  return allFiles[0] ?? null;
 }

@@ -42,6 +42,29 @@ class ProjectSummary:
     sky_target: str | None = None
 
 
+@dataclass(slots=True)
+class CaptureFileEntry:
+    name: str
+    relative_path: str
+    size_bytes: int
+    suffix: str
+
+
+@dataclass(slots=True)
+class CaptureFolderEntry:
+    name: str
+    file_count: int
+    files: tuple[CaptureFileEntry, ...]
+
+
+@dataclass(slots=True)
+class CaptureDetails:
+    project_slug: str
+    capture_name: str
+    capture_root: Path
+    folders: tuple[CaptureFolderEntry, ...]
+
+
 class ProjectStorage:
     def __init__(self, projects_root: str | Path) -> None:
         self.projects_root = Path(projects_root)
@@ -159,6 +182,58 @@ class ProjectStorage:
             shutil.copytree(source_path, destination)
 
         return destination
+
+    def describe_capture(self, project_slug: str, capture_name: str) -> CaptureDetails:
+        layout = self.ensure_project(project_slug)
+        capture_root = layout.captures_dir / capture_name
+        if not capture_root.exists() or not capture_root.is_dir():
+            raise FileNotFoundError(f"Capture not found: {capture_name}")
+
+        folders: list[CaptureFolderEntry] = []
+        for folder_name in RAW_CAPTURE_DIRECTORIES:
+            folder_path = capture_root / folder_name
+            files: list[CaptureFileEntry] = []
+            if folder_path.exists() and folder_path.is_dir():
+                for file_path in sorted((path for path in folder_path.iterdir() if path.is_file()), key=lambda path: path.name.lower()):
+                    files.append(
+                        CaptureFileEntry(
+                            name=file_path.name,
+                            relative_path=str(file_path.relative_to(capture_root)),
+                            size_bytes=file_path.stat().st_size,
+                            suffix=file_path.suffix,
+                        )
+                    )
+            folders.append(
+                CaptureFolderEntry(
+                    name=folder_name,
+                    file_count=len(files),
+                    files=tuple(files),
+                )
+            )
+
+        return CaptureDetails(
+            project_slug=project_slug,
+            capture_name=capture_name,
+            capture_root=capture_root,
+            folders=tuple(folders),
+        )
+
+    def resolve_capture_file(self, project_slug: str, capture_name: str, relative_path: str | Path) -> tuple[Path, Path]:
+        layout = self.ensure_project(project_slug)
+        capture_root = (layout.captures_dir / capture_name).resolve()
+        if not capture_root.exists() or not capture_root.is_dir():
+            raise FileNotFoundError(f"Capture not found: {capture_name}")
+
+        file_path = (capture_root / Path(relative_path)).resolve()
+        try:
+            file_path.relative_to(capture_root)
+        except ValueError as error:
+            raise ValueError("Capture file path escapes capture root.") from error
+
+        if not file_path.exists() or not file_path.is_file():
+            raise FileNotFoundError(f"Capture file not found: {relative_path}")
+
+        return capture_root, file_path
 
     def prepare_siril_run(
         self,

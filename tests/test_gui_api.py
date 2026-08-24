@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from base64 import b64decode
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -67,6 +68,12 @@ class GuiApiServerTests(unittest.TestCase):
             destination = self.source_capture / relative_path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text("x", encoding="utf-8")
+        preview_image = self.source_capture / "lights" / "light_preview.png"
+        preview_image.write_bytes(
+            b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jx5QAAAAASUVORK5CYII="
+            )
+        )
         self.fake_script = Path(self.temp_dir.name) / "OSC_Preprocessing.ssf"
         self.fake_script.write_text("# fake script\n", encoding="utf-8")
         self.fake_siril_cli = Path(self.temp_dir.name) / "fake_siril_cli.py"
@@ -145,6 +152,37 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(project["captures_dir"], str((self.projects_root / "orion_nebula" / "captures")))
         self.assertEqual(project["runs_dir"], str((self.projects_root / "orion_nebula" / "runs")))
         self.assertIsNone(project["sky_target"])
+
+    def test_capture_detail_endpoint_returns_folder_structure(self) -> None:
+        payload = self._read_json("/api/projects/orion_nebula/captures/OrionNebula")
+
+        capture = payload["capture"]
+        self.assertEqual(capture["project_slug"], "orion_nebula")
+        self.assertEqual(capture["capture_name"], "OrionNebula")
+        self.assertEqual(len(capture["folders"]), 4)
+        lights_folder = next(folder for folder in capture["folders"] if folder["name"] == "lights")
+        self.assertEqual(lights_folder["file_count"], 2)
+        self.assertEqual(lights_folder["files"][0]["name"], "light_001.CR2")
+
+    def test_capture_file_endpoint_serves_capture_file(self) -> None:
+        response = self._read_response("/api/projects/orion_nebula/captures/OrionNebula/files/lights/light_001.CR2")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.read(), b"x")
+
+    def test_capture_thumbnail_endpoint_serves_cached_jpeg_thumbnail(self) -> None:
+        response = self._read_response(
+            "/api/projects/orion_nebula/captures/OrionNebula/thumbnails/lights/light_preview.png?size=256"
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers.get_content_type(), "image/jpeg")
+        body = response.read()
+        self.assertGreater(len(body), 0)
+
+        cache_root = self.projects_root / "orion_nebula" / ".cache" / "capture_thumbnails" / "OrionNebula" / "lights"
+        cached_files = list(cache_root.glob("light_preview__*.jpg"))
+        self.assertEqual(len(cached_files), 1)
 
     def test_create_project_endpoint_creates_new_project(self) -> None:
         payload = self._send_json("/api/projects", {"slug": "m42_gui"})
@@ -304,6 +342,38 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers.get_content_type(), "application/octet-stream")
         self.assertEqual(response.read(), b"fake fits")
+
+    def test_project_run_lists_and_serves_user_edited_artifact_images(self) -> None:
+        payload = self._send_json(
+            "/api/project-runs",
+            {
+                "project_slug": "orion_nebula",
+                "capture_name": "OrionNebula",
+                "script_path": str(self.fake_script),
+                "executable_parts": [sys.executable, str(self.fake_siril_cli)],
+            },
+        )
+
+        run_id = payload["run"]["id"]
+        completed_payload = self._wait_for_run(run_id)
+        run = completed_payload["run"]
+        artifacts_dir = Path(run["artifacts_dir"])
+        edited_image_path = artifacts_dir / "m42_edited.png"
+        edited_image_path.write_bytes(
+            b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jx5QAAAAASUVORK5CYII="
+            )
+        )
+
+        refreshed_payload = self._read_json(f"/api/project-runs/{run_id}")
+        refreshed_run = refreshed_payload["run"]
+        artifact_images = refreshed_run["artifact_images"]
+        self.assertEqual(len(artifact_images), 1)
+        self.assertEqual(artifact_images[0]["name"], "m42_edited.png")
+
+        response = self._read_response(f"/api/project-runs/{run_id}/artifacts/m42_edited.png")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers.get_content_type(), "image/png")
 
     def test_generate_preview_endpoint_returns_preview_error_and_log(self) -> None:
         payload = self._send_json(
