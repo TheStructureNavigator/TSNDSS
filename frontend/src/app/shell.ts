@@ -35,7 +35,6 @@ export type AppState = {
   error: string | null;
   busy: boolean;
   projectDetailTab: ProjectDetailTab;
-  projectPreviewTab: ProjectPreviewTab;
   processingDetailTab: ProcessingDetailTab;
   skyDetailTab: SkyDetailTab;
   createProjectModalOpen: boolean;
@@ -44,7 +43,6 @@ export type AppState = {
 };
 
 export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
-export type ProjectPreviewTab = 'preview' | 'edited';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 export type SkyDetailTab = 'viewer' | 'context' | 'planned';
 
@@ -337,7 +335,7 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
     const latestProjectRun = state.projectRuns[0] ?? null;
     return `
       <section class="detail-stack">
-        ${renderProjectDetails(project, latestProjectRun, state.projectPreviewTab)}
+        ${renderProjectDetails(project, latestProjectRun)}
       </section>
     `;
   }
@@ -878,71 +876,57 @@ function renderRunPreview(run: ProjectRun): string {
 function renderProjectDetails(
   project: ProjectSummary | null,
   latestProjectRun: ProjectRun | null,
-  projectPreviewTab: ProjectPreviewTab,
 ): string {
   if (project === null) {
     return `<p class="muted">No project selected.</p>`;
   }
 
   return `
-    <div class="details-split-layout project-details-layout">
-      <div class="detail-stack">
-        <dl class="health-list">
-          <div>
-            <dt>Project root</dt>
-            <dd>${project.project_root}</dd>
-          </div>
-          <div>
-            <dt>Captures dir</dt>
-            <dd>${project.captures_dir}</dd>
-          </div>
-          <div>
-            <dt>Runs dir</dt>
-            <dd>${project.runs_dir}</dd>
-          </div>
-        </dl>
+    <div class="detail-stack">
+      <div class="details-split-layout project-details-layout">
+        <div class="detail-stack">
+          <dl class="health-list">
+            <div>
+              <dt>Project root</dt>
+              <dd>${project.project_root}</dd>
+            </div>
+            <div>
+              <dt>Captures dir</dt>
+              <dd>${project.captures_dir}</dd>
+            </div>
+            <div>
+              <dt>Runs dir</dt>
+              <dd>${project.runs_dir}</dd>
+            </div>
+          </dl>
 
-        <div class="detail-columns">
-          <section>
-            <h4>Captures</h4>
-            ${renderTagList(project.capture_names, 'No captures')}
-          </section>
-          <section>
-            <h4>Run folders</h4>
-            ${renderTagList(project.run_names, 'No run folders yet')}
-          </section>
+          <div class="detail-columns">
+            <section>
+              <h4>Captures</h4>
+              ${renderTagList(project.capture_names, 'No captures')}
+            </section>
+            <section>
+              <h4>Run folders</h4>
+              ${renderTagList(project.run_names, 'No run folders yet')}
+            </section>
+          </div>
         </div>
+
+        <section class="detail-stack details-preview-panel project-preview-panel">
+          ${renderProjectGeneratedPreviewPanel(latestProjectRun)}
+        </section>
       </div>
 
-      <section class="detail-stack details-preview-panel project-preview-panel">
-        ${renderProjectPreviewPanel(latestProjectRun, projectPreviewTab)}
-      </section>
+      ${renderProjectEditedGallery(latestProjectRun)}
     </div>
   `;
 }
 
-function renderProjectPreviewPanel(run: ProjectRun | null, activeTab: ProjectPreviewTab): string {
+function renderProjectGeneratedPreviewPanel(run: ProjectRun | null): string {
   if (run === null) {
     return '<p class="muted">No processing output is available for this project yet.</p>';
   }
 
-  return `
-    <div class="detail-stack">
-      <nav class="tab-strip" aria-label="Project output preview">
-        ${renderProjectPreviewTab('preview', 'Preview', activeTab)}
-        ${renderProjectPreviewTab('edited', 'Edited', activeTab)}
-      </nav>
-      ${activeTab === 'edited' ? renderProjectEditedPanel(run) : renderProjectGeneratedPreviewPanel(run)}
-    </div>
-  `;
-}
-
-function renderProjectPreviewTab(tab: ProjectPreviewTab, label: string, activeTab: ProjectPreviewTab): string {
-  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
-  return `<button class="tab-strip__button${activeClass}" type="button" data-project-preview-tab="${tab}">${label}</button>`;
-}
-
-function renderProjectGeneratedPreviewPanel(run: ProjectRun): string {
   if (run.preview_path) {
     return `
       <div class="preview-card">
@@ -975,6 +959,22 @@ function renderProjectGeneratedPreviewPanel(run: ProjectRun): string {
   }
 
   return `<p class="muted">The latest run has not produced an output file yet.</p>`;
+}
+
+function renderProjectEditedGallery(run: ProjectRun | null): string {
+  if (run === null) {
+    return '';
+  }
+
+  return `
+    <article class="panel project-edited-panel">
+      <div class="panel__header">
+        <h3>Edited</h3>
+        <span>${run.artifact_images.length} image${run.artifact_images.length === 1 ? '' : 's'}</span>
+      </div>
+      ${renderProjectEditedPanel(run)}
+    </article>
+  `;
 }
 
 function renderProjectEditedPanel(run: ProjectRun): string {

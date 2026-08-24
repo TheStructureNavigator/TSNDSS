@@ -21,7 +21,6 @@ import {
   type AppState,
   type ProcessingDetailTab,
   type ProjectDetailTab,
-  type ProjectPreviewTab,
   type SkyDetailTab,
   type ViewName,
 } from './app/shell';
@@ -53,7 +52,6 @@ const state: AppState = {
   error: null,
   busy: false,
   projectDetailTab: 'details',
-  projectPreviewTab: 'preview',
   processingDetailTab: 'overview',
   skyDetailTab: 'viewer',
   createProjectModalOpen: false,
@@ -97,7 +95,6 @@ function render(): void {
   bindNavigation();
   bindProjectSelection();
   bindProjectTabs();
-  bindProjectPreviewTabs();
   bindProjectCaptureSelection();
   bindProjectCaptureFolderSelection();
   bindProjectCaptureFileSelection();
@@ -149,20 +146,6 @@ function bindProjectTabs(): void {
         return;
       }
       state.projectDetailTab = nextTab;
-      render();
-    });
-  });
-}
-
-function bindProjectPreviewTabs(): void {
-  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-project-preview-tab]');
-  buttons.forEach((button) => {
-    button.addEventListener('click', () => {
-      const nextTab = button.dataset.projectPreviewTab as ProjectPreviewTab | undefined;
-      if (nextTab === undefined) {
-        return;
-      }
-      state.projectPreviewTab = nextTab;
       render();
     });
   });
@@ -573,7 +556,6 @@ async function handleDeleteProject(slug: string): Promise<void> {
       syncRunPolling();
     }
     state.projectDetailTab = 'details';
-    state.projectPreviewTab = 'preview';
     setMessage(`Project deleted: ${slug}`);
     await refreshState();
   } catch (error) {
@@ -616,7 +598,6 @@ async function selectProject(slug: string): Promise<void> {
 
   state.selectedProject = await loadProjectDetails(slug, state.projects);
   state.projectDetailTab = 'details';
-  state.projectPreviewTab = 'preview';
   state.processingDetailTab = 'overview';
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
   await syncSelectedProjectCapture();

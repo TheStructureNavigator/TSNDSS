@@ -434,6 +434,19 @@ pre {
   align-self: start;
 }
 
+.project-preview-panel {
+  display: flex;
+}
+
+.project-preview-panel .preview-card,
+.project-preview-panel .detail-stack {
+  width: 100%;
+}
+
+.project-edited-panel {
+  width: 100%;
+}
+
 .run-overview-layout .run-monitor__summary {
   grid-template-columns: 1fr;
   gap: 0.6rem;
