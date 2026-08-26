@@ -1,0 +1,33 @@
+{
+  "current_version": "0.1.1",
+  "releases": [
+    {
+      "version": "0.1.1",
+      "date": "2026-08-26",
+      "changelog": [
+        "Reworked Projects into a gallery-first layout with a dedicated left selection column for captures and runs.",
+        "Merged the project preview and edited outputs into a single unified gallery, with the preview shown as the first gallery item.",
+        "Rebuilt Import Capture to use the same left-sidebar plus right-gallery layout as Projects.",
+        "Reorganized Processing into the same workspace pattern, with Create Run, capture selection, run selection, and a wider detail area.",
+        "Simplified Sky into a focused map-only workspace and removed the extra context and planning tabs.",
+        "Moved Core content into a versioned JSON source and updated the Core page to show the latest release expanded with older releases collapsed below."
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-08-24",
+      "changelog": [
+        "SQLite foundation, schema versioning, and integrity tests are in place.",
+        "Project storage supports isolated captures, runs, and Siril workspaces.",
+        "OSC_Preprocessing can be launched headless through the Siril CLI.",
+        "Processing runs persist logs, status, output FITS, and generated previews.",
+        "The GUI now has dedicated workspaces for Core, Projects, Processing, and Sky.",
+        "The capture browser uses cached thumbnails instead of full-size image loads."
+      ]
+    }
+  ],
+  "todo": [
+    "Connect the Sky workspace more tightly with project targets and outputs.",
+    "Prepare the next domain-facing workflow layers on top of the current engine."
+  ]
+}

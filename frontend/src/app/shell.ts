@@ -1,4 +1,5 @@
 import iconUrl from '../assets/tsn_dss_icon.png';
+import coreContent from '../content/core-content.json';
 import {
   type CaptureDetails,
   type CaptureFileEntry,
@@ -15,7 +16,23 @@ import {
   type RunArtifactImage,
 } from './api';
 
-const APP_VERSION = '0.1.0';
+type CoreContent = {
+  current_version: string;
+  releases: Array<{
+    version: string;
+    date?: string;
+    changelog: string[];
+  }>;
+  todo: string[];
+};
+
+const typedCoreContent = coreContent as CoreContent;
+const currentRelease =
+  typedCoreContent.releases.find((release) => release.version === typedCoreContent.current_version)
+  ?? typedCoreContent.releases[0]
+  ?? { version: typedCoreContent.current_version, changelog: [] };
+const APP_VERSION = typedCoreContent.current_version;
+const historicalReleases = typedCoreContent.releases.filter((release) => release.version !== currentRelease.version);
 
 export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
 
@@ -23,6 +40,7 @@ export type AppState = {
   health: ApiHealth | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
+  selectedProjectRunId: string | null;
   selectedProjectCapture: string | null;
   selectedProjectCaptureDetails: CaptureDetails | null;
   selectedProjectCaptureFile: string | null;
@@ -42,9 +60,9 @@ export type AppState = {
   createImportCaptureModalOpen: boolean;
 };
 
-export type ProjectDetailTab = 'details' | 'import' | 'target' | 'settings';
+export type ProjectDetailTab = 'gallery' | 'import' | 'settings';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
-export type SkyDetailTab = 'viewer' | 'context' | 'planned';
+export type SkyDetailTab = 'viewer';
 
 export function renderAppShell(state: AppState): string {
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
@@ -140,70 +158,68 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
 function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
   return `
     <section class="core-workspace">
-      <article class="panel core-hero-panel">
-        <div class="panel__header">
-          <h3>TSN DSS</h3>
-          <span>Core</span>
+      <section class="project-detail-stack">
+        <div class="project-summary-strip">
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Version</span>
+            <span class="project-summary-strip__value">${APP_VERSION}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">API</span>
+            <span class="project-summary-strip__value">${state.health?.status === 'ok' ? 'online' : 'offline'}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Active project</span>
+            <span class="project-summary-strip__value">${escapeHtml(primaryProject?.slug ?? 'none')}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Latest run</span>
+            <span class="project-summary-strip__value">${escapeHtml(latestRun?.status ?? 'none')}</span>
+          </div>
         </div>
-        <div class="core-hero-grid">
-          <section class="detail-stack">
-            <p class="core-lead">
-              TheStructureNavigator Deep Space System — lokalny workspace do projektów, capture, preprocessingu i dalszej analizy.
-            </p>
-            <dl class="health-list">
-              <div>
-                <dt>Version</dt>
-                <dd>${APP_VERSION}</dd>
-              </div>
-              <div>
-                <dt>API</dt>
-                <dd>${state.health?.status === 'ok' ? 'online' : 'offline'}</dd>
-              </div>
-              <div>
-                <dt>Active project</dt>
-                <dd>${primaryProject?.slug ?? 'none'}</dd>
-              </div>
-              <div>
-                <dt>Latest run</dt>
-                <dd>${latestRun?.status ?? 'none'}</dd>
-              </div>
-            </dl>
-          </section>
 
-          <section class="detail-stack">
-            <div class="detail-columns">
-              <section>
-                <h4>Current scope</h4>
-                <div class="project-tags">
-                  <span>projects</span>
-                  <span>captures</span>
-                  <span>siril runs</span>
-                  <span>sky view</span>
-                </div>
-              </section>
-              <section>
-                <h4>Focus</h4>
-                <p class="muted">Uporządkowany lokalny workflow od importu capture do gotowego outputu.</p>
-              </section>
-            </div>
-          </section>
-        </div>
-      </article>
+        <article class="panel">
+          <p class="core-lead">
+            TheStructureNavigator Deep Space System is a local workspace for projects, captures, preprocessing, and downstream image review.
+          </p>
+        </article>
+      </section>
 
       <div class="core-columns">
         <article class="panel">
           <div class="panel__header">
             <h3>Changelog</h3>
-            <span>v0.1</span>
+            <span>v${escapeHtml(APP_VERSION)}</span>
           </div>
-          <ul class="core-list">
-            <li>SQLite foundation, schema versioning and integrity tests are in place.</li>
-            <li>Project storage supports isolated captures, runs and Siril workspaces.</li>
-            <li>OSC_Preprocessing can be launched headless through Siril CLI.</li>
-            <li>Processing runs persist logs, status, output FITS and generated previews.</li>
-            <li>GUI now has dedicated workspaces for Core, Projects, Processing and Sky.</li>
-            <li>Capture browser uses cached thumbnails instead of full-size image loads.</li>
-          </ul>
+          <div class="release-stack">
+            <section class="release-card release-card--current">
+              <div class="panel__header panel__header--nested">
+                <h3>v${escapeHtml(currentRelease.version)}</h3>
+                <span>${escapeHtml(currentRelease.date ?? 'Current')}</span>
+              </div>
+              <ul class="core-list">
+                ${currentRelease.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+              </ul>
+            </section>
+
+            ${historicalReleases
+              .map(
+                (release) => `
+                  <details class="release-disclosure">
+                    <summary class="release-disclosure__summary">
+                      <span>v${escapeHtml(release.version)}</span>
+                      <span>${escapeHtml(release.date ?? 'Release')}</span>
+                    </summary>
+                    <div class="release-disclosure__body">
+                      <ul class="core-list">
+                        ${release.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  </details>
+                `,
+              )
+              .join('')}
+          </div>
         </article>
 
         <article class="panel">
@@ -212,12 +228,7 @@ function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, 
             <span>next</span>
           </div>
           <ul class="core-list">
-            <li>Stabilize capture browser scroll and selection behavior fully.</li>
-            <li>Add larger image preview / lightbox for selected capture assets.</li>
-            <li>Refine Core page into a true project dashboard.</li>
-            <li>Expand Processing with stronger run history and comparison flow.</li>
-            <li>Connect Sky workspace more tightly with project target and outputs.</li>
-            <li>Prepare next domain-facing workflow layers on top of the current engine.</li>
+            ${typedCoreContent.todo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
           </ul>
         </article>
       </div>
@@ -228,15 +239,13 @@ function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, 
 function renderProjectsView(state: AppState, primaryProject: ProjectSummary | null): string {
   return `
     <section class="projects-workspace">
-      <article class="panel project-tabs-panel">
-        <div class="panel__header">
-          <h3>Projects</h3>
-          <button class="action-button" type="button" data-open-create-project-modal ${state.busy ? 'disabled' : ''}>
-            Create project
-          </button>
-        </div>
+      <div class="projects-toolbar">
+        <span class="projects-toolbar__label">Projects:</span>
         ${renderProjectTabs(state.projects, primaryProject?.slug ?? null)}
-      </article>
+        <button class="action-button projects-toolbar__create" type="button" data-open-create-project-modal ${state.busy ? 'disabled' : ''}>
+          Create project
+        </button>
+      </div>
 
       <div class="projects-detail-column">
         ${renderSelectedProjectPanel(state, primaryProject)}
@@ -261,22 +270,21 @@ function renderSelectedProjectPanel(state: AppState, project: ProjectSummary | n
   }
 
   return `
-    <article class="panel project-detail-panel">
-      <div class="panel__header">
-        <h3>${project.slug}</h3>
+    <section class="project-detail-shell">
+      <div class="project-detail-stack">
+        ${renderProjectSummaryStrip(project)}
       </div>
 
-      <nav class="tab-strip" aria-label="Project details">
-        ${renderProjectTab('details', 'Project details', state.projectDetailTab)}
+      <nav class="tab-strip project-detail-tabs" aria-label="Project details">
+        ${renderProjectTab('gallery', 'Gallery', state.projectDetailTab)}
         ${renderProjectTab('import', 'Import capture', state.projectDetailTab)}
-        ${renderProjectTab('target', 'Sky target', state.projectDetailTab)}
         ${renderProjectTab('settings', 'Project settings', state.projectDetailTab)}
       </nav>
 
       <div class="project-detail-stack">
         ${renderSelectedProjectTab(state, project)}
       </div>
-    </article>
+    </section>
   `;
 }
 
@@ -309,47 +317,38 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
     `;
   }
 
-  if (state.projectDetailTab === 'target') {
+  if (state.projectDetailTab === 'gallery') {
+    const selectedCaptureName =
+      (state.selectedProjectCapture && project.capture_names.includes(state.selectedProjectCapture)
+        ? state.selectedProjectCapture
+        : null)
+      ?? project.capture_names[0]
+      ?? null;
+    const runsForSelectedCapture = selectedCaptureName
+      ? state.projectRuns.filter((run) => run.capture_name === selectedCaptureName)
+      : state.projectRuns;
+    const selectedProjectRun =
+      (state.selectedProjectRunId
+        ? runsForSelectedCapture.find((run) => run.id === state.selectedProjectRunId)
+        : null)
+      ?? runsForSelectedCapture[0]
+      ?? null;
     return `
       <section class="detail-stack">
-        <div class="panel__header panel__header--nested">
-          <h3>Sky target</h3>
-          <span>${project.sky_target ?? 'not set'}</span>
-        </div>
-        <form class="form-stack" data-form="project-sky-target">
-          <label class="field">
-            <span>Project slug</span>
-            <input name="project_slug" type="text" value="${project.slug}" placeholder="m42_rebuild" required />
-          </label>
-          <label class="field">
-            <span>Sky target</span>
-            <input name="sky_target" type="text" value="${project.sky_target ?? ''}" placeholder="M42 / NGC 1976 / Orion Nebula" required />
-          </label>
-          <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Save target</button>
-        </form>
-      </section>
-    `;
-  }
-
-  if (state.projectDetailTab === 'details') {
-    const latestProjectRun = state.projectRuns[0] ?? null;
-    return `
-      <section class="detail-stack">
-        ${renderProjectDetails(project, latestProjectRun)}
+        ${renderProjectDetails(project, runsForSelectedCapture, selectedProjectRun, selectedCaptureName)}
       </section>
     `;
   }
 
   return `
     <section class="detail-stack">
-      <div class="panel__header panel__header--nested">
-        <h3>Captures</h3>
-        <button class="action-button" type="button" data-open-import-capture-modal ${state.busy ? 'disabled' : ''}>
-          Import capture
-        </button>
-      </div>
-      ${renderProjectCaptureTabs(project.capture_names, state.selectedProjectCapture)}
-      ${renderCaptureBrowser(state.selectedProjectCaptureDetails, state.selectedProjectCaptureFolder, state.selectedProjectCaptureFile)}
+      ${renderCaptureBrowser(
+        project.capture_names,
+        state.selectedProjectCapture,
+        state.selectedProjectCaptureDetails,
+        state.selectedProjectCaptureFolder,
+        state.selectedProjectCaptureFile,
+      )}
     </section>
   `;
 }
@@ -377,32 +376,45 @@ function renderProcessingView(state: AppState, primaryProject: ProjectSummary | 
 
   return `
     <section class="processing-workspace">
-      <article class="panel project-tabs-panel">
-        <div class="panel__header">
-          <h3>Captures</h3>
-          <button class="action-button" type="button" data-open-create-run-modal ${state.busy ? 'disabled' : ''}>
-            Create run
-          </button>
-        </div>
-        ${renderProcessingCaptureTabs(primaryProject.capture_names, selectedCapture)}
-        <div class="panel__header panel__header--nested">
-          <h3>Runs</h3>
-          <span>${selectedCapture ?? 'none'}</span>
-        </div>
-        ${renderRunTabs(runsForCapture, activeProcessingRun?.id ?? null)}
-      </article>
+      <section class="project-gallery-layout processing-layout-shell">
+        <aside class="project-gallery-sidebar">
+          <div class="project-gallery-sidebar__action">
+            <button class="action-button" type="button" data-open-create-run-modal ${state.busy ? 'disabled' : ''}>
+              Create run
+            </button>
+          </div>
 
-      <article class="panel processing-detail-panel">
-        <div class="panel__header">
-          <h3>${activeProcessingRun?.id ?? 'none'}</h3>
-          <span>Processing: ${activeProcessingRun?.status ?? 'idle'}</span>
-        </div>
+          <section class="project-gallery-group">
+            <div class="panel__header panel__header--nested">
+              <h3>Captures</h3>
+            </div>
+            ${renderProcessingCaptureTabs(primaryProject.capture_names, selectedCapture)}
+          </section>
 
-        <section class="detail-stack">
-          ${renderRunDetailTabs(state.processingDetailTab, activeProcessingRun)}
-          ${renderRunDetailPanel(state.processingDetailTab, activeProcessingRun)}
+          <section class="project-gallery-group">
+            <div class="panel__header panel__header--nested">
+              <h3>Runs</h3>
+            </div>
+            ${renderRunTabs(runsForCapture, activeProcessingRun?.id ?? null)}
+          </section>
+        </aside>
+
+        <section class="project-gallery-main processing-main">
+          <div class="project-detail-stack">
+            ${renderProcessingSummaryStrip(activeProcessingRun)}
+
+            <nav class="tab-strip project-detail-tabs" aria-label="Run details">
+              ${renderProcessingTab('overview', 'Overview', state.processingDetailTab)}
+              ${renderProcessingTab('logs', 'Logs', state.processingDetailTab)}
+              ${renderProcessingTab('settings', 'Run settings', state.processingDetailTab)}
+            </nav>
+
+            <div class="project-detail-stack">
+              ${renderRunDetailPanel(state.processingDetailTab, activeProcessingRun)}
+            </div>
+          </div>
         </section>
-      </article>
+      </section>
     </section>
   `;
 }
@@ -423,88 +435,16 @@ function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, l
 
   return `
     <section class="sky-workspace">
-      <article class="panel processing-detail-panel">
-        <div class="panel__header">
-          <h3>${primaryProject.sky_target ?? 'M42'}</h3>
-          <span>Sky: ${primaryProject.slug}</span>
+      <section class="processing-main">
+        <div class="project-detail-stack">
+          ${renderSkyDetailPanel('viewer', primaryProject, latestRun)}
         </div>
-
-        <section class="detail-stack">
-          <nav class="tab-strip" aria-label="Sky details">
-            ${renderSkyTab('viewer', 'Sky viewer', state.skyDetailTab)}
-            ${renderSkyTab('context', 'Sky context', state.skyDetailTab)}
-            ${renderSkyTab('planned', 'Planned', state.skyDetailTab)}
-          </nav>
-          ${renderSkyDetailPanel(state.skyDetailTab, primaryProject, latestRun)}
-        </section>
-      </article>
+      </section>
     </section>
   `;
 }
 
-function renderSkyTab(tab: SkyDetailTab, label: string, activeTab: SkyDetailTab): string {
-  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
-  return `<button class="tab-strip__button${activeClass}" type="button" data-sky-tab="${tab}">${label}</button>`;
-}
-
 function renderSkyDetailPanel(activeTab: SkyDetailTab, primaryProject: ProjectSummary, latestRun: ProjectRun | null): string {
-  if (activeTab === 'context') {
-    return `
-      <section class="detail-stack">
-        <p class="muted">
-          Aladin Lite is centered on the current project target when available, otherwise it falls back to M42.
-        </p>
-        <div class="details-split-layout sky-context-layout">
-          <section class="detail-stack">
-            <dl class="health-list">
-              <div>
-                <dt>Project root</dt>
-                <dd>${primaryProject.project_root}</dd>
-              </div>
-              <div>
-                <dt>Captures dir</dt>
-                <dd>${primaryProject.captures_dir}</dd>
-              </div>
-              <div>
-                <dt>Runs dir</dt>
-                <dd>${primaryProject.runs_dir}</dd>
-              </div>
-              <div>
-                <dt>Latest output</dt>
-                <dd>${latestRun?.output_path ?? 'No output yet'}</dd>
-              </div>
-            </dl>
-          </section>
-          <section class="detail-stack details-preview-panel">
-            <div class="detail-columns">
-              <section>
-                <h4>Captures</h4>
-                ${renderTagList(primaryProject.capture_names, 'No captures')}
-              </section>
-              <section>
-                <h4>Run folders</h4>
-                ${renderTagList(primaryProject.run_names, 'No run folders yet')}
-              </section>
-            </div>
-          </section>
-        </div>
-      </section>
-    `;
-  }
-
-  if (activeTab === 'planned') {
-    return `
-      <section class="detail-stack">
-        <ul class="sidebar-list">
-          <li>project target centering</li>
-          <li>frame footprint overlays</li>
-          <li>dataset highlight / selection</li>
-          <li>processing result preview hooks</li>
-        </ul>
-      </section>
-    `;
-  }
-
   return `
     <section class="detail-stack">
       <article class="panel sky-panel sky-panel--full">
@@ -582,47 +522,86 @@ function renderProjectCaptureTabs(captureNames: string[], selectedCapture: strin
 }
 
 function renderCaptureBrowser(
+  captureNames: string[],
+  selectedCaptureName: string | null,
   capture: CaptureDetails | null,
   selectedCaptureFolder: string | null,
   selectedCaptureFile: string | null,
 ): string {
   if (capture === null) {
-    return '<p class="muted">Select a capture to inspect its folder structure.</p>';
+    return `
+      <section class="project-gallery-layout">
+        <aside class="project-gallery-sidebar">
+          <div class="project-gallery-sidebar__action">
+            <button class="action-button" type="button" data-open-import-capture-modal ${captureNames.length >= 0 ? '' : ''}>
+              Import capture
+            </button>
+          </div>
+          <section class="project-gallery-group">
+            <div class="panel__header panel__header--nested">
+              <h3>Captures</h3>
+            </div>
+            ${renderProjectCaptureTabs(captureNames, selectedCaptureName)}
+          </section>
+        </aside>
+        <section class="project-gallery-main">
+          <p class="muted">Select a capture to inspect its folder structure.</p>
+        </section>
+      </section>
+    `;
   }
 
   const selectedFolder = findSelectedCaptureFolder(capture, selectedCaptureFolder);
   const selectedFile = findSelectedCaptureFile(selectedFolder, selectedCaptureFile);
 
   return `
-    <section class="detail-stack">
-      <div class="project-tab-list">
-        ${capture.folders
-          .map((folder) => {
-            const activeClass = folder.name === selectedFolder?.name ? ' project-tab-button--active' : '';
-            return `
-              <button class="project-tab-button${activeClass}" type="button" data-capture-folder="${escapeHtml(folder.name)}">
-                ${escapeHtml(folder.name)}
-              </button>
-            `;
-          })
-          .join('')}
-      </div>
-
-      <article class="capture-folder">
-        <div class="panel__header panel__header--nested">
-          <h4>${selectedFolder?.name ?? 'folder'}</h4>
-          <span>${selectedFolder?.file_count ?? 0} file${selectedFolder?.file_count === 1 ? '' : 's'}</span>
+    <section class="project-gallery-layout">
+      <aside class="project-gallery-sidebar">
+        <div class="project-gallery-sidebar__action">
+          <button class="action-button" type="button" data-open-import-capture-modal>
+            Import capture
+          </button>
         </div>
-        ${
-          selectedFolder && selectedFolder.files.length
-            ? `<ul class="capture-file-list">
-                ${selectedFolder.files
-                  .map((fileEntry) => renderCaptureFileItem(capture, fileEntry, selectedFile))
-                  .join('')}
-              </ul>`
-            : '<p class="muted">No files in this folder.</p>'
-        }
-      </article>
+
+        <section class="project-gallery-group">
+          <div class="panel__header panel__header--nested">
+            <h3>Captures</h3>
+          </div>
+          ${renderProjectCaptureTabs(captureNames, selectedCaptureName)}
+        </section>
+
+        <section class="project-gallery-group">
+          <div class="panel__header panel__header--nested">
+            <h3>Folders</h3>
+          </div>
+          <div class="project-tab-list project-tab-list--stacked">
+            ${capture.folders
+              .map((folder) => {
+                const activeClass = folder.name === selectedFolder?.name ? ' project-tab-button--active' : '';
+                return `
+                  <button class="project-tab-button${activeClass}" type="button" data-capture-folder="${escapeHtml(folder.name)}">
+                    ${escapeHtml(folder.name)}
+                  </button>
+                `;
+              })
+              .join('')}
+          </div>
+        </section>
+      </aside>
+
+      <section class="project-gallery-main">
+        <article class="capture-folder">
+          ${
+            selectedFolder && selectedFolder.files.length
+              ? `<ul class="capture-file-list">
+                  ${selectedFolder.files
+                    .map((fileEntry) => renderCaptureFileItem(capture, fileEntry, selectedFile))
+                    .join('')}
+                </ul>`
+              : '<p class="muted">No files in this folder.</p>'
+          }
+        </article>
+      </section>
     </section>
   `;
 }
@@ -780,6 +759,29 @@ function renderRunDetailTabs(activeTab: ProcessingDetailTab, run: ProjectRun | n
   `;
 }
 
+function renderProcessingSummaryStrip(run: ProjectRun | null): string {
+  return `
+    <div class="project-summary-strip">
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Run</span>
+        <span class="project-summary-strip__value">${escapeHtml(run?.id ?? 'none')}</span>
+      </div>
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Status</span>
+        <span class="project-summary-strip__value">${escapeHtml(run?.status ?? 'idle')}</span>
+      </div>
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Capture</span>
+        <span class="project-summary-strip__value">${escapeHtml(run?.capture_name ?? 'none')}</span>
+      </div>
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Progress</span>
+        <span class="project-summary-strip__value">${run ? `${run.progress_pct}%` : '0%'}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderProcessingTab(tab: ProcessingDetailTab, label: string, activeTab: ProcessingDetailTab): string {
   const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
   return `<button class="tab-strip__button${activeClass}" type="button" data-processing-tab="${tab}">${label}</button>`;
@@ -875,49 +877,86 @@ function renderRunPreview(run: ProjectRun): string {
 
 function renderProjectDetails(
   project: ProjectSummary | null,
-  latestProjectRun: ProjectRun | null,
+  projectRuns: ProjectRun[],
+  selectedProjectRun: ProjectRun | null,
+  selectedCaptureName: string | null,
 ): string {
   if (project === null) {
     return `<p class="muted">No project selected.</p>`;
   }
 
   return `
-    <div class="detail-stack">
-      <div class="details-split-layout project-details-layout">
-        <div class="detail-stack">
-          <dl class="health-list">
-            <div>
-              <dt>Project root</dt>
-              <dd>${project.project_root}</dd>
-            </div>
-            <div>
-              <dt>Captures dir</dt>
-              <dd>${project.captures_dir}</dd>
-            </div>
-            <div>
-              <dt>Runs dir</dt>
-              <dd>${project.runs_dir}</dd>
-            </div>
-          </dl>
-
-          <div class="detail-columns">
-            <section>
-              <h4>Captures</h4>
-              ${renderTagList(project.capture_names, 'No captures')}
-            </section>
-            <section>
-              <h4>Run folders</h4>
-              ${renderTagList(project.run_names, 'No run folders yet')}
-            </section>
+    <section class="project-gallery-layout">
+      <aside class="project-gallery-sidebar">
+        <section class="project-gallery-group">
+          <div class="panel__header panel__header--nested">
+            <h3>Captures</h3>
           </div>
-        </div>
-
-        <section class="detail-stack details-preview-panel project-preview-panel">
-          ${renderProjectGeneratedPreviewPanel(latestProjectRun)}
+          ${renderProjectCaptureTabs(project.capture_names, selectedCaptureName)}
         </section>
-      </div>
 
-      ${renderProjectEditedGallery(latestProjectRun)}
+        <section class="project-gallery-group">
+          <div class="panel__header panel__header--nested">
+            <h3>Runs</h3>
+          </div>
+          ${renderProjectRunTabs(projectRuns, selectedProjectRun?.id ?? null)}
+        </section>
+      </aside>
+
+      <section class="project-gallery-main">
+        ${renderProjectMediaPanel(selectedProjectRun)}
+      </section>
+    </section>
+  `;
+}
+
+function renderProjectSummaryStrip(project: ProjectSummary): string {
+  return `
+    <div class="project-summary-strip">
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Project root</span>
+        <span class="project-summary-strip__value">${escapeHtml(project.project_root)}</span>
+      </div>
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Captures dir</span>
+        <span class="project-summary-strip__value">${escapeHtml(project.captures_dir)}</span>
+      </div>
+      <div class="project-summary-strip__item">
+        <span class="project-summary-strip__label">Runs dir</span>
+        <span class="project-summary-strip__value">${escapeHtml(project.runs_dir)}</span>
+      </div>
+      <label class="project-summary-strip__item project-summary-strip__item--input">
+        <span class="project-summary-strip__label">Sky target</span>
+        <input
+          class="inline-edit-input project-summary-strip__input"
+          type="text"
+          value="${escapeHtml(project.sky_target ?? '')}"
+          placeholder="M42 / NGC 1976 / Orion Nebula"
+          data-inline-sky-target
+          data-project-slug-inline="${escapeHtml(project.slug)}"
+        />
+      </label>
+    </div>
+  `;
+}
+
+function renderProjectRunTabs(runs: ProjectRun[], selectedRunId: string | null): string {
+  if (!runs.length) {
+    return '<p class="muted">No runs recorded for this project yet.</p>';
+  }
+
+  return `
+    <div class="run-tab-list">
+      ${runs
+        .map((run) => {
+          const selectedClass = run.id === selectedRunId ? ' run-tab-button--active' : '';
+          return `
+            <button class="run-tab-button${selectedClass}" type="button" data-project-run-id="${run.id}">
+              ${escapeHtml(formatRunTabLabel(run))}
+            </button>
+          `;
+        })
+        .join('')}
     </div>
   `;
 }
@@ -929,10 +968,10 @@ function renderProjectGeneratedPreviewPanel(run: ProjectRun | null): string {
 
   if (run.preview_path) {
     return `
-      <div class="preview-card">
+      <div class="preview-card project-preview-card">
         <a class="preview-card__link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">
           <img
-            class="preview-card__image preview-card__image--project"
+            class="preview-card__image preview-card__image--project project-preview-card__image"
             src="${getProjectRunPreviewUrl(run.id)}"
             alt="Latest preview for project run ${run.id}"
             data-preview-image
@@ -978,13 +1017,72 @@ function renderProjectEditedGallery(run: ProjectRun | null): string {
 }
 
 function renderProjectEditedPanel(run: ProjectRun): string {
-  if (!run.artifact_images.length) {
-    return '<p class="muted">No edited images were found in this run artifacts folder yet.</p>';
+  if (run === null) {
+    return '<p class="muted">No processing output is available for this project yet.</p>';
   }
 
   return `
-    <div class="edited-image-grid">
+    <div class="edited-image-grid project-media-grid">
+      ${renderProjectPreviewGalleryCard(run)}
       ${run.artifact_images.map((image) => renderEditedImageCard(run, image)).join('')}
+    </div>
+  `;
+}
+
+function renderProjectMediaPanel(run: ProjectRun | null): string {
+  if (run === null) {
+    return `
+      <article class="panel project-media-panel">
+        <p class="muted">No processing output is available for this project yet.</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="panel project-media-panel">
+      ${renderProjectEditedPanel(run)}
+    </article>
+  `;
+}
+
+function renderProjectPreviewGalleryCard(run: ProjectRun): string {
+  if (run.preview_path) {
+    return `
+      <a class="edited-image-card edited-image-card--preview" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer" title="Preview">
+        <img
+          class="edited-image-card__image edited-image-card__image--preview"
+          src="${getProjectRunPreviewUrl(run.id)}"
+          alt="Preview for run ${run.id}"
+          loading="eager"
+          decoding="async"
+          data-preview-image
+          data-preview-fallback="Preview image is not available yet."
+        />
+        <div class="edited-image-card__overlay">
+          <strong>Preview</strong>
+          <small>${escapeHtml(run.id)}</small>
+        </div>
+      </a>
+    `;
+  }
+
+  if (run.output_path) {
+    return `
+      <div class="edited-image-card edited-image-card--empty">
+        <div class="edited-image-card__empty-copy">
+          <strong>Preview</strong>
+          <p class="muted">Output FITS exists, but preview image is not available yet.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="edited-image-card edited-image-card--empty">
+      <div class="edited-image-card__empty-copy">
+        <strong>Preview</strong>
+        <p class="muted">The selected run has not produced an output file yet.</p>
+      </div>
     </div>
   `;
 }

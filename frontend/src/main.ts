@@ -40,6 +40,7 @@ const state: AppState = {
   health: null,
   projects: [],
   selectedProject: null,
+  selectedProjectRunId: null,
   selectedProjectCapture: null,
   selectedProjectCaptureDetails: null,
   selectedProjectCaptureFile: null,
@@ -51,7 +52,7 @@ const state: AppState = {
   message: null,
   error: null,
   busy: false,
-  projectDetailTab: 'details',
+  projectDetailTab: 'gallery',
   processingDetailTab: 'overview',
   skyDetailTab: 'viewer',
   createProjectModalOpen: false,
@@ -77,6 +78,7 @@ async function refreshState(preferredSlug?: string): Promise<void> {
   const selectedSlug = preferredSlug ?? state.selectedProject?.slug ?? projects[0]?.slug ?? null;
   state.selectedProject = selectedSlug ? await loadProjectDetails(selectedSlug, projects) : null;
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
+  syncSelectedProjectRun();
   await syncSelectedProjectCapture();
   syncSelectedProcessingCapture();
   if (state.activeRun !== null) {
@@ -95,6 +97,7 @@ function render(): void {
   bindNavigation();
   bindProjectSelection();
   bindProjectTabs();
+  bindProjectRunSelection();
   bindProjectCaptureSelection();
   bindProjectCaptureFolderSelection();
   bindProjectCaptureFileSelection();
@@ -109,9 +112,28 @@ function render(): void {
   bindPreviewActions();
   bindPreviewImageFallbacks();
   bindForms();
+  bindInlineProjectSkyTarget();
   if (state.currentView === 'sky') {
     void mountSkyView('aladin-sky-view', state.selectedProject?.sky_target ?? 'M42');
   }
+}
+
+function bindProjectRunSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-project-run-id]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const runId = button.dataset.projectRunId ?? '';
+      if (!runId) {
+        return;
+      }
+      const selectedRun = state.projectRuns.find((run) => run.id === runId);
+      if (selectedRun === undefined) {
+        return;
+      }
+      state.selectedProjectRunId = selectedRun.id;
+      render();
+    });
+  });
 }
 
 function bindNavigation(): void {
@@ -381,7 +403,6 @@ function bindForms(): void {
   const createForm = rootElement.querySelector<HTMLFormElement>('[data-form="create-project"]');
   const importForm = rootElement.querySelector<HTMLFormElement>('[data-form="import-capture"]');
   const startRunForm = rootElement.querySelector<HTMLFormElement>('[data-form="start-run"]');
-  const skyTargetForm = rootElement.querySelector<HTMLFormElement>('[data-form="project-sky-target"]');
 
   createForm?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -397,10 +418,17 @@ function bindForms(): void {
     event.preventDefault();
     void handleStartRun(startRunForm);
   });
+}
 
-  skyTargetForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void handleProjectSkyTarget(skyTargetForm);
+function bindInlineProjectSkyTarget(): void {
+  const input = rootElement.querySelector<HTMLInputElement>('[data-inline-sky-target]');
+  input?.addEventListener('change', () => {
+    const projectSlug = input.dataset.projectSlugInline ?? '';
+    const skyTarget = input.value.trim();
+    if (!projectSlug || !skyTarget || skyTarget === (state.selectedProject?.sky_target ?? '')) {
+      return;
+    }
+    void handleProjectSkyTarget(projectSlug, skyTarget);
   });
 }
 
@@ -496,11 +524,7 @@ async function handleStartRun(form: HTMLFormElement): Promise<void> {
   }
 }
 
-async function handleProjectSkyTarget(form: HTMLFormElement): Promise<void> {
-  const formData = new FormData(form);
-  const projectSlug = String(formData.get('project_slug') ?? '').trim();
-  const skyTarget = String(formData.get('sky_target') ?? '').trim();
-
+async function handleProjectSkyTarget(projectSlug: string, skyTarget: string): Promise<void> {
   if (!projectSlug || !skyTarget) {
     setError('Project slug and sky target are required.');
     return;
@@ -547,6 +571,7 @@ async function handleDeleteProject(slug: string): Promise<void> {
     await deleteProject(slug);
     if (state.selectedProject?.slug === slug) {
       state.selectedProject = null;
+      state.selectedProjectRunId = null;
       state.selectedProjectCapture = null;
       state.selectedProjectCaptureDetails = null;
       state.selectedProjectCaptureFolder = null;
@@ -555,7 +580,7 @@ async function handleDeleteProject(slug: string): Promise<void> {
       state.activeRun = null;
       syncRunPolling();
     }
-    state.projectDetailTab = 'details';
+    state.projectDetailTab = 'gallery';
     setMessage(`Project deleted: ${slug}`);
     await refreshState();
   } catch (error) {
@@ -597,9 +622,11 @@ async function selectProject(slug: string): Promise<void> {
   }
 
   state.selectedProject = await loadProjectDetails(slug, state.projects);
-  state.projectDetailTab = 'details';
+  state.selectedProjectRunId = null;
+  state.projectDetailTab = 'gallery';
   state.processingDetailTab = 'overview';
   state.projectRuns = state.selectedProject ? await fetchProjectRuns(state.selectedProject.slug).catch(() => []) : [];
+  syncSelectedProjectRun();
   await syncSelectedProjectCapture();
   syncSelectedProcessingCapture();
   syncActiveRunForSelectedCapture();
@@ -621,6 +648,8 @@ async function selectProjectCapture(captureName: string): Promise<void> {
   }
 
   state.selectedProjectCapture = captureName;
+  const matchingRuns = state.projectRuns.filter((run) => run.capture_name === captureName);
+  state.selectedProjectRunId = matchingRuns[0]?.id ?? null;
   state.selectedProjectCaptureFolder = null;
   state.selectedProjectCaptureFile = null;
   state.selectedProjectCaptureDetails = await fetchCaptureDetails(state.selectedProject.slug, captureName).catch(() => null);
@@ -654,6 +683,7 @@ async function pollActiveRun(): Promise<void> {
     state.selectedProcessingCapture = run.capture_name;
     if (state.selectedProject !== null) {
       state.projectRuns = await fetchProjectRuns(state.selectedProject.slug).catch(() => state.projectRuns);
+      syncSelectedProjectRun();
     }
     syncSelectedProcessingCapture();
     syncActiveRunForSelectedCapture();
@@ -729,6 +759,19 @@ async function syncSelectedProjectCapture(): Promise<void> {
     state.selectedProjectCapture,
   ).catch(() => null);
   syncSelectedProjectCaptureFile();
+}
+
+function syncSelectedProjectRun(): void {
+  if (!state.projectRuns.length) {
+    state.selectedProjectRunId = null;
+    return;
+  }
+
+  if (state.selectedProjectRunId && state.projectRuns.some((run) => run.id === state.selectedProjectRunId)) {
+    return;
+  }
+
+  state.selectedProjectRunId = state.projectRuns[0]?.id ?? null;
 }
 
 function syncSelectedProjectCaptureFile(): void {
