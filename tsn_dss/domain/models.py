@@ -152,3 +152,85 @@ class ProcessingRun:
     started_at: str | None = None
     finished_at: str | None = None
     notes: str | None = None
+
+
+@dataclass(slots=True)
+class TelescopeState:
+    adapter_id: str
+    source_kind: str
+    timestamp_utc: str
+    connected: bool
+    status: str
+    is_simulated: bool = False
+    site_lat_deg: float | None = None
+    site_lon_deg: float | None = None
+    site_elevation_m: float | None = None
+    ra_hours: float | None = None
+    dec_deg: float | None = None
+    alt_deg: float | None = None
+    az_deg: float | None = None
+    target_name: str | None = None
+    position_quality: str | None = None
+
+
+@dataclass(slots=True)
+class PlannedPointing:
+    target_name: str | None
+    ra_hours: float
+    dec_deg: float
+    source_kind: str = "manual"
+    source_id: str | None = None
+    updated_at_utc: str | None = None
+
+
+@dataclass(slots=True)
+class ImagingProfile:
+    profile_id: str
+    label: str
+    focal_length_mm: float
+    sensor_width_mm: float
+    sensor_height_mm: float
+    pixel_size_um: float | None = None
+    rotation_deg: float | None = None
+    binning: int | None = None
+    fov_width_deg: float | None = None
+    fov_height_deg: float | None = None
+
+
+@dataclass(slots=True)
+class MosaicPanel:
+    id: str
+    mosaic_plan_id: str
+    panel_index: int
+    panel_label: str
+    center_ra_deg: float
+    center_dec_deg: float
+    fov_width_deg: float
+    fov_height_deg: float
+    rotation_deg: float = 0.0
+    row_index: int | None = None
+    column_index: int | None = None
+    status: str = "not_started"
+    target_integration_seconds: float | None = None
+    acquired_integration_seconds: float | None = None
+
+
+@dataclass(slots=True)
+class MosaicPlan:
+    id: str
+    project_slug: str
+    name: str
+    imaging_profile_id: str
+    imaging_profile_label: str
+    fov_width_deg: float
+    fov_height_deg: float
+    center_ra_deg: float
+    center_dec_deg: float
+    region_width_deg: float
+    region_height_deg: float
+    rotation_deg: float = 0.0
+    overlap_percent: float = 10.0
+    status: str = "draft"
+    target_name: str | None = None
+    selected_panel_id: str | None = None
+    panels: list[MosaicPanel] = field(default_factory=list)

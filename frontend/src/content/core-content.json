@@ -1,6 +1,17 @@
 {
-  "current_version": "0.1.1",
+  "current_version": "0.1.2",
   "releases": [
+    {
+      "version": "0.1.2",
+      "date": "2026-08-26",
+      "changelog": [
+        "Added Sky simulator controls for manual telescope state updates directly from the map workspace.",
+        "Rendered the telescope marker and imaging footprint in Aladin from the shared telescope state model.",
+        "Stopped Update telescope from resetting the current zoom level in the Sky view.",
+        "Added a Follow telescope toggle so the map can either stay fixed or track the telescope position on demand.",
+        "Improved telescope movement behavior so the marker shifts on the map without forcing a full view recenter in the default mode."
+      ]
+    },
     {
       "version": "0.1.1",
       "date": "2026-08-26",

@@ -6,14 +6,16 @@ import {
   getCaptureFileUrl,
   getCaptureThumbnailUrl,
   getApiBaseUrl,
+  type MosaicPanel,
+  type MosaicPlan,
   getProjectRunArtifactUrl,
-  getProjectRunOutputUrl,
   getProjectRunPreviewLogUrl,
   getProjectRunPreviewUrl,
   type ApiHealth,
   type ProjectRun,
   type ProjectSummary,
   type RunArtifactImage,
+  type TelescopeSnapshot,
 } from './api';
 
 type CoreContent = {
@@ -35,6 +37,7 @@ const APP_VERSION = typedCoreContent.current_version;
 const historicalReleases = typedCoreContent.releases.filter((release) => release.version !== currentRelease.version);
 
 export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
+export type ThemeName = 'dark' | 'observation';
 
 export type AppState = {
   health: ApiHealth | null;
@@ -46,9 +49,15 @@ export type AppState = {
   selectedProjectCaptureFile: string | null;
   selectedProjectCaptureFolder: string | null;
   projectRuns: ProjectRun[];
+  mosaics: MosaicPlan[];
+  selectedMosaicId: string | null;
+  selectedMosaicPanelId: string | null;
   activeRun: ProjectRun | null;
   selectedProcessingCapture: string | null;
   currentView: ViewName;
+  theme: ThemeName;
+  telescopeSnapshot: TelescopeSnapshot | null;
+  followTelescope: boolean;
   message: string | null;
   error: string | null;
   busy: boolean;
@@ -62,11 +71,12 @@ export type AppState = {
 
 export type ProjectDetailTab = 'gallery' | 'import' | 'settings';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
-export type SkyDetailTab = 'viewer';
+export type SkyDetailTab = 'telescope' | 'mosaic';
 
 export function renderAppShell(state: AppState): string {
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
   const latestRun = state.activeRun ?? state.projectRuns[0] ?? null;
+  const telescopeState = state.telescopeSnapshot?.telescope_state ?? null;
   const apiStatusLabel = state.health?.status === 'ok' ? 'API online' : 'API offline';
   const apiStatusDetail = state.health
     ? `${state.health.service} | ${state.health.status} | ${getApiBaseUrl()} | ${state.health.default_siril_executable ?? 'siril-cli'}`
@@ -79,17 +89,28 @@ export function renderAppShell(state: AppState): string {
         `${primaryProject.run_count} run${primaryProject.run_count === 1 ? '' : 's'}`,
       ].join(' | ')
     : 'Select or create a project';
+  const hardwareLabel = getHardwareLabel(telescopeState);
+  const hardwareDetail = getHardwareDetail(telescopeState);
 
   return `
-    <div class="app-frame">
+    <div class="app-frame" data-theme="${state.theme}">
       <header class="topbar">
         <div class="topbar__brand">
           <img class="topbar__icon" src="${iconUrl}" alt="TSN DSS icon" />
           <div>
-            <h1>TSN | DSS</h1>
+            <h1 class="topbar__title">TSN | DSS</h1>
           </div>
         </div>
         <div class="topbar__status-group">
+          <button class="status-pill status-pill--button" type="button" data-theme-toggle>
+            <span class="status-pill__label">Theme</span>
+            <strong>${state.theme === 'observation' ? 'Observation' : 'Dark'}</strong>
+          </button>
+          <div class="status-pill status-pill--interactive" title="${escapeHtml(hardwareDetail)}">
+            <span class="status-pill__label">Hardware</span>
+            <strong>${escapeHtml(hardwareLabel)}</strong>
+            <span class="status-pill__tooltip">${escapeHtml(hardwareDetail)}</span>
+          </div>
           <div class="status-pill status-pill--interactive" title="${escapeHtml(apiStatusDetail)}">
             <span class="status-pill__label">API</span>
             <strong>${apiStatusLabel}</strong>
@@ -177,61 +198,63 @@ function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, 
             <span class="project-summary-strip__value">${escapeHtml(latestRun?.status ?? 'none')}</span>
           </div>
         </div>
-
-        <article class="panel">
-          <p class="core-lead">
-            TheStructureNavigator Deep Space System is a local workspace for projects, captures, preprocessing, and downstream image review.
-          </p>
-        </article>
       </section>
 
-      <div class="core-columns">
-        <article class="panel">
-          <div class="panel__header">
-            <h3>Changelog</h3>
-            <span>v${escapeHtml(APP_VERSION)}</span>
-          </div>
-          <div class="release-stack">
-            <section class="release-card release-card--current">
-              <div class="panel__header panel__header--nested">
-                <h3>v${escapeHtml(currentRelease.version)}</h3>
-                <span>${escapeHtml(currentRelease.date ?? 'Current')}</span>
-              </div>
-              <ul class="core-list">
-                ${currentRelease.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-              </ul>
-            </section>
+      <section class="core-content-layout">
+        <div class="core-content-main">
+          <article class="panel">
+            <div class="panel__header">
+              <h3>Changelog</h3>
+              <span>v${escapeHtml(APP_VERSION)}</span>
+            </div>
+            <div class="release-stack">
+              <details class="release-disclosure" open>
+                <summary class="release-disclosure__summary">
+                  <span>v${escapeHtml(currentRelease.version)}</span>
+                  <span>${escapeHtml(currentRelease.date ?? 'Current')}</span>
+                </summary>
+                <div class="release-disclosure__body">
+                  <ul class="core-list">
+                    ${currentRelease.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                  </ul>
+                </div>
+              </details>
 
-            ${historicalReleases
-              .map(
-                (release) => `
-                  <details class="release-disclosure">
-                    <summary class="release-disclosure__summary">
-                      <span>v${escapeHtml(release.version)}</span>
-                      <span>${escapeHtml(release.date ?? 'Release')}</span>
-                    </summary>
-                    <div class="release-disclosure__body">
-                      <ul class="core-list">
-                        ${release.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-                      </ul>
-                    </div>
-                  </details>
-                `,
-              )
-              .join('')}
-          </div>
-        </article>
+              ${historicalReleases
+                .map(
+                  (release) => `
+                    <details class="release-disclosure">
+                      <summary class="release-disclosure__summary">
+                        <span>v${escapeHtml(release.version)}</span>
+                        <span>${escapeHtml(release.date ?? 'Release')}</span>
+                      </summary>
+                      <div class="release-disclosure__body">
+                        <ul class="core-list">
+                          ${release.changelog.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                        </ul>
+                      </div>
+                    </details>
+                  `,
+                )
+                .join('')}
+            </div>
+          </article>
 
-        <article class="panel">
-          <div class="panel__header">
-            <h3>TODO</h3>
-            <span>next</span>
-          </div>
-          <ul class="core-list">
-            ${typedCoreContent.todo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-          </ul>
-        </article>
-      </div>
+          <article class="panel">
+            <div class="panel__header">
+              <h3>TODO</h3>
+              <span>next</span>
+            </div>
+            <ul class="core-list">
+              ${typedCoreContent.todo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </article>
+        </div>
+
+        <div class="core-watermark-surface" aria-hidden="true">
+          <img class="core-watermark-surface__icon" src="${iconUrl}" alt="" />
+        </div>
+      </section>
     </section>
   `;
 }
@@ -419,7 +442,7 @@ function renderProcessingView(state: AppState, primaryProject: ProjectSummary | 
   `;
 }
 
-function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, _latestRun: ProjectRun | null): string {
   if (primaryProject === null) {
     return `
       <section class="sky-workspace">
@@ -433,24 +456,388 @@ function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, l
     `;
   }
 
+  const selectedMosaic =
+    (state.selectedMosaicId
+      ? state.mosaics.find((mosaic) => mosaic.id === state.selectedMosaicId)
+      : null)
+    ?? state.mosaics[0]
+    ?? null;
+  const selectedPanel =
+    (state.selectedMosaicPanelId
+      ? selectedMosaic?.panels.find((panel) => panel.id === state.selectedMosaicPanelId)
+      : null)
+    ?? (selectedMosaic?.selected_panel_id
+      ? selectedMosaic.panels.find((panel) => panel.id === selectedMosaic.selected_panel_id)
+      : null)
+    ?? selectedMosaic?.panels[0]
+    ?? null;
+
   return `
     <section class="sky-workspace">
-      <section class="processing-main">
-        <div class="project-detail-stack">
-          ${renderSkyDetailPanel('viewer', primaryProject, latestRun)}
-        </div>
+      <nav class="tab-strip project-detail-tabs sky-detail-tabs" aria-label="Sky controls">
+        ${renderSkyTab('telescope', 'Telescope control', state.skyDetailTab)}
+        ${renderSkyTab('mosaic', 'Mosaic planner', state.skyDetailTab)}
+      </nav>
+
+      <section class="project-detail-stack">
+        ${state.skyDetailTab === 'telescope'
+          ? renderSkyTelescopeControls(primaryProject.sky_target, state.followTelescope, state.telescopeSnapshot)
+          : renderSkyMosaicSidebar(state, primaryProject, selectedMosaic)}
+        ${renderSkyDetailPanel(selectedMosaic, selectedPanel)}
       </section>
     </section>
   `;
 }
 
-function renderSkyDetailPanel(activeTab: SkyDetailTab, primaryProject: ProjectSummary, latestRun: ProjectRun | null): string {
+function renderSkyTab(tab: SkyDetailTab, label: string, activeTab: SkyDetailTab): string {
+  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
+  return `<button class="tab-strip__button${activeClass}" type="button" data-sky-tab="${tab}">${label}</button>`;
+}
+
+function renderSkyDetailPanel(
+  selectedMosaic: MosaicPlan | null,
+  selectedPanel: MosaicPanel | null,
+): string {
   return `
     <section class="detail-stack">
+      ${renderSkyMosaicSummary(selectedMosaic, selectedPanel)}
       <article class="panel sky-panel sky-panel--full">
         <div id="aladin-sky-view" class="aladin-container"></div>
       </article>
     </section>
+  `;
+}
+
+function renderSkyTelescopeControls(
+  projectSkyTarget: string | null,
+  followTelescope: boolean,
+  telescopeSnapshot: TelescopeSnapshot | null,
+): string {
+  const telescopeState = telescopeSnapshot?.telescope_state ?? null;
+  const plannedPointing = telescopeSnapshot?.planned_pointing ?? null;
+  const adapterLabel = telescopeState?.source_kind || telescopeState?.adapter_id || 'unknown';
+  const adapterMode = telescopeState?.is_simulated ? 'simulated' : 'live';
+  const isEditable = telescopeState?.is_simulated ?? false;
+  const capabilities = getSkyCapabilities(telescopeState);
+  const liveStatus = telescopeState?.status ?? 'unknown';
+  const plannedStateLabel = plannedPointing ? 'ready' : 'empty';
+
+  return `
+    <article class="panel telescope-panel">
+      <div class="panel__header">
+        <h3>Telescope control</h3>
+        <span>hardware-agnostic</span>
+      </div>
+      <div class="telescope-panel__summary">
+        <div class="telescope-panel__meta">
+          <div class="telescope-panel__meta-item">
+            <span class="telescope-panel__meta-label">Adapter</span>
+            <strong>${escapeHtml(adapterLabel)}</strong>
+          </div>
+          <div class="telescope-panel__meta-item">
+            <span class="telescope-panel__meta-label">Mode</span>
+            <strong>${escapeHtml(adapterMode)}</strong>
+          </div>
+          <div class="telescope-panel__meta-item">
+            <span class="telescope-panel__meta-label">Control</span>
+            <strong>${isEditable ? 'manual + telemetry' : 'telemetry only'}</strong>
+          </div>
+        </div>
+        <div class="telescope-panel__capabilities">
+          <span class="telescope-panel__meta-label">Capabilities</span>
+          <div class="project-tags">${capabilities.map((value) => `<span>${escapeHtml(value)}</span>`).join('')}</div>
+        </div>
+      </div>
+      <section class="telescope-panel__section">
+        <div class="telescope-panel__section-header">
+          <div>
+            <span class="telescope-panel__section-kicker">Live telescope</span>
+            <strong class="telescope-panel__section-title">${escapeHtml(telescopeState?.target_name ?? projectSkyTarget ?? 'No current target')}</strong>
+          </div>
+          <span class="status-chip">${escapeHtml(liveStatus)}</span>
+        </div>
+        <div class="sky-simulator-state" data-sky-simulator-state></div>
+      </section>
+      <section class="telescope-panel__section">
+        <div class="telescope-panel__section-header">
+          <div>
+            <span class="telescope-panel__section-kicker">Planned target</span>
+            <strong class="telescope-panel__section-title">${escapeHtml(plannedPointing?.target_name ?? 'No planned target')}</strong>
+          </div>
+          <span class="status-chip status-chip--subtle">${escapeHtml(plannedStateLabel)}</span>
+        </div>
+        <div class="project-summary-strip project-summary-strip--sky">
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Source</span>
+            <span class="project-summary-strip__value">${escapeHtml(plannedPointing?.source_kind ?? 'none')}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">RA</span>
+            <span class="project-summary-strip__value">${plannedPointing ? formatRaDisplay(plannedPointing.ra_hours) : '—'}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Dec</span>
+            <span class="project-summary-strip__value">${plannedPointing ? formatDecDisplay(plannedPointing.dec_deg) : '—'}</span>
+          </div>
+          <div class="project-summary-strip__item">
+            <span class="project-summary-strip__label">Updated</span>
+            <span class="project-summary-strip__value">${formatTimestampDisplay(plannedPointing?.updated_at_utc)}</span>
+          </div>
+        </div>
+      </section>
+      <div class="telescope-panel__actions">
+        <label class="checkbox-field sky-follow-toggle">
+          <input name="follow_telescope" type="checkbox" data-follow-telescope-toggle ${followTelescope ? 'checked' : ''} />
+          <span>Center map on telescope</span>
+        </label>
+        <div class="telescope-panel__action-row">
+          <button class="action-button" type="button" data-slew-to-planned-pointing ${plannedPointing ? '' : 'disabled'}>
+            Slew to planned target
+          </button>
+          <button class="action-button action-button--secondary" type="button" data-clear-planned-pointing ${plannedPointing ? '' : 'disabled'}>
+            Clear planned target
+          </button>
+        </div>
+      </div>
+      ${
+        isEditable
+          ? `
+            <form class="sky-simulator-form" data-form="sky-simulator">
+              <label class="field">
+                <span>Target name</span>
+                <input
+                  name="target_name"
+                  type="text"
+                  value="${escapeHtml(projectSkyTarget ?? 'M42')}"
+                  placeholder="M42"
+                />
+              </label>
+              <label class="field">
+                <span>RA (hours / hh mm ss)</span>
+                <input name="ra_hours" type="text" placeholder="5.588 or 00 54 22.4" />
+              </label>
+              <label class="field">
+                <span>Dec (deg / dd mm ss)</span>
+                <input name="dec_deg" type="text" placeholder="-5.391 or +56 40 25.1" />
+              </label>
+              <label class="field">
+                <span>Alt (deg)</span>
+                <input name="alt_deg" type="text" placeholder="optional" />
+              </label>
+              <label class="field">
+                <span>Az (deg)</span>
+                <input name="az_deg" type="text" placeholder="optional" />
+              </label>
+              <label class="field">
+                <span>Status</span>
+                <select name="status">
+                  <option value="">Keep current</option>
+                  <option value="idle">idle</option>
+                  <option value="slewing">slewing</option>
+                  <option value="tracking">tracking</option>
+                  <option value="parked">parked</option>
+                </select>
+              </label>
+              <button class="action-button telescope-panel__submit" type="submit">Update telescope</button>
+            </form>
+            <p class="muted telescope-panel__helper">
+              Simulator updates only move the abstract telescope state. Real hardware adapters can later map the same actions to device-specific commands.
+            </p>
+          `
+          : `
+            <div class="telescope-panel__readonly">
+              <p class="muted">This adapter currently exposes telemetry in read-only mode. Manual updates stay available only for the simulator adapter.</p>
+            </div>
+          `
+      }
+    </article>
+  `;
+}
+
+function renderSkyMosaicSidebar(
+  state: AppState,
+  project: ProjectSummary,
+  selectedMosaic: MosaicPlan | null,
+): string {
+  const profile = state.telescopeSnapshot?.imaging_profile ?? null;
+  return `
+    <div class="project-gallery-sidebar__action">
+      <div class="panel__header panel__header--nested">
+        <h3>Mosaic planner</h3>
+      </div>
+      <form class="form-stack mosaic-create-form" data-form="create-mosaic">
+        <input name="project_slug" type="hidden" value="${escapeHtml(project.slug)}" />
+        <label class="field">
+          <span>Name</span>
+          <input name="name" type="text" placeholder="Cygnus Loop" />
+        </label>
+        <label class="field">
+          <span>Target name</span>
+          <input name="target_name" type="text" value="${escapeHtml(project.sky_target ?? '')}" placeholder="Cygnus Loop" />
+        </label>
+        <label class="field">
+          <span>Center RA (deg)</span>
+          <input name="center_ra_deg" type="text" placeholder="312.5" />
+        </label>
+        <label class="field">
+          <span>Center Dec (deg)</span>
+          <input name="center_dec_deg" type="text" placeholder="31.0" />
+        </label>
+        <label class="field">
+          <span>Region width (deg)</span>
+          <input name="region_width_deg" type="text" placeholder="3.0" />
+        </label>
+        <label class="field">
+          <span>Region height (deg)</span>
+          <input name="region_height_deg" type="text" placeholder="3.0" />
+        </label>
+        <label class="field">
+          <span>Overlap (%)</span>
+          <input name="overlap_percent" type="text" value="25" />
+        </label>
+        <label class="field">
+          <span>Rotation (deg)</span>
+          <input name="rotation_deg" type="text" value="${escapeHtml(String(profile?.rotation_deg ?? 0))}" />
+        </label>
+        <button class="action-button" type="submit" ${state.busy ? 'disabled' : ''}>Create mosaic plan</button>
+      </form>
+    </div>
+
+    <section class="project-gallery-group">
+      <div class="panel__header panel__header--nested">
+        <h3>Mosaics</h3>
+        ${selectedMosaic ? `<button class="action-button action-button--secondary sky-generate-button" type="button" data-delete-mosaic-id="${escapeHtml(selectedMosaic.id)}">Delete</button>` : ''}
+      </div>
+      ${renderMosaicTabs(state.mosaics, selectedMosaic?.id ?? null)}
+    </section>
+
+    <section class="project-gallery-group">
+      <div class="panel__header panel__header--nested">
+        <h3>Panels</h3>
+        ${selectedMosaic ? `<button class="action-button action-button--secondary sky-generate-button" type="button" data-generate-mosaic-panels="${escapeHtml(selectedMosaic.id)}">Generate</button>` : ''}
+      </div>
+      ${renderMosaicPanelTabs(selectedMosaic, state.selectedMosaicPanelId)}
+    </section>
+  `;
+}
+
+function renderSkyMosaicSummary(selectedMosaic: MosaicPlan | null, selectedPanel: MosaicPanel | null): string {
+  return `
+    <div class="detail-stack">
+      <div class="project-summary-strip project-summary-strip--sky project-summary-strip--sky-mosaic">
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Mosaic</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedMosaic?.name ?? 'none')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Profile</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedMosaic?.imaging_profile_label ?? 'none')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Panels</span>
+          <span class="project-summary-strip__value">${selectedMosaic?.panels.length ?? 0}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Overlap</span>
+          <span class="project-summary-strip__value">${selectedMosaic ? `${selectedMosaic.overlap_percent}%` : '—'}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Selected panel</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedPanel?.panel_label ?? 'none')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Panel center</span>
+          <span class="project-summary-strip__value">${selectedPanel ? `${selectedPanel.center_ra_deg.toFixed(3)}°, ${selectedPanel.center_dec_deg.toFixed(3)}°` : '—'}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Panel FOV</span>
+          <span class="project-summary-strip__value">${selectedPanel ? `${selectedPanel.fov_width_deg.toFixed(2)}° × ${selectedPanel.fov_height_deg.toFixed(2)}°` : '—'}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Status</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedPanel?.status ?? selectedMosaic?.status ?? 'none')}</span>
+        </div>
+      </div>
+      ${selectedPanel ? renderSelectedMosaicPanelControls(selectedMosaic, selectedPanel) : ''}
+    </div>
+  `;
+}
+
+function renderSelectedMosaicPanelControls(selectedMosaic: MosaicPlan | null, selectedPanel: MosaicPanel): string {
+  return `
+    <article class="panel">
+      <div class="panel__header">
+        <h3>Panel details</h3>
+        <span>${escapeHtml(selectedPanel.panel_label)}</span>
+      </div>
+      <form class="sky-panel-status-form" data-form="update-mosaic-panel-status">
+        <input type="hidden" name="panel_id" value="${escapeHtml(selectedPanel.id)}" />
+        <label class="field">
+          <span>Status</span>
+          <select name="status">
+            <option value="not_started" ${selectedPanel.status === 'not_started' ? 'selected' : ''}>not_started</option>
+            <option value="in_progress" ${selectedPanel.status === 'in_progress' ? 'selected' : ''}>in_progress</option>
+            <option value="complete" ${selectedPanel.status === 'complete' ? 'selected' : ''}>complete</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Target integration (s)</span>
+          <input name="target_integration_seconds" type="text" value="${selectedPanel.target_integration_seconds ?? ''}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>Acquired integration (s)</span>
+          <input name="acquired_integration_seconds" type="text" value="${selectedPanel.acquired_integration_seconds ?? ''}" placeholder="optional" />
+        </label>
+        <button class="action-button" type="button" data-plan-mosaic-panel="${escapeHtml(selectedPanel.id)}">Set as planned target</button>
+        <button class="action-button" type="submit">Save panel</button>
+        ${selectedMosaic ? `<button class="action-button action-button--secondary" type="button" data-generate-mosaic-panels="${escapeHtml(selectedMosaic.id)}">Regenerate panels</button>` : ''}
+      </form>
+    </article>
+  `;
+}
+
+function renderMosaicTabs(mosaics: MosaicPlan[], selectedMosaicId: string | null): string {
+  if (!mosaics.length) {
+    return '<p class="muted">No mosaic plans yet.</p>';
+  }
+
+  return `
+    <div class="project-tab-list project-tab-list--stacked">
+      ${mosaics
+        .map((mosaic) => {
+          const selectedClass = mosaic.id === selectedMosaicId ? ' project-tab-button--active' : '';
+          return `<button class="project-tab-button${selectedClass}" type="button" data-mosaic-id="${escapeHtml(mosaic.id)}">${escapeHtml(mosaic.name)}</button>`;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function renderMosaicPanelTabs(selectedMosaic: MosaicPlan | null, selectedPanelId: string | null): string {
+  if (!selectedMosaic) {
+    return '<p class="muted">Create or select a mosaic first.</p>';
+  }
+
+  if (!selectedMosaic.panels.length) {
+    return `
+      <div class="detail-stack">
+        <p class="muted">No panels generated yet for this mosaic.</p>
+        <button class="action-button action-button--secondary" type="button" data-generate-mosaic-panels="${escapeHtml(selectedMosaic.id)}">
+          Generate panels
+        </button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="project-tab-list project-tab-list--stacked">
+      ${selectedMosaic.panels
+        .map((panel) => {
+          const selectedClass = panel.id === selectedPanelId ? ' project-tab-button--active' : '';
+          return `<button class="project-tab-button${selectedClass}" type="button" data-mosaic-panel-id="${escapeHtml(panel.id)}">${escapeHtml(panel.panel_label)} · ${escapeHtml(panel.status)}</button>`;
+        })
+        .join('')}
+    </div>
   `;
 }
 
@@ -745,20 +1132,6 @@ function renderRunTabs(runs: ProjectRun[], selectedRunId: string | null): string
   `;
 }
 
-function renderRunDetailTabs(activeTab: ProcessingDetailTab, run: ProjectRun | null): string {
-  if (run === null) {
-    return '';
-  }
-
-  return `
-    <nav class="tab-strip" aria-label="Run details">
-      ${renderProcessingTab('overview', 'Overview', activeTab)}
-      ${renderProcessingTab('logs', 'Logs', activeTab)}
-      ${renderProcessingTab('settings', 'Run settings', activeTab)}
-    </nav>
-  `;
-}
-
 function renderProcessingSummaryStrip(run: ProjectRun | null): string {
   return `
     <div class="project-summary-strip">
@@ -961,61 +1334,6 @@ function renderProjectRunTabs(runs: ProjectRun[], selectedRunId: string | null):
   `;
 }
 
-function renderProjectGeneratedPreviewPanel(run: ProjectRun | null): string {
-  if (run === null) {
-    return '<p class="muted">No processing output is available for this project yet.</p>';
-  }
-
-  if (run.preview_path) {
-    return `
-      <div class="preview-card project-preview-card">
-        <a class="preview-card__link" href="${getProjectRunPreviewUrl(run.id)}" target="_blank" rel="noreferrer">
-          <img
-            class="preview-card__image preview-card__image--project project-preview-card__image"
-            src="${getProjectRunPreviewUrl(run.id)}"
-            alt="Latest preview for project run ${run.id}"
-            data-preview-image
-            data-preview-fallback="Preview image is not available yet."
-          />
-        </a>
-      </div>
-    `;
-  }
-
-  if (run.output_path) {
-    const previewLogLink = run.preview_log_path
-      ? `<a class="secondary-link" href="${getProjectRunPreviewLogUrl(run.id)}" target="_blank" rel="noreferrer">Open preview export log</a>`
-      : '';
-    return `
-      <div class="detail-stack">
-        <p class="muted">Output FITS exists, but preview image is not available yet.</p>
-        <div class="inline-actions">
-          <a class="secondary-link" href="${getProjectRunOutputUrl(run.id)}" target="_blank" rel="noreferrer">Open FITS</a>
-          ${previewLogLink}
-        </div>
-      </div>
-    `;
-  }
-
-  return `<p class="muted">The latest run has not produced an output file yet.</p>`;
-}
-
-function renderProjectEditedGallery(run: ProjectRun | null): string {
-  if (run === null) {
-    return '';
-  }
-
-  return `
-    <article class="panel project-edited-panel">
-      <div class="panel__header">
-        <h3>Edited</h3>
-        <span>${run.artifact_images.length} image${run.artifact_images.length === 1 ? '' : 's'}</span>
-      </div>
-      ${renderProjectEditedPanel(run)}
-    </article>
-  `;
-}
-
 function renderProjectEditedPanel(run: ProjectRun): string {
   if (run === null) {
     return '<p class="muted">No processing output is available for this project yet.</p>';
@@ -1104,14 +1422,6 @@ function renderEditedImageCard(run: ProjectRun, image: RunArtifactImage): string
       </div>
     </a>
   `;
-}
-
-function renderTagList(values: string[], emptyLabel: string): string {
-  if (!values.length) {
-    return `<p class="muted">${emptyLabel}</p>`;
-  }
-
-  return `<div class="project-tags">${values.map((value) => `<span>${value}</span>`).join('')}</div>`;
 }
 
 function renderCreateProjectModal(busy: boolean): string {
@@ -1254,12 +1564,109 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
+function getHardwareLabel(
+  telescopeState: TelescopeSnapshot['telescope_state'] | null,
+): string {
+  if (!telescopeState) {
+    return 'No device';
+  }
+
+  if (!telescopeState.connected) {
+    return 'Disconnected';
+  }
+
+  if (telescopeState.is_simulated) {
+    return 'Simulator';
+  }
+
+  return telescopeState.source_kind || telescopeState.adapter_id || 'Connected';
+}
+
+function getHardwareDetail(
+  telescopeState: TelescopeSnapshot['telescope_state'] | null,
+): string {
+  if (!telescopeState) {
+    return 'No telescope state is available yet.';
+  }
+
+  return [
+    `adapter: ${telescopeState.adapter_id || 'unknown'}`,
+    `source: ${telescopeState.source_kind || 'unknown'}`,
+    `status: ${telescopeState.status || 'unknown'}`,
+    `connected: ${telescopeState.connected ? 'yes' : 'no'}`,
+    `mode: ${telescopeState.is_simulated ? 'simulated' : 'live'}`,
+    `target: ${telescopeState.target_name || 'none'}`,
+  ].join(' | ');
+}
+
+function getSkyCapabilities(
+  telescopeState: TelescopeSnapshot['telescope_state'] | null,
+): string[] {
+  if (!telescopeState) {
+    return ['state snapshot'];
+  }
+
+  if (telescopeState.is_simulated) {
+    return ['state snapshot', 'manual pointing', 'map centering', 'fov overlay'];
+  }
+
+  return ['state snapshot', 'map centering', 'fov overlay'];
+}
+
 function formatLogForDisplay(value: string): string {
   return value
     .split(/\r?\n/)
     .filter((line) => line.length > 0)
     .reverse()
     .join('\n');
+}
+
+function formatRaDisplay(raHours: number | null | undefined): string {
+  if (raHours == null) {
+    return '—';
+  }
+  const totalSeconds = raHours * 3600;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${raHours.toFixed(6)} h · ${pad2(hours)} ${pad2(minutes)} ${seconds.toFixed(2).padStart(5, '0')}`;
+}
+
+function formatDecDisplay(decDeg: number | null | undefined): string {
+  if (decDeg == null) {
+    return '—';
+  }
+  const sign = decDeg < 0 ? '-' : '+';
+  const absolute = Math.abs(decDeg);
+  const totalSeconds = absolute * 3600;
+  const degrees = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${decDeg.toFixed(6)}° · ${sign}${pad2(degrees)} ${pad2(minutes)} ${seconds.toFixed(1).padStart(4, '0')}`;
+}
+
+function formatTimestampDisplay(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+
+  return timestamp.toLocaleString([], {
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
 }
 
 function formatRunTabLabel(run: ProjectRun): string {

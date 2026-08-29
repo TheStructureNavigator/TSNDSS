@@ -9,6 +9,7 @@ from .db import (
     transaction,
 )
 from .frames import FrameRepository
+from .mosaics import MosaicRepository
 from .observation import ObservationRepository
 from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
@@ -19,6 +20,7 @@ __all__ = [
     "PlanningRepository",
     "ObservationRepository",
     "FrameRepository",
+    "MosaicRepository",
     "DatasetRepository",
     "ProcessingRunRepository",
     "ValidationError",

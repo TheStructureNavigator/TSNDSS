@@ -471,6 +471,67 @@ class GuiApiServerTests(unittest.TestCase):
         detail = self._read_json("/api/projects/orion_nebula")
         self.assertEqual(detail["project"]["sky_target"], "M42")
 
+    def test_mosaic_plan_can_be_created_and_listed_via_api(self) -> None:
+        payload = self._send_json(
+            "/api/mosaics",
+            {
+                "project_slug": "orion_nebula",
+                "name": "Cygnus Loop",
+                "target_name": "Cygnus Loop",
+                "imaging_profile_id": "seestar_s30_pro",
+                "imaging_profile_label": "Seestar S30 Pro",
+                "fov_width_deg": 2.59,
+                "fov_height_deg": 1.47,
+                "center_ra_deg": 312.5,
+                "center_dec_deg": 31.0,
+                "region_width_deg": 3.0,
+                "region_height_deg": 3.0,
+                "overlap_percent": 25.0,
+            },
+        )
+
+        created = payload["mosaic"]
+        self.assertEqual(created["project_slug"], "orion_nebula")
+        self.assertEqual(created["name"], "Cygnus Loop")
+
+        listed = self._read_json("/api/mosaics?project_slug=orion_nebula")
+        self.assertEqual(len(listed["mosaics"]), 1)
+        self.assertEqual(listed["mosaics"][0]["id"], created["id"])
+
+    def test_mosaic_panels_can_be_generated_and_selected_via_api(self) -> None:
+        payload = self._send_json(
+            "/api/mosaics",
+            {
+                "project_slug": "orion_nebula",
+                "name": "Cygnus Loop",
+                "target_name": "Cygnus Loop",
+                "imaging_profile_id": "seestar_s30_pro",
+                "imaging_profile_label": "Seestar S30 Pro",
+                "fov_width_deg": 2.59,
+                "fov_height_deg": 1.47,
+                "center_ra_deg": 312.5,
+                "center_dec_deg": 31.0,
+                "region_width_deg": 3.0,
+                "region_height_deg": 3.0,
+                "overlap_percent": 25.0,
+            },
+        )
+        mosaic_id = payload["mosaic"]["id"]
+
+        generated = self._send_json(f"/api/mosaics/{mosaic_id}/generate-panels", {})
+        panels = generated["panels"]
+        self.assertEqual(len(panels), 6)
+
+        selected_panel_id = panels[-1]["id"]
+        selected = self._send_json(
+            f"/api/mosaics/{mosaic_id}/select-panel",
+            {"panel_id": selected_panel_id},
+        )
+        self.assertEqual(selected["mosaic"]["selected_panel_id"], selected_panel_id)
+
+        panel_payload = self._read_json(f"/api/mosaic-panels/{selected_panel_id}")
+        self.assertEqual(panel_payload["panel"]["id"], selected_panel_id)
+
     def _read_json(self, path: str) -> dict[str, object]:
         with self._read_response(path) as response:
             return json.loads(response.read().decode("utf-8"))

@@ -4,16 +4,22 @@ from .domain.models import (
     Dataset,
     Equipment,
     Frame,
+    ImagingProfile,
+    MosaicPanel,
+    MosaicPlan,
     Observation,
     ObservationEquipmentAssignment,
+    PlannedPointing,
     ProcessingRun,
     Site,
+    TelescopeState,
     Target,
 )
 from .engine.sqlite import (
     DatasetRepository,
     EXPECTED_USER_VERSION,
     FrameRepository,
+    MosaicRepository,
     ObservationRepository,
     PlanningRepository,
     ProcessingRunRepository,
@@ -41,6 +47,11 @@ from .engine.siril import (
     SirilRunner,
     find_osc_preprocessing_result,
 )
+from .engine.telescope import (
+    SimulatorTelescopeAdapter,
+    TelescopeSnapshot,
+    TelescopeStateService,
+)
 from .gui import create_http_server, run_server
 
 __all__ = [
@@ -56,9 +67,15 @@ __all__ = [
     "Observation",
     "ObservationEquipmentAssignment",
     "ProcessingRun",
+    "TelescopeState",
+    "ImagingProfile",
+    "PlannedPointing",
+    "MosaicPlan",
+    "MosaicPanel",
     "PlanningRepository",
     "ObservationRepository",
     "FrameRepository",
+    "MosaicRepository",
     "DatasetRepository",
     "ProcessingRunRepository",
     "ValidationError",
@@ -79,6 +96,9 @@ __all__ = [
     "SirilProcessingService",
     "SirilOutputNotFoundError",
     "find_osc_preprocessing_result",
+    "SimulatorTelescopeAdapter",
+    "TelescopeSnapshot",
+    "TelescopeStateService",
     "create_http_server",
     "run_server",
 ]

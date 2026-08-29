@@ -5,6 +5,9 @@ import hashlib
 import json
 import mimetypes
 import os
+import sqlite3
+import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,19 +21,32 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     Image = None
     ImageOps = None
 
+from ..domain.models import MosaicPanel, MosaicPlan
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
+from ..engine.sqlite import MosaicRepository, connect_database, initialize_database
+from ..engine.telescope import TelescopeStateService
 
 
 @dataclass(slots=True)
 class ApiContext:
     projects_root: Path
+    database_path: Path
     run_manager: ProjectRunManager
+    telescope_service: TelescopeStateService
 
     @property
     def storage(self) -> ProjectStorage:
         return ProjectStorage(self.projects_root)
+
+    @contextmanager
+    def open_database(self):
+        connection = connect_database(self.database_path)
+        try:
+            yield connection
+        finally:
+            connection.close()
 
 
 def create_http_server(
@@ -38,11 +54,19 @@ def create_http_server(
     host: str,
     port: int,
     projects_root: str | Path,
+    database_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
-    storage = ProjectStorage(Path(projects_root))
+    resolved_projects_root = Path(projects_root)
+    resolved_projects_root.mkdir(parents=True, exist_ok=True)
+    resolved_database_path = Path(database_path) if database_path is not None else (resolved_projects_root / "tsn_dss.db")
+    bootstrap_connection = initialize_database(resolved_database_path)
+    bootstrap_connection.close()
+    storage = ProjectStorage(resolved_projects_root)
     context = ApiContext(
-        projects_root=Path(projects_root),
+        projects_root=resolved_projects_root,
+        database_path=resolved_database_path,
         run_manager=ProjectRunManager(project_storage=storage),
+        telescope_service=TelescopeStateService(),
     )
     handler_class = _build_handler(context)
     return ThreadingHTTPServer((host, port), handler_class)
@@ -53,8 +77,9 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     projects_root: str | Path = "projects",
+    database_path: str | Path | None = None,
 ) -> None:
-    server = create_http_server(host=host, port=port, projects_root=projects_root)
+    server = create_http_server(host=host, port=port, projects_root=projects_root, database_path=database_path)
     print(
         f"TSN DSS API listening on http://{host}:{port} "
         f"(projects_root={Path(projects_root).resolve()})"
@@ -86,6 +111,13 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 )
                 return
 
+            if path == "/api/telescope/state":
+                self._write_json(
+                    HTTPStatus.OK,
+                    context.telescope_service.get_snapshot().to_dict(),
+                )
+                return
+
             if path == "/api/projects":
                 self._write_json(
                     HTTPStatus.OK,
@@ -96,6 +128,62 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         ]
                     },
                 )
+                return
+
+            if path == "/api/mosaics":
+                project_slug = self._get_query_param("project_slug")
+                with context.open_database() as connection:
+                    repository = MosaicRepository(connection)
+                    mosaics = repository.list_mosaic_plans(project_slug=project_slug)
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"mosaics": [_mosaic_plan_to_dict(plan) for plan in mosaics]},
+                )
+                return
+
+            if path.startswith("/api/mosaics/"):
+                mosaic_path = unquote(path.removeprefix("/api/mosaics/"))
+                mosaic_id, suffix = _split_run_path(mosaic_path)
+                with context.open_database() as connection:
+                    repository = MosaicRepository(connection)
+                    plan = repository.get_mosaic_plan(mosaic_id)
+
+                if plan is None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_not_found", "message": f"Unknown mosaic: {mosaic_id}"},
+                    )
+                    return
+
+                if suffix == "panels":
+                    self._write_json(
+                        HTTPStatus.OK,
+                        {"panels": [_mosaic_panel_to_dict(panel) for panel in plan.panels]},
+                    )
+                    return
+
+                if suffix is not None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_asset_not_found", "message": f"Unknown mosaic asset: {suffix}"},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"mosaic": _mosaic_plan_to_dict(plan)})
+                return
+
+            if path.startswith("/api/mosaic-panels/"):
+                panel_id = unquote(path.removeprefix("/api/mosaic-panels/")).split("/", 1)[0]
+                with context.open_database() as connection:
+                    repository = MosaicRepository(connection)
+                    panel = repository.get_mosaic_panel(panel_id)
+                if panel is None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_panel_not_found", "message": f"Unknown mosaic panel: {panel_id}"},
+                    )
+                    return
+                self._write_json(HTTPStatus.OK, {"panel": _mosaic_panel_to_dict(panel)})
                 return
 
             if path.startswith("/api/projects/") and "/captures/" in path and "/files/" in path:
@@ -332,6 +420,122 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(HTTPStatus.CREATED, {"project": _project_to_dict(project)})
                 return
 
+            if path == "/api/mosaics":
+                try:
+                    plan = _mosaic_plan_from_payload(
+                        payload,
+                        fallback_profile=context.telescope_service.get_snapshot().imaging_profile,
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_mosaic_request", "message": str(error)},
+                    )
+                    return
+
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        saved = repository.save_mosaic_plan(plan)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_create_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.CREATED, {"mosaic": _mosaic_plan_to_dict(saved)})
+                return
+
+            if path.startswith("/api/mosaics/") and path.endswith("/generate-panels"):
+                prefix = "/api/mosaics/"
+                suffix = "/generate-panels"
+                mosaic_id = unquote(path[len(prefix):-len(suffix)])
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        panels = repository.generate_panels(mosaic_id)
+                        plan = repository.get_mosaic_plan(mosaic_id)
+                except KeyError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_not_found", "message": f"Unknown mosaic: {mosaic_id}"},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_generation_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "mosaic": _mosaic_plan_to_dict(plan),
+                        "panels": [_mosaic_panel_to_dict(panel) for panel in panels],
+                    },
+                )
+                return
+
+            if path.startswith("/api/mosaics/") and path.endswith("/select-panel"):
+                prefix = "/api/mosaics/"
+                suffix = "/select-panel"
+                mosaic_id = unquote(path[len(prefix):-len(suffix)])
+                panel_id = str(payload.get("panel_id", "")).strip()
+                if not panel_id:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_mosaic_selection", "message": "Field 'panel_id' is required."},
+                    )
+                    return
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        plan = repository.select_active_panel(mosaic_id, panel_id)
+                except KeyError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_panel_not_found", "message": f"Unknown panel for mosaic: {panel_id}"},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_selection_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"mosaic": _mosaic_plan_to_dict(plan)})
+                return
+
+            if path.startswith("/api/mosaic-panels/"):
+                panel_id = unquote(path.removeprefix("/api/mosaic-panels/")).split("/", 1)[0]
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        current = repository.get_mosaic_panel(panel_id)
+                        if current is None:
+                            raise KeyError(panel_id)
+                        updated = repository.update_mosaic_panel(
+                            _merge_mosaic_panel_payload(current, payload)
+                        )
+                except KeyError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_panel_not_found", "message": f"Unknown mosaic panel: {panel_id}"},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_panel_update_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"panel": _mosaic_panel_to_dict(updated)})
+                return
+
             if path.startswith("/api/projects/") and path.endswith("/sky-target"):
                 prefix = "/api/projects/"
                 suffix = "/sky-target"
@@ -430,6 +634,60 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(HTTPStatus.CREATED, {"run": _run_to_dict(snapshot)})
                 return
 
+            if path == "/api/telescope/simulator/state":
+                try:
+                    snapshot = context.telescope_service.update_simulator_pointing(
+                        ra_hours=_coerce_optional_float(payload.get("ra_hours")),
+                        dec_deg=_coerce_optional_float(payload.get("dec_deg")),
+                        alt_deg=_coerce_optional_float(payload.get("alt_deg")),
+                        az_deg=_coerce_optional_float(payload.get("az_deg")),
+                        target_name=_coerce_optional_string(payload.get("target_name")),
+                        status=_coerce_optional_string(payload.get("status")),
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_telescope_state", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, snapshot.to_dict())
+                return
+
+            if path == "/api/telescope/planned-pointing":
+                try:
+                    ra_hours = _coerce_required_float(payload.get("ra_hours"))
+                    dec_deg = _coerce_required_float(payload.get("dec_deg"))
+                    snapshot = context.telescope_service.set_planned_pointing(
+                        ra_hours=ra_hours,
+                        dec_deg=dec_deg,
+                        target_name=_coerce_optional_string(payload.get("target_name")),
+                        source_kind=_coerce_optional_string(payload.get("source_kind")) or "manual",
+                        source_id=_coerce_optional_string(payload.get("source_id")),
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_planned_pointing", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, snapshot.to_dict())
+                return
+
+            if path == "/api/telescope/slew-to-planned":
+                try:
+                    snapshot = context.telescope_service.slew_to_planned_pointing()
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "planned_pointing_unavailable", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, snapshot.to_dict())
+                return
+
             if path.startswith("/api/project-runs/") and path.endswith("/generate-preview"):
                 prefix = "/api/project-runs/"
                 suffix = "/generate-preview"
@@ -493,6 +751,33 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(
                     HTTPStatus.OK,
                     {"deleted": True, "run_id": run_id},
+                )
+                return
+
+            if path.startswith("/api/mosaics/"):
+                mosaic_id = unquote(path.removeprefix("/api/mosaics/")).split("/", 1)[0]
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        repository.delete_mosaic_plan(mosaic_id)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_delete_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"deleted": True, "mosaic_id": mosaic_id},
+                )
+                return
+
+            if path == "/api/telescope/planned-pointing":
+                snapshot = context.telescope_service.clear_planned_pointing()
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"deleted": True, "planned_pointing": snapshot.to_dict().get("planned_pointing")},
                 )
                 return
 
@@ -671,6 +956,47 @@ def _run_to_dict(snapshot: Any) -> dict[str, Any]:
     return payload
 
 
+def _mosaic_plan_to_dict(plan: Any) -> dict[str, Any]:
+    return {
+        "id": plan.id,
+        "project_slug": plan.project_slug,
+        "name": plan.name,
+        "target_name": plan.target_name,
+        "imaging_profile_id": plan.imaging_profile_id,
+        "imaging_profile_label": plan.imaging_profile_label,
+        "fov_width_deg": plan.fov_width_deg,
+        "fov_height_deg": plan.fov_height_deg,
+        "center_ra_deg": plan.center_ra_deg,
+        "center_dec_deg": plan.center_dec_deg,
+        "region_width_deg": plan.region_width_deg,
+        "region_height_deg": plan.region_height_deg,
+        "rotation_deg": plan.rotation_deg,
+        "overlap_percent": plan.overlap_percent,
+        "status": plan.status,
+        "selected_panel_id": plan.selected_panel_id,
+        "panels": [_mosaic_panel_to_dict(panel) for panel in plan.panels],
+    }
+
+
+def _mosaic_panel_to_dict(panel: Any) -> dict[str, Any]:
+    return {
+        "id": panel.id,
+        "mosaic_plan_id": panel.mosaic_plan_id,
+        "panel_index": panel.panel_index,
+        "panel_label": panel.panel_label,
+        "center_ra_deg": panel.center_ra_deg,
+        "center_dec_deg": panel.center_dec_deg,
+        "fov_width_deg": panel.fov_width_deg,
+        "fov_height_deg": panel.fov_height_deg,
+        "rotation_deg": panel.rotation_deg,
+        "row_index": panel.row_index,
+        "column_index": panel.column_index,
+        "status": panel.status,
+        "target_integration_seconds": panel.target_integration_seconds,
+        "acquired_integration_seconds": panel.acquired_integration_seconds,
+    }
+
+
 def _list_run_artifact_images(snapshot: Any) -> list[dict[str, Any]]:
     artifacts_dir = Path(snapshot.artifacts_dir)
     if not artifacts_dir.exists() or not artifacts_dir.is_dir():
@@ -717,6 +1043,95 @@ def _split_run_path(run_path: str) -> tuple[str, str | None]:
     if len(parts) == 1:
         return parts[0], None
     return parts[0], "/".join(parts[1:])
+
+
+def _coerce_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any) -> Any:
+    project_slug = str(payload.get("project_slug", "")).strip()
+    name = str(payload.get("name", "")).strip()
+    if not project_slug or not name:
+        raise ValueError("Fields 'project_slug' and 'name' are required.")
+
+    imaging_profile_id = str(payload.get("imaging_profile_id") or getattr(fallback_profile, "profile_id", "")).strip()
+    imaging_profile_label = str(payload.get("imaging_profile_label") or getattr(fallback_profile, "label", "")).strip()
+    fov_width_deg = _coerce_required_float(payload.get("fov_width_deg"), fallback=getattr(fallback_profile, "fov_width_deg", None))
+    fov_height_deg = _coerce_required_float(payload.get("fov_height_deg"), fallback=getattr(fallback_profile, "fov_height_deg", None))
+    center_ra_deg = _coerce_required_float(payload.get("center_ra_deg"))
+    center_dec_deg = _coerce_required_float(payload.get("center_dec_deg"))
+    region_width_deg = _coerce_required_float(payload.get("region_width_deg"))
+    region_height_deg = _coerce_required_float(payload.get("region_height_deg"))
+    rotation_deg = _coerce_required_float(payload.get("rotation_deg"), fallback=getattr(fallback_profile, "rotation_deg", 0.0) or 0.0)
+    overlap_percent = _coerce_required_float(payload.get("overlap_percent"), fallback=10.0)
+    status = str(payload.get("status", "draft")).strip() or "draft"
+    target_name = _coerce_optional_string(payload.get("target_name"))
+    selected_panel_id = _coerce_optional_string(payload.get("selected_panel_id"))
+    provided_id = _coerce_optional_string(payload.get("id"))
+
+    if not imaging_profile_id or not imaging_profile_label:
+        raise ValueError("Imaging profile information is required for mosaic plans.")
+
+    return MosaicPlan(
+        id=provided_id or f"mosaic:{uuid.uuid4().hex[:12]}",
+        project_slug=project_slug,
+        name=name,
+        target_name=target_name,
+        imaging_profile_id=imaging_profile_id,
+        imaging_profile_label=imaging_profile_label,
+        fov_width_deg=fov_width_deg,
+        fov_height_deg=fov_height_deg,
+        center_ra_deg=center_ra_deg,
+        center_dec_deg=center_dec_deg,
+        region_width_deg=region_width_deg,
+        region_height_deg=region_height_deg,
+        rotation_deg=rotation_deg,
+        overlap_percent=overlap_percent,
+        status=status,
+        selected_panel_id=selected_panel_id,
+    )
+
+
+def _merge_mosaic_panel_payload(current: Any, payload: dict[str, Any]) -> Any:
+    return MosaicPanel(
+        id=current.id,
+        mosaic_plan_id=current.mosaic_plan_id,
+        panel_index=current.panel_index,
+        panel_label=str(payload.get("panel_label", current.panel_label)).strip() or current.panel_label,
+        center_ra_deg=_coerce_required_float(payload.get("center_ra_deg"), fallback=current.center_ra_deg),
+        center_dec_deg=_coerce_required_float(payload.get("center_dec_deg"), fallback=current.center_dec_deg),
+        fov_width_deg=_coerce_required_float(payload.get("fov_width_deg"), fallback=current.fov_width_deg),
+        fov_height_deg=_coerce_required_float(payload.get("fov_height_deg"), fallback=current.fov_height_deg),
+        rotation_deg=_coerce_required_float(payload.get("rotation_deg"), fallback=current.rotation_deg),
+        row_index=_coerce_optional_int(payload.get("row_index"), fallback=current.row_index),
+        column_index=_coerce_optional_int(payload.get("column_index"), fallback=current.column_index),
+        status=str(payload.get("status", current.status)).strip() or current.status,
+        target_integration_seconds=_coerce_optional_float(payload.get("target_integration_seconds"), fallback=current.target_integration_seconds),
+        acquired_integration_seconds=_coerce_optional_float(payload.get("acquired_integration_seconds"), fallback=current.acquired_integration_seconds),
+    )
+
+
+def _coerce_required_float(value: Any, *, fallback: Any = None) -> float:
+    candidate = fallback if value is None or value == "" else value
+    if candidate is None or candidate == "":
+        raise ValueError("Missing required numeric value.")
+    return float(candidate)
+
+
+def _coerce_optional_float(value: Any, *, fallback: float | None = None) -> float | None:
+    if value is None or value == "":
+        return fallback
+    return float(value)
+
+
+def _coerce_optional_int(value: Any, *, fallback: int | None = None) -> int | None:
+    if value is None or value == "":
+        return fallback
+    return int(value)
 
 
 def _ensure_capture_thumbnail(
@@ -767,9 +1182,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--projects-root", default="projects")
+    parser.add_argument("--database-path", default=None)
     args = parser.parse_args(argv)
 
-    run_server(host=args.host, port=args.port, projects_root=args.projects_root)
+    run_server(host=args.host, port=args.port, projects_root=args.projects_root, database_path=args.database_path)
     return 0
 
 

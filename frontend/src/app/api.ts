@@ -72,6 +72,89 @@ export type RunArtifactImage = {
   suffix: string;
 };
 
+export type TelescopeState = {
+  adapter_id: string;
+  source_kind: string;
+  timestamp_utc: string;
+  connected: boolean;
+  status: string;
+  is_simulated: boolean;
+  site_lat_deg: number | null;
+  site_lon_deg: number | null;
+  site_elevation_m: number | null;
+  ra_hours: number | null;
+  dec_deg: number | null;
+  alt_deg: number | null;
+  az_deg: number | null;
+  target_name: string | null;
+  position_quality: string | null;
+};
+
+export type PlannedPointing = {
+  target_name: string | null;
+  ra_hours: number;
+  dec_deg: number;
+  source_kind: string;
+  source_id: string | null;
+  updated_at_utc: string | null;
+};
+
+export type ImagingProfile = {
+  profile_id: string;
+  label: string;
+  focal_length_mm: number;
+  sensor_width_mm: number;
+  sensor_height_mm: number;
+  pixel_size_um: number | null;
+  rotation_deg: number | null;
+  binning: number | null;
+  fov_width_deg: number | null;
+  fov_height_deg: number | null;
+};
+
+export type TelescopeSnapshot = {
+  telescope_state: TelescopeState;
+  imaging_profile: ImagingProfile;
+  planned_pointing: PlannedPointing | null;
+};
+
+export type MosaicPanel = {
+  id: string;
+  mosaic_plan_id: string;
+  panel_index: number;
+  panel_label: string;
+  center_ra_deg: number;
+  center_dec_deg: number;
+  fov_width_deg: number;
+  fov_height_deg: number;
+  rotation_deg: number;
+  row_index: number | null;
+  column_index: number | null;
+  status: string;
+  target_integration_seconds: number | null;
+  acquired_integration_seconds: number | null;
+};
+
+export type MosaicPlan = {
+  id: string;
+  project_slug: string;
+  name: string;
+  target_name: string | null;
+  imaging_profile_id: string;
+  imaging_profile_label: string;
+  fov_width_deg: number;
+  fov_height_deg: number;
+  center_ra_deg: number;
+  center_dec_deg: number;
+  region_width_deg: number;
+  region_height_deg: number;
+  rotation_deg: number;
+  overlap_percent: number;
+  status: string;
+  selected_panel_id: string | null;
+  panels: MosaicPanel[];
+};
+
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8765';
 
 export function getApiBaseUrl(): string {
@@ -80,6 +163,108 @@ export function getApiBaseUrl(): string {
 
 export async function fetchHealth(): Promise<ApiHealth> {
   return getJson<ApiHealth>('/api/health');
+}
+
+export async function fetchTelescopeState(): Promise<TelescopeSnapshot> {
+  return getJson<TelescopeSnapshot>('/api/telescope/state');
+}
+
+export async function updateSimulatorTelescopeState(input: {
+  ra_hours?: number;
+  dec_deg?: number;
+  alt_deg?: number;
+  az_deg?: number;
+  target_name?: string;
+  status?: string;
+}): Promise<TelescopeSnapshot> {
+  return sendJson<TelescopeSnapshot>('/api/telescope/simulator/state', input);
+}
+
+export async function updatePlannedTelescopePointing(input: {
+  ra_hours: number;
+  dec_deg: number;
+  target_name?: string;
+  source_kind?: string;
+  source_id?: string;
+}): Promise<TelescopeSnapshot> {
+  return sendJson<TelescopeSnapshot>('/api/telescope/planned-pointing', input);
+}
+
+export async function clearPlannedTelescopePointing(): Promise<TelescopeSnapshot> {
+  const response = await fetch(`${getApiBaseUrl()}/api/telescope/planned-pointing`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  await response.json();
+
+  return fetchTelescopeState();
+}
+
+export async function slewToPlannedTelescopePointing(): Promise<TelescopeSnapshot> {
+  return sendJson<TelescopeSnapshot>('/api/telescope/slew-to-planned', {});
+}
+
+export async function fetchMosaics(projectSlug?: string): Promise<MosaicPlan[]> {
+  const suffix = projectSlug ? `?project_slug=${encodeURIComponent(projectSlug)}` : '';
+  const payload = await getJson<{ mosaics: MosaicPlan[] }>(`/api/mosaics${suffix}`);
+  return payload.mosaics;
+}
+
+export async function createMosaicPlan(input: {
+  id?: string;
+  project_slug: string;
+  name: string;
+  target_name?: string;
+  imaging_profile_id?: string;
+  imaging_profile_label?: string;
+  fov_width_deg?: number;
+  fov_height_deg?: number;
+  center_ra_deg: number;
+  center_dec_deg: number;
+  region_width_deg: number;
+  region_height_deg: number;
+  rotation_deg?: number;
+  overlap_percent?: number;
+  status?: string;
+}): Promise<MosaicPlan> {
+  const payload = await sendJson<{ mosaic: MosaicPlan }>('/api/mosaics', input);
+  return payload.mosaic;
+}
+
+export async function generateMosaicPanels(mosaicId: string): Promise<MosaicPlan> {
+  const payload = await sendJson<{ mosaic: MosaicPlan }>(
+    `/api/mosaics/${encodeURIComponent(mosaicId)}/generate-panels`,
+    {},
+  );
+  return payload.mosaic;
+}
+
+export async function selectMosaicPanel(mosaicId: string, panelId: string): Promise<MosaicPlan> {
+  const payload = await sendJson<{ mosaic: MosaicPlan }>(
+    `/api/mosaics/${encodeURIComponent(mosaicId)}/select-panel`,
+    { panel_id: panelId },
+  );
+  return payload.mosaic;
+}
+
+export async function updateMosaicPanel(panelId: string, input: {
+  panel_label?: string;
+  status?: string;
+  target_integration_seconds?: number | null;
+  acquired_integration_seconds?: number | null;
+}): Promise<MosaicPanel> {
+  const payload = await sendJson<{ panel: MosaicPanel }>(
+    `/api/mosaic-panels/${encodeURIComponent(panelId)}`,
+    input,
+  );
+  return payload.panel;
+}
+
+export async function deleteMosaicPlan(mosaicId: string): Promise<void> {
+  await sendDelete(`/api/mosaics/${encodeURIComponent(mosaicId)}`);
 }
 
 export async function fetchProjects(): Promise<ProjectSummary[]> {
