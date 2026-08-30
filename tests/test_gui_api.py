@@ -141,6 +141,47 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["releases"]), 1)
         self.assertIn("todo", payload)
 
+    def test_sites_endpoint_supports_crud_and_active_site(self) -> None:
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Bieszczady",
+                "latitude_deg": 49.2,
+                "longitude_deg": 22.5,
+                "elevation_m": 640,
+                "bortle_class": 2,
+            },
+        )
+        site_id = created["site"]["id"]
+        self.assertEqual(created["site"]["name"], "Bieszczady")
+
+        listed = self._read_json("/api/sites")
+        self.assertEqual(len(listed["sites"]), 1)
+        self.assertIsNone(listed["active_site_id"])
+
+        activated = self._send_json("/api/sites/active", {"site_id": site_id})
+        self.assertEqual(activated["active_site_id"], site_id)
+        self.assertEqual(activated["snapshot"]["active_site"]["name"], "Bieszczady")
+        self.assertEqual(activated["snapshot"]["telescope_state"]["site_lat_deg"], 49.2)
+
+        updated = self._send_json(
+            f"/api/sites/{site_id}",
+            {
+                "name": "Bieszczady Remote",
+                "sqm_mag_arcsec2": 21.7,
+            },
+        )
+        self.assertEqual(updated["site"]["name"], "Bieszczady Remote")
+        self.assertEqual(updated["site"]["sqm_mag_arcsec2"], 21.7)
+
+        deleted = self._send_delete(f"/api/sites/{site_id}")
+        self.assertTrue(deleted["deleted"])
+        self.assertEqual(deleted["site_id"], site_id)
+
+        listed_after_delete = self._read_json("/api/sites")
+        self.assertEqual(listed_after_delete["sites"], [])
+        self.assertIsNone(listed_after_delete["active_site_id"])
+
     def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
         payload = self._read_json("/api/telescope/adapters")
 

@@ -9,10 +9,12 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   },
   "dependencies": {
-    "aladin-lite": "^3.9.0-beta"
+    "aladin-lite": "^3.9.0-beta",
+    "leaflet": "^1.9.4"
   }
 }

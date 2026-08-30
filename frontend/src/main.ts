@@ -1,8 +1,10 @@
 import './style.css';
 import {
   clearPlannedTelescopePointing,
+  createSite,
   createProject,
   createMosaicPlan,
+  deleteSite,
   deleteMosaicPlan,
   fetchCoreContent,
   fetchCaptureDetails,
@@ -14,12 +16,14 @@ import {
   fetchProjectRun,
   fetchProjectRuns,
   fetchProjects,
+  fetchSites,
   fetchTelescopeAdapters,
   fetchTelescopeState,
   generateMosaicPanels,
   generateProjectRunPreview,
   importCapture,
   selectMosaicPanel,
+  setActiveSite,
   setActiveTelescopeAdapter,
   slewToPlannedTelescopePointing,
   startProjectRun,
@@ -28,8 +32,13 @@ import {
   updatePlannedTelescopePointing,
   updateSimulatorTelescopeState,
   updateProjectSkyTarget,
+  updateSite,
   type ProjectSummary,
 } from './app/api';
+import {
+  mountObservationCenterMap,
+  preserveObservationCenterMapState,
+} from './app/observation_center_map';
 import { mountSkyView, preserveSkyViewState } from './app/sky';
 import {
   renderAppShell,
@@ -69,6 +78,8 @@ const THEME_STORAGE_KEY = 'tsn_dss_theme';
 const state: AppState = {
   coreContent: null,
   health: null,
+  sites: [],
+  activeSiteId: null,
   projects: [],
   selectedProject: null,
   selectedProjectRunId: null,
@@ -106,15 +117,18 @@ async function bootstrap(): Promise<void> {
 }
 
 async function refreshState(preferredSlug?: string): Promise<void> {
-  const [coreContent, health, projects, telescopeAdaptersPayload] = await Promise.all([
+  const [coreContent, health, projects, sitesPayload, telescopeAdaptersPayload] = await Promise.all([
     fetchCoreContent().catch(() => state.coreContent),
     fetchHealth().catch(() => null),
     fetchProjects().catch(() => []),
+    fetchSites().catch(() => null),
     fetchTelescopeAdapters().catch(() => null),
   ]);
 
   state.coreContent = coreContent;
   state.health = health;
+  state.sites = sitesPayload?.sites ?? state.sites;
+  state.activeSiteId = sitesPayload?.active_site_id ?? state.activeSiteId;
   state.projects = projects;
   state.telescopeAdapters = telescopeAdaptersPayload?.adapters ?? state.telescopeAdapters;
   state.activeTelescopeAdapterId = telescopeAdaptersPayload?.active_adapter_id ?? state.activeTelescopeAdapterId;
@@ -144,13 +158,23 @@ async function refreshState(preferredSlug?: string): Promise<void> {
 // replaces the workspace HTML on each state change.
 function render(): void {
   const workspaceScrollTop = getWorkspaceScrollTop();
+  const preservedObservationCenterMapElement = state.currentView === 'observationcenter'
+    ? rootElement.querySelector<HTMLElement>('#observation-center-map')
+    : null;
   const preservedSkyViewElement = state.currentView === 'sky'
     ? rootElement.querySelector<HTMLElement>('#aladin-sky-view')
     : null;
+  if (state.currentView === 'observationcenter') {
+    preserveObservationCenterMapState();
+  }
   if (state.currentView === 'sky') {
     preserveSkyViewState();
   }
   rootElement.innerHTML = renderAppShell(state);
+  if (preservedObservationCenterMapElement) {
+    const nextObservationCenterMapElement = rootElement.querySelector<HTMLElement>('#observation-center-map');
+    nextObservationCenterMapElement?.replaceWith(preservedObservationCenterMapElement);
+  }
   if (preservedSkyViewElement) {
     const nextSkyViewElement = rootElement.querySelector<HTMLElement>('#aladin-sky-view');
     nextSkyViewElement?.replaceWith(preservedSkyViewElement);
@@ -165,6 +189,7 @@ function render(): void {
   bindProjectCaptureFileSelection();
   bindProcessingTabs();
   bindSkyTabs();
+  bindObservationSiteSelection();
   bindMosaicSelection();
   bindMosaicPanelSelection();
   bindMosaicActions();
@@ -180,7 +205,13 @@ function render(): void {
   bindInlineProjectSkyTarget();
   bindSkyFollowToggle();
   bindTelescopeAdapterForm();
+  bindActiveSiteForm();
+  bindSiteEditorForm();
+  bindSiteActions();
   hydrateSkySimulatorPanel();
+  if (state.currentView === 'observationcenter') {
+    void refreshObservationCenterMapLive();
+  }
   if (state.currentView === 'sky') {
     void refreshSkyViewLive();
   }
@@ -344,6 +375,19 @@ function bindProcessingCaptureSelection(): void {
   });
 }
 
+function bindObservationSiteSelection(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-observation-site-id]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const siteId = button.dataset.observationSiteId ?? '';
+      if (!siteId) {
+        return;
+      }
+      void handleSetActiveSiteById(siteId);
+    });
+  });
+}
+
 function bindProjectActions(): void {
   const projectButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-project-slug]');
   projectButtons.forEach((button) => {
@@ -485,6 +529,8 @@ function bindForms(): void {
   const startRunForm = rootElement.querySelector<HTMLFormElement>('[data-form="start-run"]');
   const skySimulatorForm = rootElement.querySelector<HTMLFormElement>('[data-form="sky-simulator"]');
   const telescopeAdapterForm = rootElement.querySelector<HTMLFormElement>('[data-form="telescope-adapter"]');
+  const activeSiteForm = rootElement.querySelector<HTMLFormElement>('[data-form="active-site"]');
+  const siteEditorForm = rootElement.querySelector<HTMLFormElement>('[data-form="site-editor"]');
   const createMosaicForm = rootElement.querySelector<HTMLFormElement>('[data-form="create-mosaic"]');
   const updateMosaicPanelStatusForm = rootElement.querySelector<HTMLFormElement>('[data-form="update-mosaic-panel-status"]');
 
@@ -513,6 +559,16 @@ function bindForms(): void {
     void handleTelescopeAdapterSwitch(telescopeAdapterForm);
   });
 
+  activeSiteForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void handleActiveSiteChange(activeSiteForm);
+  });
+
+  siteEditorForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void handleSiteEditorSubmit(siteEditorForm);
+  });
+
   createMosaicForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void handleCreateMosaic(createMosaicForm);
@@ -521,6 +577,55 @@ function bindForms(): void {
   updateMosaicPanelStatusForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void handleUpdateMosaicPanelStatus(updateMosaicPanelStatusForm);
+  });
+}
+
+function bindActiveSiteForm(): void {
+  const form = rootElement.querySelector<HTMLFormElement>('[data-form="active-site"]');
+  if (!form) {
+    return;
+  }
+
+  const select = form.elements.namedItem('site_id');
+  if (select instanceof HTMLSelectElement) {
+    select.value = state.activeSiteId ?? '';
+  }
+}
+
+function bindSiteEditorForm(): void {
+  const clearButton = rootElement.querySelector<HTMLButtonElement>('[data-clear-site-editor]');
+  clearButton?.addEventListener('click', () => {
+    const form = rootElement.querySelector<HTMLFormElement>('[data-form="site-editor"]');
+    if (!form) {
+      return;
+    }
+
+    setFormFieldValue(form, 'site_id', '');
+    setFormFieldValue(form, 'name', '');
+    setFormFieldValue(form, 'latitude_deg', '');
+    setFormFieldValue(form, 'longitude_deg', '');
+    setFormFieldValue(form, 'elevation_m', '');
+    setFormFieldValue(form, 'sqm_mag_arcsec2', '');
+    setFormFieldValue(form, 'bortle_class', '');
+    setFormFieldValue(form, 'notes', '');
+
+    const southHorizonField = form.elements.namedItem('south_horizon_open');
+    if (southHorizonField instanceof HTMLInputElement) {
+      southHorizonField.checked = false;
+    }
+  });
+}
+
+function bindSiteActions(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-site-id]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const siteId = button.dataset.deleteSiteId ?? '';
+      if (!siteId) {
+        return;
+      }
+      void handleDeleteSite(siteId);
+    });
   });
 }
 
@@ -1049,6 +1154,98 @@ async function handleSlewToPlannedPointing(): Promise<void> {
   }
 }
 
+async function handleActiveSiteChange(form: HTMLFormElement): Promise<void> {
+  const formData = new FormData(form);
+  const siteId = normalizeOptionalText(formData.get('site_id')) ?? null;
+
+  setBusy(true);
+  try {
+    const payload = await setActiveSite(siteId);
+    state.activeSiteId = payload.active_site_id;
+    state.telescopeSnapshot = payload.snapshot;
+    setMessage(siteId ? `Active site set: ${payload.snapshot.active_site?.name ?? siteId}` : 'Active site cleared.');
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleSetActiveSiteById(siteId: string): Promise<void> {
+  setBusy(true);
+  try {
+    const payload = await setActiveSite(siteId);
+    state.activeSiteId = payload.active_site_id;
+    state.telescopeSnapshot = payload.snapshot;
+    setMessage(`Active site set: ${payload.snapshot.active_site?.name ?? siteId}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
+  const formData = new FormData(form);
+  const siteId = normalizeOptionalText(formData.get('site_id'));
+  const sitePayload = {
+    name: String(formData.get('name') ?? '').trim(),
+    latitude_deg: normalizeNullableNumber(formData.get('latitude_deg')),
+    longitude_deg: normalizeNullableNumber(formData.get('longitude_deg')),
+    elevation_m: normalizeNullableNumber(formData.get('elevation_m')),
+    sqm_mag_arcsec2: normalizeNullableNumber(formData.get('sqm_mag_arcsec2')),
+    bortle_class: normalizeNullableNumber(formData.get('bortle_class')),
+    south_horizon_open: formData.get('south_horizon_open') === 'on',
+    notes: normalizeNullableText(formData.get('notes')),
+  };
+
+  if (!sitePayload.name) {
+    setError('Site name is required.');
+    return;
+  }
+
+  setBusy(true);
+  try {
+    const savedSite = siteId
+      ? await updateSite(siteId, sitePayload)
+      : await createSite(sitePayload);
+
+    const sitesPayload = await fetchSites().catch(() => null);
+    state.sites = sitesPayload?.sites ?? state.sites;
+
+    const activePayload = await setActiveSite(savedSite.id);
+    state.activeSiteId = activePayload.active_site_id;
+    state.telescopeSnapshot = activePayload.snapshot;
+    setMessage(siteId ? `Site updated: ${savedSite.name}` : `Site created: ${savedSite.name}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleDeleteSite(siteId: string): Promise<void> {
+  const site = state.sites.find((entry) => entry.id === siteId);
+  const confirmed = window.confirm(`Delete observation site "${site?.name ?? siteId}"?`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(true);
+  try {
+    await deleteSite(siteId);
+    const sitesPayload = await fetchSites().catch(() => null);
+    state.sites = sitesPayload?.sites ?? [];
+    state.activeSiteId = sitesPayload?.active_site_id ?? null;
+    state.telescopeSnapshot = await fetchTelescopeState().catch(() => state.telescopeSnapshot);
+    setMessage(`Site deleted: ${site?.name ?? siteId}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function handleDeleteMosaic(mosaicId: string): Promise<void> {
   const mosaic = state.mosaics.find((entry) => entry.id === mosaicId);
   const confirmed = window.confirm(`Delete mosaic "${mosaic?.name ?? mosaicId}" with all generated panels?`);
@@ -1524,9 +1721,14 @@ function normalizeOptionalText(value: FormDataEntryValue | null): string | undef
   return text || undefined;
 }
 
+function normalizeNullableText(value: FormDataEntryValue | null): string | null {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
 function setFormFieldValue(form: HTMLFormElement, fieldName: string, value: string): void {
   const field = form.elements.namedItem(fieldName);
-  if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement) {
+  if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
     field.value = value;
   }
 }
@@ -1651,6 +1853,17 @@ async function refreshSkyViewLive(): Promise<void> {
         return;
       }
       void handleSelectMosaicPanel(state.selectedMosaicId, panelId);
+    },
+  );
+}
+
+async function refreshObservationCenterMapLive(): Promise<void> {
+  await mountObservationCenterMap(
+    'observation-center-map',
+    state.sites,
+    state.activeSiteId,
+    (siteId) => {
+      void handleSetActiveSiteById(siteId);
     },
   );
 }

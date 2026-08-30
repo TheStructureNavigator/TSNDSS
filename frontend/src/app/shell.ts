@@ -15,6 +15,7 @@ import {
   type ProjectRun,
   type ProjectSummary,
   type RunArtifactImage,
+  type Site,
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
@@ -25,7 +26,7 @@ import {
  * `shell.ts` turns the current `AppState` into HTML, but does not own
  * fetching, polling or business actions. Those stay in `main.ts`.
  */
-export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
+export type ViewName = 'core' | 'projects' | 'processing' | 'sky' | 'observationcenter';
 export type ThemeName = 'dark' | 'observation';
 
 /**
@@ -42,6 +43,8 @@ export type ThemeName = 'dark' | 'observation';
 export type AppState = {
   coreContent: CoreContent | null;
   health: ApiHealth | null;
+  sites: Site[];
+  activeSiteId: string | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
   selectedProjectRunId: string | null;
@@ -135,6 +138,7 @@ export function renderAppShell(state: AppState): string {
             ${renderNavItem('projects', 'Projects', state.currentView)}
             ${renderNavItem('processing', 'Processing', state.currentView)}
             ${renderNavItem('sky', 'Sky', state.currentView)}
+            ${renderNavItem('observationcenter', 'Observation Center', state.currentView)}
           </nav>
 
           <div class="sidebar-watermark" aria-hidden="true">
@@ -171,6 +175,10 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
 
   if (state.currentView === 'processing') {
     return renderProcessingView(state, primaryProject, latestRun);
+  }
+
+  if (state.currentView === 'observationcenter') {
+    return renderObservationCenterView(state);
   }
 
   if (state.currentView === 'sky') {
@@ -699,6 +707,154 @@ function renderSkyTelescopeControls(
           `
       }
     </article>
+  `;
+}
+
+function renderObservationCenterView(state: AppState): string {
+  const activeSite = state.telescopeSnapshot?.active_site ?? null;
+
+  return `
+    <section class="projects-workspace">
+      <div class="projects-toolbar">
+        <span class="projects-toolbar__label">Observation Center</span>
+      </div>
+
+      <section class="project-gallery-layout">
+        <aside class="project-gallery-sidebar">
+          <div class="project-gallery-sidebar__action">
+            <button class="action-button" type="button" data-clear-site-editor>
+              Create site
+            </button>
+          </div>
+
+          <section class="project-gallery-group">
+            <div class="panel__header panel__header--nested">
+              <h3>Sites</h3>
+            </div>
+            ${renderObservationSiteTabs(state.sites, state.activeSiteId)}
+          </section>
+        </aside>
+
+        <section class="project-gallery-main">
+          <div class="project-detail-stack">
+            <article class="panel telescope-panel">
+              <div class="panel__header">
+                <h3>Observation site</h3>
+                <span>${escapeHtml(activeSite?.name ?? 'new')}</span>
+              </div>
+              <form class="telescope-adapter-form" data-form="active-site">
+                <label class="field">
+                  <span>Active site</span>
+                  <select name="site_id">
+                    <option value="" ${state.activeSiteId ? '' : 'selected'}>No active site</option>
+                    ${state.sites.map((site) => `
+                      <option value="${escapeHtml(site.id)}" ${site.id === state.activeSiteId ? 'selected' : ''}>
+                        ${escapeHtml(site.name)}
+                      </option>
+                    `).join('')}
+                  </select>
+                </label>
+                <button class="action-button telescope-panel__submit" type="submit">
+                  Apply site
+                </button>
+              </form>
+
+              <div class="project-summary-strip project-summary-strip--sky">
+                <div class="project-summary-strip__item">
+                  <span class="project-summary-strip__label">Latitude</span>
+                  <span class="project-summary-strip__value">${formatAngleValue(activeSite?.latitude_deg)}</span>
+                </div>
+                <div class="project-summary-strip__item">
+                  <span class="project-summary-strip__label">Longitude</span>
+                  <span class="project-summary-strip__value">${formatAngleValue(activeSite?.longitude_deg)}</span>
+                </div>
+                <div class="project-summary-strip__item">
+                  <span class="project-summary-strip__label">Elevation</span>
+                  <span class="project-summary-strip__value">${formatMeters(activeSite?.elevation_m)}</span>
+                </div>
+                <div class="project-summary-strip__item">
+                  <span class="project-summary-strip__label">Sky quality</span>
+                  <span class="project-summary-strip__value">${formatSiteQuality(activeSite)}</span>
+                </div>
+              </div>
+
+              <form class="sky-simulator-form" data-form="site-editor">
+                <input name="site_id" type="hidden" value="${escapeHtml(activeSite?.id ?? '')}" />
+                <label class="field">
+                  <span>Site name</span>
+                  <input name="name" type="text" value="${escapeHtml(activeSite?.name ?? '')}" placeholder="Backyard / Bieszczady / Remote site" required />
+                </label>
+                <label class="field">
+                  <span>Latitude (deg)</span>
+                  <input name="latitude_deg" type="text" value="${activeSite?.latitude_deg ?? ''}" placeholder="50.1234" />
+                </label>
+                <label class="field">
+                  <span>Longitude (deg)</span>
+                  <input name="longitude_deg" type="text" value="${activeSite?.longitude_deg ?? ''}" placeholder="19.1234" />
+                </label>
+                <label class="field">
+                  <span>Elevation (m)</span>
+                  <input name="elevation_m" type="text" value="${activeSite?.elevation_m ?? ''}" placeholder="optional" />
+                </label>
+                <label class="field">
+                  <span>SQM</span>
+                  <input name="sqm_mag_arcsec2" type="text" value="${activeSite?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
+                </label>
+                <label class="field">
+                  <span>Bortle</span>
+                  <input name="bortle_class" type="text" value="${activeSite?.bortle_class ?? ''}" placeholder="1-9" />
+                </label>
+                <label class="checkbox-field">
+                  <input name="south_horizon_open" type="checkbox" ${activeSite?.south_horizon_open ? 'checked' : ''} />
+                  <span>South horizon open</span>
+                </label>
+                <label class="field field--full">
+                  <span>Notes</span>
+                  <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(activeSite?.notes ?? '')}</textarea>
+                </label>
+                <div class="telescope-panel__action-row">
+                  <button class="action-button telescope-panel__submit" type="submit">${activeSite ? 'Update site' : 'Create site'}</button>
+                  ${activeSite ? `<button class="action-button action-button--secondary" type="button" data-clear-site-editor>New site</button>` : ''}
+                  ${activeSite ? `<button class="action-button action-button--danger" type="button" data-delete-site-id="${escapeHtml(activeSite.id)}">Delete site</button>` : ''}
+                </div>
+              </form>
+            </article>
+
+            <article class="panel sky-panel sky-panel--full">
+              <div class="panel__header">
+                <h3>Site map</h3>
+                <span>${state.sites.filter((site) => site.latitude_deg != null && site.longitude_deg != null).length} mapped</span>
+              </div>
+              <div id="observation-center-map" class="observation-map-container"></div>
+              <p class="muted">
+                Saved sites are shown on the map. The active site is highlighted, and clicking a marker selects it in Observation Center.
+              </p>
+            </article>
+          </div>
+        </section>
+      </section>
+    </section>
+  `;
+}
+
+function renderObservationSiteTabs(sites: Site[], activeSiteId: string | null): string {
+  if (!sites.length) {
+    return '<p class="muted">No observation sites yet.</p>';
+  }
+
+  return `
+    <div class="run-tab-list">
+      ${sites
+        .map((site) => {
+          const selectedClass = site.id === activeSiteId ? ' run-tab-button--active' : '';
+          return `
+            <button class="run-tab-button${selectedClass}" type="button" data-observation-site-id="${escapeHtml(site.id)}">
+              ${escapeHtml(site.name)}
+            </button>
+          `;
+        })
+        .join('')}
+    </div>
   `;
 }
 
@@ -1759,6 +1915,34 @@ function formatBytes(value: number): string {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatMeters(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  return `${value.toFixed(0)} m`;
+}
+
+function formatAngleValue(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  return `${value.toFixed(4)}°`;
+}
+
+function formatSiteQuality(site: Site | null | undefined): string {
+  if (!site) {
+    return '—';
+  }
+  const parts: string[] = [];
+  if (site.bortle_class != null) {
+    parts.push(`B${site.bortle_class}`);
+  }
+  if (site.sqm_mag_arcsec2 != null) {
+    parts.push(`${site.sqm_mag_arcsec2.toFixed(1)} SQM`);
+  }
+  return parts.join(' · ') || '—';
 }
 
 function isPreviewableCaptureFile(fileEntry: CaptureFileEntry): boolean {

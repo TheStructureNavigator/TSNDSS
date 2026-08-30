@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from math import sqrt
 from typing import Callable, Protocol, runtime_checkable
 
-from ..domain.models import ImagingProfile, PlannedPointing, TelescopeState
+from ..domain.models import ImagingProfile, PlannedPointing, Site, TelescopeState
 
 
 def _utc_now_iso() -> str:
@@ -25,12 +25,14 @@ class TelescopeSnapshot:
     telescope_state: TelescopeState
     imaging_profile: ImagingProfile
     planned_pointing: PlannedPointing | None = None
+    active_site: Site | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
             "telescope_state": asdict(self.telescope_state),
             "imaging_profile": asdict(self.imaging_profile),
             "planned_pointing": asdict(self.planned_pointing) if self.planned_pointing else None,
+            "active_site": asdict(self.active_site) if self.active_site else None,
         }
 
 
@@ -419,12 +421,19 @@ class TelescopeStateService:
         self._active_adapter_id = active_adapter_id
         self._adapter = adapter or self._registry.create(active_adapter_id)
         self._planned_pointing: PlannedPointing | None = None
+        self._active_site: Site | None = None
 
     def get_snapshot(self) -> TelescopeSnapshot:
+        telescope_state = self._adapter.get_state()
+        if self._active_site is not None:
+            telescope_state.site_lat_deg = self._active_site.latitude_deg
+            telescope_state.site_lon_deg = self._active_site.longitude_deg
+            telescope_state.site_elevation_m = self._active_site.elevation_m
         return TelescopeSnapshot(
-            telescope_state=self._adapter.get_state(),
+            telescope_state=telescope_state,
             imaging_profile=self._adapter.get_imaging_profile(),
             planned_pointing=self._planned_pointing,
+            active_site=self._active_site,
         )
 
     def get_adapter_capabilities(self) -> TelescopeAdapterCapabilities:
@@ -433,6 +442,12 @@ class TelescopeStateService:
     def get_active_adapter_id(self) -> str:
         return self._active_adapter_id
 
+    def get_active_site(self) -> Site | None:
+        return self._active_site
+
+    def get_active_site_id(self) -> str | None:
+        return self._active_site.id if self._active_site is not None else None
+
     def list_available_adapters(self) -> list[TelescopeAdapterDescriptor]:
         return self._registry.list_descriptors()
 
@@ -440,6 +455,11 @@ class TelescopeStateService:
         """Swap the active adapter without changing the frontend contract."""
         self._adapter = self._registry.create(adapter_id)
         self._active_adapter_id = adapter_id
+        return self.get_snapshot()
+
+    def set_active_site(self, site: Site | None) -> TelescopeSnapshot:
+        """Attach an observing site to the normalized telescope snapshot."""
+        self._active_site = site
         return self.get_snapshot()
 
     def update_simulator_pointing(

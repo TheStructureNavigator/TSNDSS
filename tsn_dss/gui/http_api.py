@@ -22,11 +22,11 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     Image = None
     ImageOps = None
 
-from ..domain.models import MosaicPanel, MosaicPlan
+from ..domain.models import MosaicPanel, MosaicPlan, Site
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
-from ..engine.sqlite import MosaicRepository, connect_database, initialize_database
+from ..engine.sqlite import MosaicRepository, PlanningRepository, connect_database, initialize_database
 from ..engine.telescope import TelescopeStateService
 
 
@@ -125,11 +125,38 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 )
                 return
 
+            if path == "/api/sites":
+                with context.open_database() as connection:
+                    repository = PlanningRepository(connection)
+                    sites = repository.list_sites()
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "sites": [_site_to_dict(site) for site in sites],
+                        "active_site_id": context.telescope_service.get_active_site_id(),
+                    },
+                )
+                return
+
             if path == "/api/telescope/state":
                 self._write_json(
                     HTTPStatus.OK,
                     context.telescope_service.get_snapshot().to_dict(),
                 )
+                return
+
+            if path.startswith("/api/sites/"):
+                site_id = unquote(path.removeprefix("/api/sites/")).split("/", 1)[0]
+                with context.open_database() as connection:
+                    repository = PlanningRepository(connection)
+                    site = repository.get_site(site_id)
+                if site is None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "site_not_found", "message": f"Unknown site: {site_id}"},
+                    )
+                    return
+                self._write_json(HTTPStatus.OK, {"site": _site_to_dict(site)})
                 return
 
             if path == "/api/telescope/adapters":
@@ -447,6 +474,57 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(HTTPStatus.CREATED, {"project": _project_to_dict(project)})
                 return
 
+            if path == "/api/sites":
+                try:
+                    site = _site_from_payload(payload)
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_site_payload", "message": str(error)},
+                    )
+                    return
+
+                try:
+                    with context.open_database() as connection:
+                        repository = PlanningRepository(connection)
+                        created = repository.create_site(site)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_create_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.CREATED, {"site": _site_to_dict(created)})
+                return
+
+            if path == "/api/sites/active":
+                site_id = _coerce_optional_string(payload.get("site_id"))
+                if site_id is None:
+                    snapshot = context.telescope_service.set_active_site(None)
+                    self._write_json(
+                        HTTPStatus.OK,
+                        {"active_site_id": None, "snapshot": snapshot.to_dict()},
+                    )
+                    return
+
+                with context.open_database() as connection:
+                    repository = PlanningRepository(connection)
+                    site = repository.get_site(site_id)
+                if site is None:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_not_found", "message": f"Unknown site: {site_id}"},
+                    )
+                    return
+
+                snapshot = context.telescope_service.set_active_site(site)
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"active_site_id": site.id, "snapshot": snapshot.to_dict()},
+                )
+                return
+
             if path == "/api/mosaics":
                 try:
                     plan = _mosaic_plan_from_payload(
@@ -578,6 +656,34 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     )
                     return
                 self._write_json(HTTPStatus.OK, {"project": _project_to_dict(project)})
+                return
+
+            if path.startswith("/api/sites/"):
+                site_id = unquote(path.removeprefix("/api/sites/")).split("/", 1)[0]
+                try:
+                    with context.open_database() as connection:
+                        repository = PlanningRepository(connection)
+                        current = repository.get_site(site_id)
+                        if current is None:
+                            raise KeyError(f"Site not found: {site_id}")
+                        updated = repository.update_site(_merge_site_payload(current, payload))
+                except KeyError as error:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "site_not_found", "message": str(error)},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_update_failed", "message": str(error)},
+                    )
+                    return
+
+                if context.telescope_service.get_active_site_id() == updated.id:
+                    context.telescope_service.set_active_site(updated)
+
+                self._write_json(HTTPStatus.OK, {"site": _site_to_dict(updated)})
                 return
 
             if path == "/api/import-capture":
@@ -830,6 +936,28 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 )
                 return
 
+            if path.startswith("/api/sites/"):
+                site_id = unquote(path.removeprefix("/api/sites/")).split("/", 1)[0]
+                try:
+                    with context.open_database() as connection:
+                        repository = PlanningRepository(connection)
+                        repository.delete_site(site_id)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_delete_failed", "message": str(error)},
+                    )
+                    return
+
+                if context.telescope_service.get_active_site_id() == site_id:
+                    context.telescope_service.set_active_site(None)
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"deleted": True, "site_id": site_id},
+                )
+                return
+
             if path == "/api/telescope/planned-pointing":
                 snapshot = context.telescope_service.clear_planned_pointing()
                 self._write_json(
@@ -980,6 +1108,20 @@ def _project_to_dict(project: Any) -> dict[str, Any]:
         "capture_names": list(project.capture_names),
         "run_names": list(project.run_names),
         "sky_target": project.sky_target,
+    }
+
+
+def _site_to_dict(site: Any) -> dict[str, Any]:
+    return {
+        "id": site.id,
+        "name": site.name,
+        "latitude_deg": site.latitude_deg,
+        "longitude_deg": site.longitude_deg,
+        "elevation_m": site.elevation_m,
+        "sqm_mag_arcsec2": site.sqm_mag_arcsec2,
+        "bortle_class": site.bortle_class,
+        "south_horizon_open": site.south_horizon_open,
+        "notes": site.notes,
     }
 
 
@@ -1161,6 +1303,39 @@ def _coerce_optional_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _site_from_payload(payload: dict[str, Any]) -> Any:
+    site_id = _coerce_optional_string(payload.get("id")) or f"site:{uuid.uuid4().hex[:12]}"
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise ValueError("Field 'name' is required.")
+
+    return Site(
+        id=site_id,
+        name=name,
+        latitude_deg=_coerce_optional_float(payload.get("latitude_deg")),
+        longitude_deg=_coerce_optional_float(payload.get("longitude_deg")),
+        elevation_m=_coerce_optional_float(payload.get("elevation_m")),
+        sqm_mag_arcsec2=_coerce_optional_float(payload.get("sqm_mag_arcsec2")),
+        bortle_class=_coerce_optional_int(payload.get("bortle_class")),
+        south_horizon_open=bool(payload.get("south_horizon_open", False)),
+        notes=_coerce_optional_string(payload.get("notes")),
+    )
+
+
+def _merge_site_payload(current: Any, payload: dict[str, Any]) -> Any:
+    return Site(
+        id=current.id,
+        name=str(payload.get("name", current.name)).strip() or current.name,
+        latitude_deg=_coerce_optional_float(payload.get("latitude_deg"), fallback=current.latitude_deg),
+        longitude_deg=_coerce_optional_float(payload.get("longitude_deg"), fallback=current.longitude_deg),
+        elevation_m=_coerce_optional_float(payload.get("elevation_m"), fallback=current.elevation_m),
+        sqm_mag_arcsec2=_coerce_optional_float(payload.get("sqm_mag_arcsec2"), fallback=current.sqm_mag_arcsec2),
+        bortle_class=_coerce_optional_int(payload.get("bortle_class"), fallback=current.bortle_class),
+        south_horizon_open=bool(payload.get("south_horizon_open", current.south_horizon_open)),
+        notes=_coerce_optional_string(payload.get("notes")) if "notes" in payload else current.notes,
+    )
 
 
 def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any) -> Any:

@@ -211,6 +211,25 @@ class PlanningRepository:
         ).fetchone()
         return _row_to_site(row) if row else None
 
+    def list_sites(self) -> list[Site]:
+        rows = self.connection.execute(
+            """
+            SELECT
+                id,
+                name,
+                latitude_deg,
+                longitude_deg,
+                elevation_m,
+                sqm_mag_arcsec2,
+                bortle_class,
+                south_horizon_open,
+                notes
+            FROM sites
+            ORDER BY name, id;
+            """
+        ).fetchall()
+        return [_row_to_site(row) for row in rows]
+
     def update_site(self, site: Site) -> Site:
         _validate_site(site)
         with transaction(self.connection):

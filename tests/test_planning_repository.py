@@ -91,6 +91,14 @@ class PlanningRepositoryTests(unittest.TestCase):
         self.repository.delete_site("site:test-01")
         self.assertIsNone(self.repository.get_site("site:test-01"))
 
+    def test_list_sites_returns_name_sorted_sites(self) -> None:
+        self.repository.create_site(Site(id="site:zeta", name="Zeta Site"))
+        self.repository.create_site(Site(id="site:alpha", name="Alpha Site"))
+
+        listed = self.repository.list_sites()
+
+        self.assertEqual([site.id for site in listed], ["site:alpha", "site:zeta"])
+
     def test_equipment_crud_round_trip_with_json_properties(self) -> None:
         created = self.repository.create_equipment(
             Equipment(

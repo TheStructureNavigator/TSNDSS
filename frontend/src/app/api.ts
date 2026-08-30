@@ -22,6 +22,18 @@ export type CoreContent = {
   todo: string[];
 };
 
+export type Site = {
+  id: string;
+  name: string;
+  latitude_deg: number | null;
+  longitude_deg: number | null;
+  elevation_m: number | null;
+  sqm_mag_arcsec2: number | null;
+  bortle_class: number | null;
+  south_horizon_open: boolean;
+  notes: string | null;
+};
+
 export type ProjectSummary = {
   slug: string;
   project_root: string;
@@ -133,6 +145,7 @@ export type TelescopeSnapshot = {
   telescope_state: TelescopeState;
   imaging_profile: ImagingProfile;
   planned_pointing: PlannedPointing | null;
+  active_site: Site | null;
 };
 
 export type TelescopeAdapterCapabilities = {
@@ -204,6 +217,53 @@ export async function fetchHealth(): Promise<ApiHealth> {
 
 export async function fetchCoreContent(): Promise<CoreContent> {
   return getJson<CoreContent>('/api/core-content');
+}
+
+export async function fetchSites(): Promise<{
+  active_site_id: string | null;
+  sites: Site[];
+}> {
+  return getJson<{ active_site_id: string | null; sites: Site[] }>('/api/sites');
+}
+
+export async function createSite(input: {
+  id?: string;
+  name: string;
+  latitude_deg?: number | null;
+  longitude_deg?: number | null;
+  elevation_m?: number | null;
+  sqm_mag_arcsec2?: number | null;
+  bortle_class?: number | null;
+  south_horizon_open?: boolean;
+  notes?: string | null;
+}): Promise<Site> {
+  const payload = await sendJson<{ site: Site }>('/api/sites', input);
+  return payload.site;
+}
+
+export async function updateSite(siteId: string, input: {
+  name?: string;
+  latitude_deg?: number | null;
+  longitude_deg?: number | null;
+  elevation_m?: number | null;
+  sqm_mag_arcsec2?: number | null;
+  bortle_class?: number | null;
+  south_horizon_open?: boolean;
+  notes?: string | null;
+}): Promise<Site> {
+  const payload = await sendJson<{ site: Site }>(`/api/sites/${encodeURIComponent(siteId)}`, input);
+  return payload.site;
+}
+
+export async function deleteSite(siteId: string): Promise<void> {
+  await sendDelete(`/api/sites/${encodeURIComponent(siteId)}`);
+}
+
+export async function setActiveSite(siteId: string | null): Promise<{
+  active_site_id: string | null;
+  snapshot: TelescopeSnapshot;
+}> {
+  return sendJson<{ active_site_id: string | null; snapshot: TelescopeSnapshot }>('/api/sites/active', { site_id: siteId });
 }
 
 export async function fetchTelescopeState(): Promise<TelescopeSnapshot> {

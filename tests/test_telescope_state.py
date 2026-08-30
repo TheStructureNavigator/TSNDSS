@@ -9,7 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from tsn_dss.domain.models import ImagingProfile, TelescopeState
+from tsn_dss.domain.models import ImagingProfile, Site, TelescopeState
 from tsn_dss.engine.telescope import (
     SeestarAdapter,
     TelescopeStateService,
@@ -205,6 +205,25 @@ class TelescopeStateServiceTests(unittest.TestCase):
         self.assertEqual(snapshot.telescope_state.status, "disconnected")
         self.assertEqual(snapshot.imaging_profile.profile_id, "seestar_s30_pro_tele")
 
+    def test_active_site_overrides_snapshot_location(self) -> None:
+        service = TelescopeStateService()
+
+        snapshot = service.set_active_site(
+            Site(
+                id="site:bieszczady",
+                name="Bieszczady",
+                latitude_deg=49.2,
+                longitude_deg=22.5,
+                elevation_m=640.0,
+            )
+        )
+
+        self.assertIsNotNone(snapshot.active_site)
+        self.assertEqual(snapshot.active_site.name, "Bieszczady")
+        self.assertEqual(snapshot.telescope_state.site_lat_deg, 49.2)
+        self.assertEqual(snapshot.telescope_state.site_lon_deg, 22.5)
+        self.assertEqual(snapshot.telescope_state.site_elevation_m, 640.0)
+
     def test_seestar_adapter_skeleton_exposes_future_capabilities(self) -> None:
         adapter = SeestarAdapter()
 
@@ -242,6 +261,7 @@ class TelescopeStateApiTests(unittest.TestCase):
         self.assertTrue(payload["telescope_state"]["is_simulated"])
         self.assertEqual(payload["imaging_profile"]["profile_id"], "simulator-default")
         self.assertIn("planned_pointing", payload)
+        self.assertIn("active_site", payload)
 
     def test_planned_pointing_api_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
