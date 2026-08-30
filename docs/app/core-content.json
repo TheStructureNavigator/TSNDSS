@@ -1,6 +1,24 @@
 {
-  "current_version": "0.1.3",
+  "current_version": "0.1.5",
   "releases": [
+    {
+      "version": "0.1.5",
+      "date": "2026-08-30",
+      "changelog": [
+        "Added a new Astronomical Conditions layer beside weather, with normalized Sun, Moon, twilight, and astronomical-night data for the active observing site.",
+        "Extended Observation Center Conditions with target-aware altitude, azimuth, airmass, transit, Moon separation, and night visibility windows derived from the selected mosaic panel or planned pointing.",
+        "Added a new local astronomical-conditions API endpoint and kept provider-specific astronomy logic behind the backend instead of leaking library structures into the frontend."
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-08-30",
+      "changelog": [
+        "Extended Observation Center Conditions with astronomy-relevant Open-Meteo fields including dew point, visibility, surface pressure, layered cloud cover, weather code, and day/night state.",
+        "Added TSN DSS dew-margin and dew-risk calculations so forecast data now includes local interpretation for condensation risk.",
+        "Kept weather provider mapping behind the local API and expanded the Conditions UI to emphasize the values most useful for observing decisions."
+      ]
+    },
     {
       "version": "0.1.3",
       "date": "2026-08-30",
@@ -50,8 +68,6 @@
   ],
   "todo": [
     "Introduce observation sites with persistent coordinates and site metadata.",
-    "Integrate weather forecasts and atmospheric conditions for observation sites.",
-    "Add astronomical observing conditions including Sun, Moon, target altitude, darkness windows, and airmass.",
     "Add light-pollution metadata and sky-quality information to observation sites.",
     "Connect project targets and mosaic panels with observing conditions and visibility windows.",
     "Expand the Seestar adapter from the current skeleton toward real device discovery, state synchronization, and telescope control.",

@@ -134,9 +134,17 @@ Deliverables:
 Suggested first fields:
 
 - temperature
-- cloud cover
+- dew point
+- dew margin and dew risk computed by TSN DSS
+- cloud cover total / low / mid / high
+- visibility
+- surface pressure
 - wind speed
+- wind direction
+- wind gusts
 - humidity
+- weather code
+- day / night
 - precipitation probability
 - forecast timestamp
 
@@ -144,6 +152,33 @@ Testable outcome:
 
 - selecting a site loads a weather snapshot for that site
 - UI handles missing provider data gracefully
+
+Status:
+
+- completed on 2026-08-30
+
+### OCM3A — Astronomical conditions for the active site
+
+Goal:
+
+Add astronomy-aware conditions beside weather, still anchored on the active TSN DSS site and optional target context.
+
+Deliverables:
+
+- local API endpoint for astronomical conditions, e.g. `GET /api/astronomical-conditions`
+- backend astronomy calculations for Sun, Moon, twilight, and astronomical-night windows
+- optional target-aware calculations for altitude, azimuth, airmass, transit, Moon separation, and night visibility windows
+- Observation Center UI that shows the most useful astronomical signals without exposing raw library payloads
+
+Testable outcome:
+
+- selecting a site loads site-level astronomical conditions
+- selecting a planned pointing or mosaic panel adds target-specific visibility data
+- edge cases such as no astronomical night or a target that never rises are handled gracefully
+
+Status:
+
+- completed on 2026-08-30
 
 ### OCM4 — Telescope context overlay
 
@@ -234,8 +269,7 @@ Not yet:
 - live Seestar connection
 - INDI / ASCOM integration
 - automatic GPS sync from hardware
-- astronomical darkness calculations
-- Moon phase / Moon separation logic
+- advanced transparency / seeing estimation
 - horizon mask import
 - weather history storage
 - push notifications

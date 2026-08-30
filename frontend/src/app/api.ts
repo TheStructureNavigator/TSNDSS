@@ -34,6 +34,149 @@ export type Site = {
   notes: string | null;
 };
 
+export type SiteForecastCurrent = {
+  time: string | null;
+  temperature_c: number | null;
+  relative_humidity_pct: number | null;
+  dew_point_c: number | null;
+  dew_margin_c: number | null;
+  dew_risk: string | null;
+  apparent_temperature_c: number | null;
+  cloud_cover_pct: number | null;
+  cloud_cover_low_pct: number | null;
+  cloud_cover_mid_pct: number | null;
+  cloud_cover_high_pct: number | null;
+  visibility_m: number | null;
+  surface_pressure_hpa: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_deg: number | null;
+  wind_gusts_kmh: number | null;
+  precipitation_mm: number | null;
+  precipitation_probability_pct: number | null;
+  condition_code: number | null;
+  is_day: number | null;
+};
+
+export type SiteForecastHour = {
+  time: string;
+  temperature_c: number | null;
+  relative_humidity_pct: number | null;
+  dew_point_c: number | null;
+  dew_margin_c: number | null;
+  dew_risk: string | null;
+  apparent_temperature_c: number | null;
+  cloud_cover_pct: number | null;
+  cloud_cover_low_pct: number | null;
+  cloud_cover_mid_pct: number | null;
+  cloud_cover_high_pct: number | null;
+  visibility_m: number | null;
+  surface_pressure_hpa: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_deg: number | null;
+  wind_gusts_kmh: number | null;
+  precipitation_mm: number | null;
+  precipitation_probability_pct: number | null;
+  condition_code: number | null;
+  is_day: number | null;
+};
+
+export type SiteForecastSnapshot = {
+  site_id: string;
+  site_name: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  timezone: string | null;
+  generated_at: string | null;
+  provider: string;
+  current: SiteForecastCurrent | null;
+  hourly: SiteForecastHour[];
+};
+
+export type AstronomicalTargetContext = {
+  target_name: string | null;
+  ra_deg: number;
+  dec_deg: number;
+  source_kind: string;
+  source_id: string | null;
+};
+
+export type AstronomicalConditionsCurrentTarget = AstronomicalTargetContext & {
+  altitude_deg: number | null;
+  azimuth_deg: number | null;
+  airmass: number | null;
+  transit_time_utc: string | null;
+  max_altitude_deg: number | null;
+  moon_separation_deg: number | null;
+  above_horizon: boolean | null;
+  above_observation_threshold: boolean | null;
+  above_horizon_window_start_utc: string | null;
+  above_horizon_window_end_utc: string | null;
+  above_horizon_window_status: string | null;
+  observation_window_start_utc: string | null;
+  observation_window_end_utc: string | null;
+  observation_window_status: string | null;
+};
+
+export type AstronomicalConditionsCurrent = {
+  time_utc: string;
+  sky_state: string;
+  sun_altitude_deg: number | null;
+  sun_azimuth_deg: number | null;
+  sunrise_utc: string | null;
+  sunset_utc: string | null;
+  civil_twilight_evening_start_utc: string | null;
+  civil_twilight_evening_end_utc: string | null;
+  civil_twilight_morning_start_utc: string | null;
+  civil_twilight_morning_end_utc: string | null;
+  nautical_twilight_evening_start_utc: string | null;
+  nautical_twilight_evening_end_utc: string | null;
+  nautical_twilight_morning_start_utc: string | null;
+  nautical_twilight_morning_end_utc: string | null;
+  astronomical_twilight_evening_start_utc: string | null;
+  astronomical_twilight_evening_end_utc: string | null;
+  astronomical_twilight_morning_start_utc: string | null;
+  astronomical_twilight_morning_end_utc: string | null;
+  astronomical_night_start_utc: string | null;
+  astronomical_night_end_utc: string | null;
+  moon_altitude_deg: number | null;
+  moon_azimuth_deg: number | null;
+  moon_illumination_fraction: number | null;
+  moon_illumination_pct: number | null;
+  moon_phase_angle_deg: number | null;
+  moon_phase_label: string | null;
+  moonrise_utc: string | null;
+  moonset_utc: string | null;
+  target: AstronomicalConditionsCurrentTarget | null;
+};
+
+export type AstronomicalConditionsHour = {
+  time_utc: string;
+  sky_state: string;
+  sun_altitude_deg: number | null;
+  moon_altitude_deg: number | null;
+  moon_illumination_pct: number | null;
+  target_altitude_deg: number | null;
+  target_azimuth_deg: number | null;
+  target_airmass: number | null;
+  moon_target_separation_deg: number | null;
+  target_above_horizon: boolean | null;
+  target_above_observation_threshold: boolean | null;
+};
+
+export type AstronomicalConditionsSnapshot = {
+  site_id: string;
+  site_name: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  elevation_m: number | null;
+  generated_at_utc: string;
+  provider: string;
+  min_target_altitude_deg: number;
+  target: AstronomicalTargetContext | null;
+  current: AstronomicalConditionsCurrent;
+  hourly: AstronomicalConditionsHour[];
+};
+
 export type ProjectSummary = {
   slug: string;
   project_root: string;
@@ -224,6 +367,70 @@ export async function fetchSites(): Promise<{
   sites: Site[];
 }> {
   return getJson<{ active_site_id: string | null; sites: Site[] }>('/api/sites');
+}
+
+export async function fetchSiteForecast(siteId?: string | null): Promise<SiteForecastSnapshot> {
+  const suffix = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
+  const payload = await getJson<{ forecast: SiteForecastSnapshot }>(`/api/site-forecast${suffix}`);
+  return payload.forecast;
+}
+
+export async function fetchAstronomicalConditions(input?: {
+  site_id?: string | null;
+  time_utc?: string | null;
+  target_id?: string | null;
+  mosaic_panel_id?: string | null;
+  use_planned_pointing?: boolean;
+  target_name?: string | null;
+  target_ra_deg?: number | null;
+  target_dec_deg?: number | null;
+  source_kind?: string | null;
+  source_id?: string | null;
+  min_target_altitude_deg?: number | null;
+  forecast_hours?: number | null;
+}): Promise<AstronomicalConditionsSnapshot> {
+  const query = new URLSearchParams();
+  if (input?.site_id) {
+    query.set('site_id', input.site_id);
+  }
+  if (input?.time_utc) {
+    query.set('time_utc', input.time_utc);
+  }
+  if (input?.target_id) {
+    query.set('target_id', input.target_id);
+  }
+  if (input?.mosaic_panel_id) {
+    query.set('mosaic_panel_id', input.mosaic_panel_id);
+  }
+  if (input?.use_planned_pointing) {
+    query.set('use_planned_pointing', '1');
+  }
+  if (input?.target_name) {
+    query.set('target_name', input.target_name);
+  }
+  if (input?.target_ra_deg != null) {
+    query.set('target_ra_deg', String(input.target_ra_deg));
+  }
+  if (input?.target_dec_deg != null) {
+    query.set('target_dec_deg', String(input.target_dec_deg));
+  }
+  if (input?.source_kind) {
+    query.set('source_kind', input.source_kind);
+  }
+  if (input?.source_id) {
+    query.set('source_id', input.source_id);
+  }
+  if (input?.min_target_altitude_deg != null) {
+    query.set('min_target_altitude_deg', String(input.min_target_altitude_deg));
+  }
+  if (input?.forecast_hours != null) {
+    query.set('forecast_hours', String(input.forecast_hours));
+  }
+
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
+  const payload = await getJson<{ conditions: AstronomicalConditionsSnapshot }>(`/api/astronomical-conditions${suffix}`);
+  return payload.conditions;
 }
 
 export async function createSite(input: {

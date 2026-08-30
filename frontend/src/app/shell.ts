@@ -1,5 +1,6 @@
 import iconUrl from '../assets/tsn_dss_icon.png';
 import {
+  type AstronomicalConditionsSnapshot,
   type CaptureDetails,
   type CaptureFileEntry,
   type CoreContent,
@@ -16,6 +17,7 @@ import {
   type ProjectSummary,
   type RunArtifactImage,
   type Site,
+  type SiteForecastSnapshot,
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
@@ -45,6 +47,8 @@ export type AppState = {
   health: ApiHealth | null;
   sites: Site[];
   activeSiteId: string | null;
+  siteForecast: SiteForecastSnapshot | null;
+  astronomicalConditions: AstronomicalConditionsSnapshot | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
   selectedProjectRunId: string | null;
@@ -70,6 +74,7 @@ export type AppState = {
   projectDetailTab: ProjectDetailTab;
   processingDetailTab: ProcessingDetailTab;
   skyDetailTab: SkyDetailTab;
+  observationCenterTab: ObservationCenterTab;
   createProjectModalOpen: boolean;
   createRunModalOpen: boolean;
   createImportCaptureModalOpen: boolean;
@@ -78,6 +83,7 @@ export type AppState = {
 export type ProjectDetailTab = 'gallery' | 'import' | 'settings';
 export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 export type SkyDetailTab = 'telescope' | 'mosaic';
+export type ObservationCenterTab = 'sites' | 'conditions';
 
 export function renderAppShell(state: AppState): string {
   const appVersion = state.coreContent?.current_version ?? 'dev';
@@ -719,6 +725,11 @@ function renderObservationCenterView(state: AppState): string {
         <span class="projects-toolbar__label">Observation Center</span>
       </div>
 
+      <nav class="tab-strip project-detail-tabs" aria-label="Observation Center">
+        ${renderObservationCenterTab('sites', 'Sites', state.observationCenterTab)}
+        ${renderObservationCenterTab('conditions', 'Conditions', state.observationCenterTab)}
+      </nav>
+
       <section class="project-gallery-layout">
         <aside class="project-gallery-sidebar">
           <div class="project-gallery-sidebar__action">
@@ -737,103 +748,402 @@ function renderObservationCenterView(state: AppState): string {
 
         <section class="project-gallery-main">
           <div class="project-detail-stack">
-            <article class="panel telescope-panel">
-              <div class="panel__header">
-                <h3>Observation site</h3>
-                <span>${escapeHtml(activeSite?.name ?? 'new')}</span>
-              </div>
-              <form class="telescope-adapter-form" data-form="active-site">
-                <label class="field">
-                  <span>Active site</span>
-                  <select name="site_id">
-                    <option value="" ${state.activeSiteId ? '' : 'selected'}>No active site</option>
-                    ${state.sites.map((site) => `
-                      <option value="${escapeHtml(site.id)}" ${site.id === state.activeSiteId ? 'selected' : ''}>
-                        ${escapeHtml(site.name)}
-                      </option>
-                    `).join('')}
-                  </select>
-                </label>
-                <button class="action-button telescope-panel__submit" type="submit">
-                  Apply site
-                </button>
-              </form>
-
-              <div class="project-summary-strip project-summary-strip--sky">
-                <div class="project-summary-strip__item">
-                  <span class="project-summary-strip__label">Latitude</span>
-                  <span class="project-summary-strip__value">${formatAngleValue(activeSite?.latitude_deg)}</span>
-                </div>
-                <div class="project-summary-strip__item">
-                  <span class="project-summary-strip__label">Longitude</span>
-                  <span class="project-summary-strip__value">${formatAngleValue(activeSite?.longitude_deg)}</span>
-                </div>
-                <div class="project-summary-strip__item">
-                  <span class="project-summary-strip__label">Elevation</span>
-                  <span class="project-summary-strip__value">${formatMeters(activeSite?.elevation_m)}</span>
-                </div>
-                <div class="project-summary-strip__item">
-                  <span class="project-summary-strip__label">Sky quality</span>
-                  <span class="project-summary-strip__value">${formatSiteQuality(activeSite)}</span>
-                </div>
-              </div>
-
-              <form class="sky-simulator-form" data-form="site-editor">
-                <input name="site_id" type="hidden" value="${escapeHtml(activeSite?.id ?? '')}" />
-                <label class="field">
-                  <span>Site name</span>
-                  <input name="name" type="text" value="${escapeHtml(activeSite?.name ?? '')}" placeholder="Backyard / Bieszczady / Remote site" required />
-                </label>
-                <label class="field">
-                  <span>Latitude (deg)</span>
-                  <input name="latitude_deg" type="text" value="${activeSite?.latitude_deg ?? ''}" placeholder="50.1234" />
-                </label>
-                <label class="field">
-                  <span>Longitude (deg)</span>
-                  <input name="longitude_deg" type="text" value="${activeSite?.longitude_deg ?? ''}" placeholder="19.1234" />
-                </label>
-                <label class="field">
-                  <span>Elevation (m)</span>
-                  <input name="elevation_m" type="text" value="${activeSite?.elevation_m ?? ''}" placeholder="optional" />
-                </label>
-                <label class="field">
-                  <span>SQM</span>
-                  <input name="sqm_mag_arcsec2" type="text" value="${activeSite?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
-                </label>
-                <label class="field">
-                  <span>Bortle</span>
-                  <input name="bortle_class" type="text" value="${activeSite?.bortle_class ?? ''}" placeholder="1-9" />
-                </label>
-                <label class="checkbox-field">
-                  <input name="south_horizon_open" type="checkbox" ${activeSite?.south_horizon_open ? 'checked' : ''} />
-                  <span>South horizon open</span>
-                </label>
-                <label class="field field--full">
-                  <span>Notes</span>
-                  <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(activeSite?.notes ?? '')}</textarea>
-                </label>
-                <div class="telescope-panel__action-row">
-                  <button class="action-button telescope-panel__submit" type="submit">${activeSite ? 'Update site' : 'Create site'}</button>
-                  ${activeSite ? `<button class="action-button action-button--secondary" type="button" data-clear-site-editor>New site</button>` : ''}
-                  ${activeSite ? `<button class="action-button action-button--danger" type="button" data-delete-site-id="${escapeHtml(activeSite.id)}">Delete site</button>` : ''}
-                </div>
-              </form>
-            </article>
-
-            <article class="panel sky-panel sky-panel--full">
-              <div class="panel__header">
-                <h3>Site map</h3>
-                <span>${state.sites.filter((site) => site.latitude_deg != null && site.longitude_deg != null).length} mapped</span>
-              </div>
-              <div id="observation-center-map" class="observation-map-container"></div>
-              <p class="muted">
-                Saved sites are shown on the map. The active site is highlighted, and clicking a marker selects it in Observation Center.
-              </p>
-            </article>
+            ${state.observationCenterTab === 'conditions'
+              ? renderObservationConditionsPanel(state, activeSite)
+              : renderObservationSitesPanel(state, activeSite)}
           </div>
         </section>
       </section>
     </section>
+  `;
+}
+
+function renderObservationCenterTab(
+  tab: ObservationCenterTab,
+  label: string,
+  activeTab: ObservationCenterTab,
+): string {
+  const activeClass = tab === activeTab ? ' tab-strip__button--active' : '';
+  return `<button class="tab-strip__button${activeClass}" type="button" data-observation-center-tab="${tab}">${label}</button>`;
+}
+
+function renderObservationSitesPanel(state: AppState, activeSite: Site | null): string {
+  return `
+    <article class="panel telescope-panel">
+      <div class="panel__header">
+        <h3>Observation site</h3>
+        <span>${escapeHtml(activeSite?.name ?? 'new')}</span>
+      </div>
+      <form class="telescope-adapter-form" data-form="active-site">
+        <label class="field">
+          <span>Active site</span>
+          <select name="site_id">
+            <option value="" ${state.activeSiteId ? '' : 'selected'}>No active site</option>
+            ${state.sites.map((site) => `
+              <option value="${escapeHtml(site.id)}" ${site.id === state.activeSiteId ? 'selected' : ''}>
+                ${escapeHtml(site.name)}
+              </option>
+            `).join('')}
+          </select>
+        </label>
+        <button class="action-button telescope-panel__submit" type="submit">
+          Apply site
+        </button>
+      </form>
+
+      <div class="project-summary-strip project-summary-strip--sky">
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Latitude</span>
+          <span class="project-summary-strip__value">${formatAngleValue(activeSite?.latitude_deg)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Longitude</span>
+          <span class="project-summary-strip__value">${formatAngleValue(activeSite?.longitude_deg)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Elevation</span>
+          <span class="project-summary-strip__value">${formatMeters(activeSite?.elevation_m)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Sky quality</span>
+          <span class="project-summary-strip__value">${formatSiteQuality(activeSite)}</span>
+        </div>
+      </div>
+
+      <form class="sky-simulator-form" data-form="site-editor">
+        <input name="site_id" type="hidden" value="${escapeHtml(activeSite?.id ?? '')}" />
+        <label class="field">
+          <span>Site name</span>
+          <input name="name" type="text" value="${escapeHtml(activeSite?.name ?? '')}" placeholder="Backyard / Bieszczady / Remote site" required />
+        </label>
+        <label class="field">
+          <span>Latitude (deg)</span>
+          <input name="latitude_deg" type="text" value="${activeSite?.latitude_deg ?? ''}" placeholder="50.1234" />
+        </label>
+        <label class="field">
+          <span>Longitude (deg)</span>
+          <input name="longitude_deg" type="text" value="${activeSite?.longitude_deg ?? ''}" placeholder="19.1234" />
+        </label>
+        <label class="field">
+          <span>Elevation (m)</span>
+          <input name="elevation_m" type="text" value="${activeSite?.elevation_m ?? ''}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>SQM</span>
+          <input name="sqm_mag_arcsec2" type="text" value="${activeSite?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>Bortle</span>
+          <input name="bortle_class" type="text" value="${activeSite?.bortle_class ?? ''}" placeholder="1-9" />
+        </label>
+        <label class="checkbox-field">
+          <input name="south_horizon_open" type="checkbox" ${activeSite?.south_horizon_open ? 'checked' : ''} />
+          <span>South horizon open</span>
+        </label>
+        <label class="field field--full">
+          <span>Notes</span>
+          <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(activeSite?.notes ?? '')}</textarea>
+        </label>
+        <div class="telescope-panel__action-row">
+          <button class="action-button telescope-panel__submit" type="submit">${activeSite ? 'Update site' : 'Create site'}</button>
+          ${activeSite ? `<button class="action-button action-button--secondary" type="button" data-clear-site-editor>New site</button>` : ''}
+          ${activeSite ? `<button class="action-button action-button--danger" type="button" data-delete-site-id="${escapeHtml(activeSite.id)}">Delete site</button>` : ''}
+        </div>
+      </form>
+    </article>
+
+    <article class="panel sky-panel sky-panel--full">
+      <div class="panel__header">
+        <h3>Site map</h3>
+        <span>${state.sites.filter((site) => site.latitude_deg != null && site.longitude_deg != null).length} mapped</span>
+      </div>
+      <div id="observation-center-map" class="observation-map-container"></div>
+      <p class="muted">
+        Saved sites are shown on the map. The active site is highlighted, and clicking a marker selects it in Observation Center.
+      </p>
+    </article>
+  `;
+}
+
+function renderObservationConditionsPanel(state: AppState, activeSite: Site | null): string {
+  if (!activeSite) {
+    return `
+      <article class="panel">
+        <p class="muted">Select an active site first to load observation conditions.</p>
+      </article>
+    `;
+  }
+
+  if (activeSite.latitude_deg == null || activeSite.longitude_deg == null) {
+    return `
+      <article class="panel">
+        <p class="muted">The active site needs latitude and longitude before TSN DSS can load observation conditions.</p>
+      </article>
+    `;
+  }
+
+  const forecast = state.siteForecast;
+  const astronomy = state.astronomicalConditions;
+  const currentWeather = forecast?.current ?? null;
+  const currentAstronomy = astronomy?.current ?? null;
+  if (!forecast && !astronomy) {
+    return `
+      <article class="panel">
+        <p class="muted">Observation conditions are not available right now for this site.</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="panel telescope-panel">
+      <div class="panel__header">
+        <h3>Conditions</h3>
+        <span>${escapeHtml(activeSite.name)}</span>
+      </div>
+      <div class="project-summary-strip project-summary-strip--weather-primary">
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Sky state</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatSkyState(currentAstronomy?.sky_state))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Sun altitude</span>
+          <span class="project-summary-strip__value">${formatAngleValue(currentAstronomy?.sun_altitude_deg)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Astronomical night</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Moon phase</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatMoonPhase(currentAstronomy?.moon_phase_label, currentAstronomy?.moon_illumination_pct))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Moon altitude</span>
+          <span class="project-summary-strip__value">${formatAngleValue(currentAstronomy?.moon_altitude_deg)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Temperature</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.temperature_c, '°C')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Dew point</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.dew_point_c, '°C')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Dew margin</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.dew_margin_c, '°C')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Dew risk</span>
+          <span class="project-summary-strip__value">${formatDewRisk(currentWeather?.dew_risk)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Clouds total</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_pct, '%')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">High clouds</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_high_pct, '%')}</span>
+        </div>
+      </div>
+      <div class="project-summary-strip project-summary-strip--weather-secondary">
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Low clouds</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_low_pct, '%')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Mid clouds</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_mid_pct, '%')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Visibility</span>
+          <span class="project-summary-strip__value">${formatDistanceMeters(currentWeather?.visibility_m)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Surface pressure</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.surface_pressure_hpa, 'hPa')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Wind</span>
+          <span class="project-summary-strip__value">${formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg)}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Precipitation</span>
+          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.precipitation_mm, 'mm')}</span>
+        </div>
+      </div>
+      <div class="project-summary-strip project-summary-strip--weather-secondary">
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Moon rise / set</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.moonrise_utc, currentAstronomy?.moonset_utc))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Sun set / rise</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.sunset_utc, currentAstronomy?.sunrise_utc))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Civil twilight</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.civil_twilight_evening_end_utc, currentAstronomy?.civil_twilight_morning_start_utc))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Nautical twilight</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.nautical_twilight_evening_end_utc, currentAstronomy?.nautical_twilight_morning_start_utc))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Weather status</span>
+          <span class="project-summary-strip__value">${escapeHtml(formatConditionSummary(currentWeather?.condition_code, currentWeather?.is_day))}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Timezone</span>
+          <span class="project-summary-strip__value">${escapeHtml(forecast?.timezone ?? 'UTC / browser local view')}</span>
+        </div>
+      </div>
+      ${renderAstronomicalTargetSummary(currentAstronomy?.target ?? null, astronomy?.min_target_altitude_deg ?? 30)}
+      <div class="run-log-meta">
+        <div class="run-log-meta__row">
+          <span class="run-log-meta__label">provider</span>
+          <span class="run-log-meta__value">${escapeHtml([forecast?.provider, astronomy?.provider].filter(Boolean).join(' + ') || 'pending')}</span>
+        </div>
+        <div class="run-log-meta__row">
+          <span class="run-log-meta__label">time</span>
+          <span class="run-log-meta__value">${escapeHtml(formatTimestampDisplay(currentAstronomy?.time_utc ?? currentWeather?.time ?? forecast?.generated_at ?? null))}</span>
+        </div>
+        <div class="run-log-meta__row">
+          <span class="run-log-meta__label">target</span>
+          <span class="run-log-meta__value">${escapeHtml(currentAstronomy?.target?.target_name ?? 'No target context selected')}</span>
+        </div>
+        <div class="run-log-meta__row">
+          <span class="run-log-meta__label">source</span>
+          <span class="run-log-meta__value">${escapeHtml(currentAstronomy?.target?.source_kind ?? 'site only')}</span>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel__header">
+        <h3>Next hours</h3>
+        <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
+      </div>
+      ${renderConditionsHourlyTable(forecast, astronomy)}
+    </article>
+  `;
+}
+
+function renderAstronomicalTargetSummary(
+  target: AstronomicalConditionsSnapshot['current']['target'] | null,
+  minTargetAltitudeDeg: number,
+): string {
+  if (!target) {
+    return `
+      <div class="run-log-meta">
+        <div class="run-log-meta__row">
+          <span class="run-log-meta__label">target visibility</span>
+          <span class="run-log-meta__value">Select a planned pointing or mosaic panel to see target-specific conditions.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="run-log-meta">
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">target</span>
+        <span class="run-log-meta__value">${escapeHtml(target.target_name ?? 'Target')}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">alt / az</span>
+        <span class="run-log-meta__value">${escapeHtml(`${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`)}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">airmass</span>
+        <span class="run-log-meta__value">${escapeHtml(formatAirmass(target.airmass))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">transit</span>
+        <span class="run-log-meta__value">${escapeHtml(formatTimestampDisplay(target.transit_time_utc))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">max altitude</span>
+        <span class="run-log-meta__value">${escapeHtml(formatAngleValue(target.max_altitude_deg))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">moon separation</span>
+        <span class="run-log-meta__value">${escapeHtml(formatAngleValue(target.moon_separation_deg))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">above horizon</span>
+        <span class="run-log-meta__value">${escapeHtml(formatObservationFlag(target.above_horizon))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">above ${minTargetAltitudeDeg.toFixed(0)}°</span>
+        <span class="run-log-meta__value">${escapeHtml(formatObservationFlag(target.above_observation_threshold))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">night horizon window</span>
+        <span class="run-log-meta__value">${escapeHtml(formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}</span>
+      </div>
+      <div class="run-log-meta__row">
+        <span class="run-log-meta__label">night observe window</span>
+        <span class="run-log-meta__value">${escapeHtml(formatWindowSummary(target.observation_window_start_utc, target.observation_window_end_utc, target.observation_window_status))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderConditionsHourlyTable(
+  forecast: SiteForecastSnapshot | null,
+  astronomy: AstronomicalConditionsSnapshot | null,
+): string {
+  const rowCount = Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0);
+  if (rowCount === 0) {
+    return '<p class="muted">No hourly observation points are available for this site yet.</p>';
+  }
+
+  return `
+    <div class="weather-table-wrap">
+      <table class="weather-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Sky</th>
+            <th>Sun alt</th>
+            <th>Moon alt</th>
+            <th>Moon</th>
+            <th>Temp</th>
+            <th>Dew risk</th>
+            <th>Total</th>
+            <th>High</th>
+            <th>Wind</th>
+            <th>Target alt</th>
+            <th>Airmass</th>
+            <th>Moon sep</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Array.from({ length: rowCount }, (_, index) => {
+            const weatherHour = forecast?.hourly[index] ?? null;
+            const astronomyHour = astronomy?.hourly[index] ?? null;
+            return `
+            <tr>
+              <td>${escapeHtml(formatTimestampDisplay(astronomyHour?.time_utc ?? weatherHour?.time ?? null))}</td>
+              <td>${escapeHtml(astronomyHour ? formatSkyState(astronomyHour.sky_state) : formatConditionSummary(weatherHour?.condition_code, weatherHour?.is_day))}</td>
+              <td>${escapeHtml(formatAngleValue(astronomyHour?.sun_altitude_deg))}</td>
+              <td>${escapeHtml(formatAngleValue(astronomyHour?.moon_altitude_deg))}</td>
+              <td>${escapeHtml(formatPercent(astronomyHour?.moon_illumination_pct))}</td>
+              <td>${escapeHtml(formatWeatherValue(weatherHour?.temperature_c, '°C'))}</td>
+              <td>${escapeHtml(formatDewRisk(weatherHour?.dew_risk))}</td>
+              <td>${escapeHtml(formatWeatherValue(weatherHour?.cloud_cover_pct, '%'))}</td>
+              <td>${escapeHtml(formatWeatherValue(weatherHour?.cloud_cover_high_pct, '%'))}</td>
+              <td>${escapeHtml(formatWind(weatherHour?.wind_speed_kmh, weatherHour?.wind_direction_deg))}</td>
+              <td>${escapeHtml(formatAngleValue(astronomyHour?.target_altitude_deg))}</td>
+              <td>${escapeHtml(formatAirmass(astronomyHour?.target_airmass))}</td>
+              <td>${escapeHtml(formatAngleValue(astronomyHour?.moon_target_separation_deg))}</td>
+            </tr>
+          `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -1943,6 +2253,187 @@ function formatSiteQuality(site: Site | null | undefined): string {
     parts.push(`${site.sqm_mag_arcsec2.toFixed(1)} SQM`);
   }
   return parts.join(' · ') || '—';
+}
+
+function formatWeatherValue(value: number | null | undefined, suffix: string): string {
+  if (value == null) {
+    return '—';
+  }
+  return `${value.toFixed(1)} ${suffix}`;
+}
+
+function formatDistanceMeters(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)} km`;
+  }
+  return `${value.toFixed(0)} m`;
+}
+
+function formatWind(
+  speedKmh: number | null | undefined,
+  directionDeg: number | null | undefined,
+): string {
+  const speed = speedKmh == null ? '—' : `${speedKmh.toFixed(1)} km/h`;
+  const direction = formatWindDirection(directionDeg);
+  return direction === '—' ? speed : `${speed} · ${direction}`;
+}
+
+function formatWindDirection(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const normalized = ((value % 360) + 360) % 360;
+  const index = Math.round(normalized / 45) % 8;
+  return `${directions[index]} ${normalized.toFixed(0)}°`;
+}
+
+function formatDewRisk(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+  return value;
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  return `${value.toFixed(0)}%`;
+}
+
+function formatSkyState(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+
+  switch (value) {
+    case 'day':
+      return 'day';
+    case 'civil_twilight':
+      return 'civil twilight';
+    case 'nautical_twilight':
+      return 'nautical twilight';
+    case 'astronomical_twilight':
+      return 'astronomical twilight';
+    case 'astronomical_night':
+      return 'astronomical night';
+    default:
+      return value.replaceAll('_', ' ');
+  }
+}
+
+function formatMoonPhase(label: string | null | undefined, illuminationPct: number | null | undefined): string {
+  if (!label && illuminationPct == null) {
+    return '—';
+  }
+  if (!label) {
+    return formatPercent(illuminationPct);
+  }
+  if (illuminationPct == null) {
+    return label;
+  }
+  return `${label} · ${formatPercent(illuminationPct)}`;
+}
+
+function formatAirmass(value: number | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  return value.toFixed(2);
+}
+
+function formatObservationFlag(value: boolean | null | undefined): string {
+  if (value == null) {
+    return '—';
+  }
+  return value ? 'yes' : 'no';
+}
+
+function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) {
+    return '—';
+  }
+  return `${formatTimestampDisplay(start)} → ${formatTimestampDisplay(end)}`;
+}
+
+function formatWindowSummary(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  status: string | null | undefined,
+): string {
+  if (status === 'always_up') {
+    return `all night · ${formatTimeRange(start, end)}`;
+  }
+  if (status === 'always_observable') {
+    return `all night above threshold · ${formatTimeRange(start, end)}`;
+  }
+  if (status === 'never_up') {
+    return 'not above horizon tonight';
+  }
+  if (status === 'not_observable') {
+    return 'not above threshold tonight';
+  }
+  if (status === 'no_astronomical_night') {
+    return 'no astronomical night for this interval';
+  }
+  return formatTimeRange(start, end);
+}
+
+function formatConditionSummary(
+  conditionCode: number | null | undefined,
+  isDay: number | null | undefined,
+): string {
+  const label = getConditionCodeLabel(conditionCode);
+  const phase = isDay == null ? null : (isDay === 1 ? 'day' : 'night');
+  return phase ? `${label} · ${phase}` : label;
+}
+
+function getConditionCodeLabel(conditionCode: number | null | undefined): string {
+  switch (conditionCode) {
+    case 0:
+      return 'clear';
+    case 1:
+      return 'mostly clear';
+    case 2:
+      return 'partly cloudy';
+    case 3:
+      return 'overcast';
+    case 45:
+    case 48:
+      return 'fog';
+    case 51:
+    case 53:
+    case 55:
+    case 56:
+    case 57:
+      return 'drizzle';
+    case 61:
+    case 63:
+    case 65:
+    case 66:
+    case 67:
+    case 80:
+    case 81:
+    case 82:
+      return 'rain';
+    case 71:
+    case 73:
+    case 75:
+    case 77:
+    case 85:
+    case 86:
+      return 'snow';
+    case 95:
+    case 96:
+    case 99:
+      return 'storm';
+    default:
+      return conditionCode == null ? 'unknown' : `code ${conditionCode}`;
+  }
 }
 
 function isPreviewableCaptureFile(fileEntry: CaptureFileEntry): boolean {

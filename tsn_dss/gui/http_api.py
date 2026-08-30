@@ -23,11 +23,13 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     ImageOps = None
 
 from ..domain.models import MosaicPanel, MosaicPlan, Site
+from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
 from ..engine.sqlite import MosaicRepository, PlanningRepository, connect_database, initialize_database
 from ..engine.telescope import TelescopeStateService
+from ..engine.weather import OpenMeteoForecastClient
 
 
 @dataclass(slots=True)
@@ -38,6 +40,8 @@ class ApiContext:
     core_content_path: Path
     run_manager: ProjectRunManager
     telescope_service: TelescopeStateService
+    weather_client: OpenMeteoForecastClient
+    astronomy_service: AstronomicalConditionsService
 
     @property
     def storage(self) -> ProjectStorage:
@@ -58,6 +62,8 @@ def create_http_server(
     port: int,
     projects_root: str | Path,
     database_path: str | Path | None = None,
+    weather_client: OpenMeteoForecastClient | None = None,
+    astronomy_service: AstronomicalConditionsService | None = None,
 ) -> ThreadingHTTPServer:
     """Create a local threaded API server wired to the project workspace and SQLite db."""
     resolved_projects_root = Path(projects_root)
@@ -72,6 +78,8 @@ def create_http_server(
         core_content_path=_default_core_content_path(),
         run_manager=ProjectRunManager(project_storage=storage),
         telescope_service=TelescopeStateService(),
+        weather_client=weather_client or OpenMeteoForecastClient(),
+        astronomy_service=astronomy_service or AstronomicalConditionsService(),
     )
     handler_class = _build_handler(context)
     return ThreadingHTTPServer((host, port), handler_class)
@@ -136,6 +144,112 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         "active_site_id": context.telescope_service.get_active_site_id(),
                     },
                 )
+                return
+
+            if path == "/api/site-forecast":
+                requested_site_id = self._get_query_param("site_id") or context.telescope_service.get_active_site_id()
+                if not requested_site_id:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_id_required", "message": "Provide ?site_id=... or select an active site first."},
+                    )
+                    return
+
+                with context.open_database() as connection:
+                    repository = PlanningRepository(connection)
+                    site = repository.get_site(requested_site_id)
+
+                if site is None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "site_not_found", "message": f"Unknown site: {requested_site_id}"},
+                    )
+                    return
+
+                if site.latitude_deg is None or site.longitude_deg is None:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_coordinates_missing", "message": "Selected site must define latitude and longitude."},
+                    )
+                    return
+
+                try:
+                    forecast = context.weather_client.fetch_site_forecast(site)
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_site_forecast_request", "message": str(error)},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "forecast_provider_unavailable", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"forecast": forecast.to_dict()})
+                return
+
+            if path == "/api/astronomical-conditions":
+                requested_site_id = self._get_query_param("site_id") or context.telescope_service.get_active_site_id()
+                if not requested_site_id:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_id_required", "message": "Provide ?site_id=... or select an active site first."},
+                    )
+                    return
+
+                with context.open_database() as connection:
+                    planning_repository = PlanningRepository(connection)
+                    site = planning_repository.get_site(requested_site_id)
+                    target_context = _resolve_astronomical_target_context(
+                        query_params,
+                        planning_repository=planning_repository,
+                        mosaic_repository=MosaicRepository(connection),
+                        telescope_service=context.telescope_service,
+                    )
+
+                if site is None:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "site_not_found", "message": f"Unknown site: {requested_site_id}"},
+                    )
+                    return
+
+                if site.latitude_deg is None or site.longitude_deg is None:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_coordinates_missing", "message": "Selected site must define latitude and longitude."},
+                    )
+                    return
+
+                try:
+                    conditions = context.astronomy_service.fetch_conditions(
+                        site,
+                        reference_time_utc=self._get_query_param("time_utc"),
+                        target=target_context,
+                        min_target_altitude_deg=_coerce_optional_query_float(
+                            self._get_query_param("min_target_altitude_deg"),
+                            fallback=30.0,
+                        )
+                        or 30.0,
+                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=12) or 12,
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_astronomical_conditions_request", "message": str(error)},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "astronomical_conditions_unavailable", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"conditions": conditions.to_dict()})
                 return
 
             if path == "/api/telescope/state":
@@ -1303,6 +1417,93 @@ def _coerce_optional_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_optional_query_float(value: str | None, *, fallback: float | None = None) -> float | None:
+    if value is None or value == "":
+        return fallback
+    return float(value)
+
+
+def _coerce_optional_query_int(value: str | None, *, fallback: int | None = None) -> int | None:
+    if value is None or value == "":
+        return fallback
+    return int(value)
+
+
+def _coerce_query_bool(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_astronomical_target_context(
+    query_params: dict[str, list[str]],
+    *,
+    planning_repository: PlanningRepository,
+    mosaic_repository: MosaicRepository,
+    telescope_service: TelescopeStateService,
+) -> AstronomicalTargetContext | None:
+    explicit_ra_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_ra_deg"))
+    explicit_dec_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_dec_deg"))
+    if explicit_ra_deg is not None or explicit_dec_deg is not None:
+        if explicit_ra_deg is None or explicit_dec_deg is None:
+            raise ValueError("Both target_ra_deg and target_dec_deg are required when explicit target coordinates are provided.")
+        return AstronomicalTargetContext(
+            target_name=_coerce_optional_string(_first_query_value(query_params, "target_name")),
+            ra_deg=explicit_ra_deg,
+            dec_deg=explicit_dec_deg,
+            source_kind=_coerce_optional_string(_first_query_value(query_params, "source_kind")) or "manual",
+            source_id=_coerce_optional_string(_first_query_value(query_params, "source_id")),
+        )
+
+    mosaic_panel_id = _coerce_optional_string(_first_query_value(query_params, "mosaic_panel_id"))
+    if mosaic_panel_id:
+        panel = mosaic_repository.get_mosaic_panel(mosaic_panel_id)
+        if panel is None:
+            raise ValueError(f"Unknown mosaic_panel_id: {mosaic_panel_id}")
+        return AstronomicalTargetContext(
+            target_name=panel.panel_label,
+            ra_deg=panel.center_ra_deg,
+            dec_deg=panel.center_dec_deg,
+            source_kind="mosaic_panel",
+            source_id=panel.id,
+        )
+
+    target_id = _coerce_optional_string(_first_query_value(query_params, "target_id"))
+    if target_id:
+        target = planning_repository.get_target(target_id)
+        if target is None:
+            raise ValueError(f"Unknown target_id: {target_id}")
+        return AstronomicalTargetContext(
+            target_name=target.name,
+            ra_deg=target.ra_deg,
+            dec_deg=target.dec_deg,
+            source_kind="target",
+            source_id=target.id,
+        )
+
+    if _coerce_query_bool(_first_query_value(query_params, "use_planned_pointing")):
+        snapshot = telescope_service.get_snapshot()
+        planned = snapshot.planned_pointing
+        if planned is None:
+            raise ValueError("No planned pointing is available.")
+        return AstronomicalTargetContext(
+            target_name=planned.target_name,
+            ra_deg=planned.ra_hours * 15.0,
+            dec_deg=planned.dec_deg,
+            source_kind=planned.source_kind,
+            source_id=planned.source_id,
+        )
+
+    return None
+
+
+def _first_query_value(query_params: dict[str, list[str]], key: str) -> str | None:
+    values = query_params.get(key)
+    if not values:
+        return None
+    return unquote(values[0])
 
 
 def _site_from_payload(payload: dict[str, Any]) -> Any:

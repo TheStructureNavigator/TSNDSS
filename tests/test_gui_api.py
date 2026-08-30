@@ -15,6 +15,71 @@ from tsn_dss.engine.projects import ProjectStorage
 from tsn_dss.gui.http_api import create_http_server
 
 
+class FakeWeatherClient:
+    def fetch_site_forecast(self, site):
+        return type(
+            "ForecastPayload",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "site_id": site.id,
+                    "site_name": site.name,
+                    "latitude_deg": site.latitude_deg,
+                    "longitude_deg": site.longitude_deg,
+                    "timezone": "Europe/Warsaw",
+                    "generated_at": "2026-08-30T20:00",
+                    "provider": "open-meteo",
+                    "current": {
+                        "time": "2026-08-30T20:00",
+                        "temperature_c": 11.2,
+                        "relative_humidity_pct": 78.0,
+                        "dew_point_c": 8.9,
+                        "dew_margin_c": 2.3,
+                        "dew_risk": "moderate",
+                        "apparent_temperature_c": 10.1,
+                        "cloud_cover_pct": 22.0,
+                        "cloud_cover_low_pct": 8.0,
+                        "cloud_cover_mid_pct": 12.0,
+                        "cloud_cover_high_pct": 35.0,
+                        "visibility_m": 18000.0,
+                        "surface_pressure_hpa": 943.6,
+                        "wind_speed_kmh": 9.4,
+                        "wind_direction_deg": 225.0,
+                        "wind_gusts_kmh": 15.2,
+                        "precipitation_mm": 0.0,
+                        "precipitation_probability_pct": None,
+                        "condition_code": 1,
+                        "is_day": 0,
+                    },
+                    "hourly": [
+                        {
+                            "time": "2026-08-30T20:00",
+                            "temperature_c": 11.2,
+                            "relative_humidity_pct": 78.0,
+                            "dew_point_c": 8.9,
+                            "dew_margin_c": 2.3,
+                            "dew_risk": "moderate",
+                            "apparent_temperature_c": 10.1,
+                            "cloud_cover_pct": 22.0,
+                            "cloud_cover_low_pct": 8.0,
+                            "cloud_cover_mid_pct": 12.0,
+                            "cloud_cover_high_pct": 35.0,
+                            "visibility_m": 18000.0,
+                            "surface_pressure_hpa": 943.6,
+                            "wind_speed_kmh": 9.4,
+                            "wind_direction_deg": 225.0,
+                            "wind_gusts_kmh": 15.2,
+                            "precipitation_mm": 0.0,
+                            "precipitation_probability_pct": 5.0,
+                            "condition_code": 1,
+                            "is_day": 0,
+                        }
+                    ],
+                }
+            },
+        )()
+
+
 class ProjectStorageListingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -116,6 +181,7 @@ class GuiApiServerTests(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             projects_root=self.projects_root,
+            weather_client=FakeWeatherClient(),
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -137,7 +203,7 @@ class GuiApiServerTests(unittest.TestCase):
     def test_core_content_endpoint_returns_versioned_frontend_content(self) -> None:
         payload = self._read_json("/api/core-content")
 
-        self.assertEqual(payload["current_version"], "0.1.3")
+        self.assertEqual(payload["current_version"], "0.1.5")
         self.assertGreaterEqual(len(payload["releases"]), 1)
         self.assertIn("todo", payload)
 
@@ -181,6 +247,91 @@ class GuiApiServerTests(unittest.TestCase):
         listed_after_delete = self._read_json("/api/sites")
         self.assertEqual(listed_after_delete["sites"], [])
         self.assertIsNone(listed_after_delete["active_site_id"])
+
+    def test_site_forecast_endpoint_returns_weather_for_selected_site(self) -> None:
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Remote Ridge",
+                "latitude_deg": 49.245,
+                "longitude_deg": 22.511,
+                "elevation_m": 640,
+            },
+        )
+        site_id = created["site"]["id"]
+
+        payload = self._read_json(f"/api/site-forecast?site_id={site_id}")
+
+        forecast = payload["forecast"]
+        self.assertEqual(forecast["site_id"], site_id)
+        self.assertEqual(forecast["provider"], "open-meteo")
+        self.assertEqual(forecast["current"]["cloud_cover_pct"], 22.0)
+        self.assertEqual(forecast["current"]["dew_risk"], "moderate")
+        self.assertEqual(forecast["current"]["cloud_cover_high_pct"], 35.0)
+        self.assertEqual(forecast["current"]["wind_direction_deg"], 225.0)
+        self.assertEqual(len(forecast["hourly"]), 1)
+
+    def test_site_forecast_endpoint_rejects_site_without_coordinates(self) -> None:
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Manual site only",
+            },
+        )
+        site_id = created["site"]["id"]
+
+        with self.assertRaises(HTTPError) as context:
+            self._read_json(f"/api/site-forecast?site_id={site_id}")
+
+        self.assertEqual(context.exception.code, 400)
+
+    def test_astronomical_conditions_endpoint_returns_site_and_planned_target_context(self) -> None:
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Remote Ridge",
+                "latitude_deg": 49.245,
+                "longitude_deg": 22.511,
+                "elevation_m": 640,
+            },
+        )
+        site_id = created["site"]["id"]
+        self._send_json("/api/sites/active", {"site_id": site_id})
+        self._send_json(
+            "/api/telescope/planned-pointing",
+            {
+                "ra_hours": 0.71231389,
+                "dec_deg": 41.26875,
+                "target_name": "M31",
+                "source_kind": "manual",
+            },
+        )
+
+        payload = self._read_json(
+            f"/api/astronomical-conditions?site_id={site_id}&use_planned_pointing=1&time_utc=2026-10-15T20:00:00Z&forecast_hours=3"
+        )
+
+        conditions = payload["conditions"]
+        self.assertEqual(conditions["site_id"], site_id)
+        self.assertEqual(conditions["provider"], "tsn-dss-astronomy")
+        self.assertEqual(conditions["target"]["target_name"], "M31")
+        self.assertEqual(conditions["target"]["source_kind"], "manual")
+        self.assertEqual(conditions["current"]["target"]["target_name"], "M31")
+        self.assertEqual(len(conditions["hourly"]), 3)
+
+    def test_astronomical_conditions_endpoint_rejects_missing_coordinates(self) -> None:
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Manual site only",
+            },
+        )
+        site_id = created["site"]["id"]
+
+        with self.assertRaises(HTTPError) as context:
+            self._read_json(f"/api/astronomical-conditions?site_id={site_id}")
+
+        self.assertEqual(context.exception.code, 400)
 
     def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
         payload = self._read_json("/api/telescope/adapters")

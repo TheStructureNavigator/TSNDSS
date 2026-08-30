@@ -8,6 +8,7 @@ import {
   deleteMosaicPlan,
   fetchCoreContent,
   fetchCaptureDetails,
+  fetchAstronomicalConditions,
   fetchMosaics,
   deleteProjectRun,
   deleteProject,
@@ -16,6 +17,7 @@ import {
   fetchProjectRun,
   fetchProjectRuns,
   fetchProjects,
+  fetchSiteForecast,
   fetchSites,
   fetchTelescopeAdapters,
   fetchTelescopeState,
@@ -80,6 +82,8 @@ const state: AppState = {
   health: null,
   sites: [],
   activeSiteId: null,
+  siteForecast: null,
+  astronomicalConditions: null,
   projects: [],
   selectedProject: null,
   selectedProjectRunId: null,
@@ -105,6 +109,7 @@ const state: AppState = {
   projectDetailTab: 'gallery',
   processingDetailTab: 'overview',
   skyDetailTab: 'telescope',
+  observationCenterTab: 'sites',
   createProjectModalOpen: false,
   createRunModalOpen: false,
   createImportCaptureModalOpen: false,
@@ -148,6 +153,8 @@ async function refreshState(preferredSlug?: string): Promise<void> {
       state.activeRun = matched;
     }
   }
+  state.siteForecast = await loadActiveSiteForecast();
+  state.astronomicalConditions = await loadActiveAstronomicalConditions();
   syncActiveRunForSelectedCapture();
   syncRunPolling();
   syncTelescopePolling();
@@ -189,6 +196,7 @@ function render(): void {
   bindProjectCaptureFileSelection();
   bindProcessingTabs();
   bindSkyTabs();
+  bindObservationCenterTabs();
   bindObservationSiteSelection();
   bindMosaicSelection();
   bindMosaicPanelSelection();
@@ -384,6 +392,20 @@ function bindObservationSiteSelection(): void {
         return;
       }
       void handleSetActiveSiteById(siteId);
+    });
+  });
+}
+
+function bindObservationCenterTabs(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-observation-center-tab]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.observationCenterTab as AppState['observationCenterTab'] | undefined;
+      if (nextTab === undefined) {
+        return;
+      }
+      state.observationCenterTab = nextTab;
+      render();
     });
   });
 }
@@ -637,9 +659,7 @@ function bindMosaicSelection(): void {
       if (!mosaicId) {
         return;
       }
-      state.selectedMosaicId = mosaicId;
-      syncSelectedMosaic();
-      render();
+      void handleSelectMosaic(mosaicId);
     });
   });
 }
@@ -960,6 +980,7 @@ async function handleSkySimulatorUpdate(form: HTMLFormElement): Promise<void> {
   try {
     const snapshot = await updateSimulatorTelescopeState(input);
     state.telescopeSnapshot = snapshot;
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Telescope updated: ${snapshot.telescope_state.target_name ?? 'simulator pointing'}`);
     render();
   } catch (error) {
@@ -982,6 +1003,7 @@ async function handleTelescopeAdapterSwitch(form: HTMLFormElement): Promise<void
     const payload = await setActiveTelescopeAdapter(adapterId);
     state.activeTelescopeAdapterId = payload.active_adapter_id;
     state.telescopeSnapshot = payload.snapshot;
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Active telescope adapter: ${payload.active_adapter_id}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1035,6 +1057,7 @@ async function handleCreateMosaic(form: HTMLFormElement): Promise<void> {
     state.mosaics = await fetchMosaics(state.selectedProject.slug).catch(() => [mosaic]);
     state.selectedMosaicId = mosaic.id;
     syncSelectedMosaic();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Mosaic created: ${mosaic.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1064,6 +1087,7 @@ async function handleSelectMosaicPanel(mosaicId: string, panelId: string): Promi
     replaceMosaicInState(mosaic);
     state.selectedMosaicId = mosaic.id;
     state.selectedMosaicPanelId = panelId;
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     render();
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1088,6 +1112,7 @@ async function handleUpdateMosaicPanelStatus(form: HTMLFormElement): Promise<voi
     const refreshedMosaic = await selectMosaicPanel(state.selectedMosaicId, updatedPanel.id);
     replaceMosaicInState(refreshedMosaic);
     state.selectedMosaicPanelId = updatedPanel.id;
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Panel updated: ${updatedPanel.panel_label}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1122,6 +1147,7 @@ async function handlePlanMosaicPanel(panelId: string): Promise<void> {
       source_id: selectedPanel.id,
     });
     state.telescopeSnapshot = snapshot;
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Planned target set: ${selectedPanel.panel_label}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1134,6 +1160,7 @@ async function handleClearPlannedPointing(): Promise<void> {
   setBusy(true);
   try {
     state.telescopeSnapshot = await clearPlannedTelescopePointing();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage('Planned target cleared.');
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1163,6 +1190,8 @@ async function handleActiveSiteChange(form: HTMLFormElement): Promise<void> {
     const payload = await setActiveSite(siteId);
     state.activeSiteId = payload.active_site_id;
     state.telescopeSnapshot = payload.snapshot;
+    state.siteForecast = await loadActiveSiteForecast();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(siteId ? `Active site set: ${payload.snapshot.active_site?.name ?? siteId}` : 'Active site cleared.');
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1177,6 +1206,8 @@ async function handleSetActiveSiteById(siteId: string): Promise<void> {
     const payload = await setActiveSite(siteId);
     state.activeSiteId = payload.active_site_id;
     state.telescopeSnapshot = payload.snapshot;
+    state.siteForecast = await loadActiveSiteForecast();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Active site set: ${payload.snapshot.active_site?.name ?? siteId}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1216,6 +1247,8 @@ async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
     const activePayload = await setActiveSite(savedSite.id);
     state.activeSiteId = activePayload.active_site_id;
     state.telescopeSnapshot = activePayload.snapshot;
+    state.siteForecast = await loadActiveSiteForecast();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(siteId ? `Site updated: ${savedSite.name}` : `Site created: ${savedSite.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1238,6 +1271,8 @@ async function handleDeleteSite(siteId: string): Promise<void> {
     state.sites = sitesPayload?.sites ?? [];
     state.activeSiteId = sitesPayload?.active_site_id ?? null;
     state.telescopeSnapshot = await fetchTelescopeState().catch(() => state.telescopeSnapshot);
+    state.siteForecast = await loadActiveSiteForecast();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Site deleted: ${site?.name ?? siteId}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -1342,6 +1377,14 @@ async function selectProject(slug: string): Promise<void> {
   syncSelectedProcessingCapture();
   syncActiveRunForSelectedCapture();
   syncRunPolling();
+  state.astronomicalConditions = await loadActiveAstronomicalConditions();
+  render();
+}
+
+async function handleSelectMosaic(mosaicId: string): Promise<void> {
+  state.selectedMosaicId = mosaicId;
+  syncSelectedMosaic();
+  state.astronomicalConditions = await loadActiveAstronomicalConditions();
   render();
 }
 
@@ -1866,4 +1909,67 @@ async function refreshObservationCenterMapLive(): Promise<void> {
       void handleSetActiveSiteById(siteId);
     },
   );
+}
+
+async function loadActiveSiteForecast() {
+  if (!state.activeSiteId) {
+    return null;
+  }
+
+  try {
+    return await fetchSiteForecast(state.activeSiteId);
+  } catch {
+    return null;
+  }
+}
+
+async function loadActiveAstronomicalConditions() {
+  if (!state.activeSiteId) {
+    return null;
+  }
+
+  const selectedMosaic =
+    (state.selectedMosaicId
+      ? state.mosaics.find((mosaic) => mosaic.id === state.selectedMosaicId)
+      : null)
+    ?? state.mosaics[0]
+    ?? null;
+  const selectedPanel =
+    (state.selectedMosaicPanelId
+      ? selectedMosaic?.panels.find((panel) => panel.id === state.selectedMosaicPanelId)
+      : null)
+    ?? (selectedMosaic?.selected_panel_id
+      ? selectedMosaic.panels.find((panel) => panel.id === selectedMosaic.selected_panel_id)
+      : null)
+    ?? selectedMosaic?.panels[0]
+    ?? null;
+  const plannedPointing = state.telescopeSnapshot?.planned_pointing ?? null;
+
+  try {
+    if (selectedPanel) {
+      return await fetchAstronomicalConditions({
+        site_id: state.activeSiteId,
+        mosaic_panel_id: selectedPanel.id,
+        min_target_altitude_deg: 30,
+        forecast_hours: 12,
+      });
+    }
+
+    if (plannedPointing) {
+      return await fetchAstronomicalConditions({
+        site_id: state.activeSiteId,
+        use_planned_pointing: true,
+        min_target_altitude_deg: 30,
+        forecast_hours: 12,
+      });
+    }
+
+    return await fetchAstronomicalConditions({
+      site_id: state.activeSiteId,
+      min_target_altitude_deg: 30,
+      forecast_hours: 12,
+    });
+  } catch {
+    return null;
+  }
 }
