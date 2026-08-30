@@ -1,6 +1,17 @@
 {
-  "current_version": "0.1.2",
+  "current_version": "0.1.3",
   "releases": [
+    {
+      "version": "0.1.3",
+      "date": "2026-08-30",
+      "changelog": [
+        "Added hardware-agnostic telescope adapter selection, including the first Seestar-facing adapter skeleton beside the simulator.",
+        "Introduced the first mosaic planning flow in Sky, with panel generation, panel selection, and planned-pointing handoff to telescope control.",
+        "Reworked the Sky workspace into one shared map with separate Telescope control and Mosaic planner tabs.",
+        "Expanded the header with hardware status and kept the frontend aligned with the shared telescope-state model.",
+        "Completed a repository cleanup pass: refreshed docs, documented core Python and frontend modules, narrowed top-level exports, and moved active plans into docs/plans."
+      ]
+    },
     {
       "version": "0.1.2",
       "date": "2026-08-26",
