@@ -111,15 +111,18 @@ Attach real telescope sources without changing the frontend contract.
 
 Remaining:
 
-- [ ] define adapter interface
-- [ ] define adapter lifecycle contract
-- [ ] add adapter registration / selection
-- [ ] add first real adapter when ready
+- [x] define adapter interface
+- [x] define adapter lifecycle contract
+- [x] add adapter registration / selection
+- [x] add first real adapter skeleton
+- [ ] replace Seestar skeleton with real seestarpy-backed implementation
 
 Already done inside this phase:
 
 - [x] polling / refresh model
 - [x] planned target action shape can stay frontend-stable while adapters evolve
+- [x] simulator now hangs off a neutral backend adapter contract
+- [x] default backend registry now exposes simulator and seestar adapter entries
 
 #### Phase E — Live Capture Integration
 
@@ -254,8 +257,8 @@ Later likely APIs:
 - [x] `POST /api/telescope/planned-pointing`
 - [x] `DELETE /api/telescope/planned-pointing`
 - [x] `POST /api/telescope/slew-to-planned`
-- [ ] `GET /api/telescope/adapters`
-- [ ] `POST /api/telescope/active-adapter`
+- [x] `GET /api/telescope/adapters`
+- [x] `POST /api/telescope/active-adapter`
 - [ ] `GET /api/telescope/profile`
 - [ ] `POST /api/telescope/profile`
 
@@ -318,9 +321,10 @@ Testable outcome:
 
 Deliverables:
 
-- stable adapter interface
-- simulator remains supported
-- first real hardware adapter can be plugged in later
+- [x] stable adapter interface
+- [x] simulator remains supported
+- [x] first real hardware adapter skeleton can be plugged in without frontend changes
+- [ ] real Seestar command/state mapping
 
 Testable outcome:
 
@@ -339,7 +343,7 @@ Testable outcome:
 
 ## Recommended Next Step
 
-Work next on the hardware-agnostic adapter contract and adapter registry, while keeping real hardware integration out of scope for now. After that, add optional imaging profile selection and start shaping the bridge from planned target into future acquisition workflows.
+Work next on replacing the Seestar skeleton with a real `seestarpy`-backed adapter, while keeping the frontend contract unchanged. After that, add adapter-facing profile/config selection in the GUI and start shaping the bridge from planned target into live acquisition workflows.
 
 Still avoid:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from math import sqrt
+from typing import Callable, Protocol, runtime_checkable
 
 from ..domain.models import ImagingProfile, PlannedPointing, TelescopeState
 
@@ -29,6 +30,107 @@ class TelescopeSnapshot:
             "imaging_profile": asdict(self.imaging_profile),
             "planned_pointing": asdict(self.planned_pointing) if self.planned_pointing else None,
         }
+
+
+@dataclass(slots=True)
+class TelescopeAdapterCapabilities:
+    can_connect: bool = True
+    can_disconnect: bool = True
+    can_manual_pointing: bool = False
+    can_slew_to_coordinates: bool = True
+    can_park: bool = False
+    can_set_tracking: bool = False
+    can_stream_preview: bool = False
+    can_start_stack: bool = False
+    can_run_observation_plans: bool = False
+
+
+@dataclass(slots=True)
+class TelescopeAdapterDescriptor:
+    adapter_id: str
+    label: str
+    source_kind: str
+    is_simulated: bool
+    capabilities: TelescopeAdapterCapabilities
+
+
+@dataclass(slots=True)
+class SeestarAdapterConfig:
+    adapter_id: str = "seestar"
+    host: str | None = None
+    auth_key_path: str | None = None
+    device_label: str = "ZWO Seestar"
+    model_label: str = "Seestar S30 Pro"
+    use_event_listener: bool = True
+    use_live_stream: bool = False
+
+
+@runtime_checkable
+class TelescopeAdapter(Protocol):
+    def get_state(self) -> TelescopeState:
+        ...
+
+    def get_imaging_profile(self) -> ImagingProfile:
+        ...
+
+    def get_capabilities(self) -> TelescopeAdapterCapabilities:
+        ...
+
+    def connect(self) -> None:
+        ...
+
+    def disconnect(self) -> None:
+        ...
+
+    def slew_to_coordinates(
+        self,
+        *,
+        ra_hours: float,
+        dec_deg: float,
+        target_name: str | None = None,
+    ) -> None:
+        ...
+
+
+class TelescopeAdapterRegistry:
+    def __init__(self) -> None:
+        self._descriptors: dict[str, TelescopeAdapterDescriptor] = {}
+        self._factories: dict[str, Callable[[], TelescopeAdapter]] = {}
+
+    def register(
+        self,
+        descriptor: TelescopeAdapterDescriptor,
+        factory: Callable[[], TelescopeAdapter],
+    ) -> None:
+        self._descriptors[descriptor.adapter_id] = descriptor
+        self._factories[descriptor.adapter_id] = factory
+
+    def create(self, adapter_id: str) -> TelescopeAdapter:
+        factory = self._factories.get(adapter_id)
+        if factory is None:
+            raise KeyError(f"Unknown telescope adapter: {adapter_id}")
+        return factory()
+
+    def list_descriptors(self) -> list[TelescopeAdapterDescriptor]:
+        return [self._descriptors[adapter_id] for adapter_id in sorted(self._descriptors)]
+
+    def get_descriptor(self, adapter_id: str) -> TelescopeAdapterDescriptor | None:
+        return self._descriptors.get(adapter_id)
+
+
+@runtime_checkable
+class ManualPointingAdapter(TelescopeAdapter, Protocol):
+    def update_pointing(
+        self,
+        *,
+        ra_hours: float | None = None,
+        dec_deg: float | None = None,
+        alt_deg: float | None = None,
+        az_deg: float | None = None,
+        target_name: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        ...
 
 
 class SimulatorTelescopeAdapter:
@@ -69,6 +171,7 @@ class SimulatorTelescopeAdapter:
         self._slew_started_at: datetime | None = None
         self._slew_finish_at: datetime | None = None
         self._post_slew_status: str = "tracking"
+        self._imaging_profile = _build_seestar_s30_pro_tele_profile(profile_id="simulator-default")
 
     def get_state(self) -> TelescopeState:
         current_ra_hours, current_dec_deg, current_alt_deg, current_az_deg = self._get_current_pointing()
@@ -89,6 +192,28 @@ class SimulatorTelescopeAdapter:
             target_name=self._target_name,
             position_quality=self._position_quality,
         )
+
+    def get_imaging_profile(self) -> ImagingProfile:
+        return self._imaging_profile
+
+    def get_capabilities(self) -> TelescopeAdapterCapabilities:
+        return TelescopeAdapterCapabilities(
+            can_connect=True,
+            can_disconnect=True,
+            can_manual_pointing=True,
+            can_slew_to_coordinates=True,
+            can_park=False,
+            can_set_tracking=False,
+            can_stream_preview=False,
+            can_start_stack=False,
+            can_run_observation_plans=False,
+        )
+
+    def connect(self) -> None:
+        self._connected = True
+
+    def disconnect(self) -> None:
+        self._connected = False
 
     def update_pointing(
         self,
@@ -188,24 +313,117 @@ class SimulatorTelescopeAdapter:
             _lerp_optional(self._slew_start_az_deg, self._slew_end_az_deg, fraction),
         )
 
+    def slew_to_coordinates(
+        self,
+        *,
+        ra_hours: float,
+        dec_deg: float,
+        target_name: str | None = None,
+    ) -> None:
+        self.update_pointing(
+            ra_hours=ra_hours,
+            dec_deg=dec_deg,
+            target_name=target_name,
+            status="tracking",
+        )
+
+
+class SeestarAdapter:
+    def __init__(self, config: SeestarAdapterConfig | None = None) -> None:
+        self._config = config or SeestarAdapterConfig()
+        self._connected = False
+        self._last_known_ra_hours: float | None = None
+        self._last_known_dec_deg: float | None = None
+        self._last_known_alt_deg: float | None = None
+        self._last_known_az_deg: float | None = None
+        self._last_target_name: str | None = None
+        self._status = "disconnected"
+
+    def get_state(self) -> TelescopeState:
+        return TelescopeState(
+            adapter_id=self._config.adapter_id,
+            source_kind="seestar",
+            timestamp_utc=_utc_now_iso(),
+            connected=self._connected,
+            status=self._status,
+            is_simulated=False,
+            ra_hours=self._last_known_ra_hours,
+            dec_deg=self._last_known_dec_deg,
+            alt_deg=self._last_known_alt_deg,
+            az_deg=self._last_known_az_deg,
+            target_name=self._last_target_name,
+            position_quality="telemetry" if self._connected else "unavailable",
+        )
+
+    def get_imaging_profile(self) -> ImagingProfile:
+        return _build_seestar_s30_pro_tele_profile(profile_id="seestar_s30_pro_tele")
+
+    def get_capabilities(self) -> TelescopeAdapterCapabilities:
+        return TelescopeAdapterCapabilities(
+            can_connect=True,
+            can_disconnect=True,
+            can_manual_pointing=False,
+            can_slew_to_coordinates=True,
+            can_park=True,
+            can_set_tracking=True,
+            can_stream_preview=True,
+            can_start_stack=True,
+            can_run_observation_plans=True,
+        )
+
+    def connect(self) -> None:
+        self._connected = True
+        self._status = "idle"
+
+    def disconnect(self) -> None:
+        self._connected = False
+        self._status = "disconnected"
+
+    def slew_to_coordinates(
+        self,
+        *,
+        ra_hours: float,
+        dec_deg: float,
+        target_name: str | None = None,
+    ) -> None:
+        raise NotImplementedError(
+            "SeestarAdapter skeleton is registered, but real seestarpy integration is not implemented yet."
+        )
+
 
 class TelescopeStateService:
     def __init__(
         self,
         *,
-        adapter: SimulatorTelescopeAdapter | None = None,
-        imaging_profile: ImagingProfile | None = None,
+        adapter: TelescopeAdapter | None = None,
+        registry: TelescopeAdapterRegistry | None = None,
+        active_adapter_id: str = "simulator",
     ) -> None:
-        self._adapter = adapter or SimulatorTelescopeAdapter()
-        self._imaging_profile = imaging_profile or self._default_imaging_profile()
+        self._registry = registry or build_default_telescope_adapter_registry()
+        self._active_adapter_id = active_adapter_id
+        self._adapter = adapter or self._registry.create(active_adapter_id)
         self._planned_pointing: PlannedPointing | None = None
 
     def get_snapshot(self) -> TelescopeSnapshot:
         return TelescopeSnapshot(
             telescope_state=self._adapter.get_state(),
-            imaging_profile=self._imaging_profile,
+            imaging_profile=self._adapter.get_imaging_profile(),
             planned_pointing=self._planned_pointing,
         )
+
+    def get_adapter_capabilities(self) -> TelescopeAdapterCapabilities:
+        return self._adapter.get_capabilities()
+
+    def get_active_adapter_id(self) -> str:
+        return self._active_adapter_id
+
+    def list_available_adapters(self) -> list[TelescopeAdapterDescriptor]:
+        return self._registry.list_descriptors()
+
+    def set_active_adapter(self, adapter_id: str) -> TelescopeSnapshot:
+        self._adapter = self._registry.create(adapter_id)
+        self._active_adapter_id = adapter_id
+        return self.get_snapshot()
 
     def update_simulator_pointing(
         self,
@@ -217,6 +435,9 @@ class TelescopeStateService:
         target_name: str | None = None,
         status: str | None = None,
     ) -> TelescopeSnapshot:
+        if not isinstance(self._adapter, ManualPointingAdapter):
+            raise ValueError("The active telescope adapter does not support manual pointing updates.")
+
         self._adapter.update_pointing(
             ra_hours=ra_hours,
             dec_deg=dec_deg,
@@ -254,29 +475,72 @@ class TelescopeStateService:
         if self._planned_pointing is None:
             raise ValueError("No planned pointing is set.")
 
-        self._adapter.update_pointing(
+        self._adapter.slew_to_coordinates(
             ra_hours=self._planned_pointing.ra_hours,
             dec_deg=self._planned_pointing.dec_deg,
             target_name=self._planned_pointing.target_name,
-            status="tracking",
         )
         return self.get_snapshot()
 
     @staticmethod
     def _default_imaging_profile() -> ImagingProfile:
-        focal_length_mm = 160.0
-        sensor_width_mm = 11.2
-        sensor_height_mm = 6.3
-        return ImagingProfile(
-            profile_id="simulator-default",
-            label="Seestar S30 Pro tele profile",
-            focal_length_mm=focal_length_mm,
-            sensor_width_mm=sensor_width_mm,
-            sensor_height_mm=sensor_height_mm,
-            rotation_deg=0.0,
-            fov_width_deg=_compute_fov_deg(sensor_width_mm, focal_length_mm),
-            fov_height_deg=_compute_fov_deg(sensor_height_mm, focal_length_mm),
-        )
+        return _build_seestar_s30_pro_tele_profile(profile_id="simulator-default")
+
+
+def _build_seestar_s30_pro_tele_profile(*, profile_id: str) -> ImagingProfile:
+    focal_length_mm = 160.0
+    sensor_width_mm = 11.2
+    sensor_height_mm = 6.3
+    return ImagingProfile(
+        profile_id=profile_id,
+        label="Seestar S30 Pro tele profile",
+        focal_length_mm=focal_length_mm,
+        sensor_width_mm=sensor_width_mm,
+        sensor_height_mm=sensor_height_mm,
+        rotation_deg=0.0,
+        fov_width_deg=_compute_fov_deg(sensor_width_mm, focal_length_mm),
+        fov_height_deg=_compute_fov_deg(sensor_height_mm, focal_length_mm),
+    )
+
+
+def build_default_telescope_adapter_registry() -> TelescopeAdapterRegistry:
+    registry = TelescopeAdapterRegistry()
+    registry.register(
+        TelescopeAdapterDescriptor(
+            adapter_id="seestar",
+            label="Seestar",
+            source_kind="seestar",
+            is_simulated=False,
+            capabilities=TelescopeAdapterCapabilities(
+                can_connect=True,
+                can_disconnect=True,
+                can_manual_pointing=False,
+                can_slew_to_coordinates=True,
+                can_park=True,
+                can_set_tracking=True,
+                can_stream_preview=True,
+                can_start_stack=True,
+                can_run_observation_plans=True,
+            ),
+        ),
+        lambda: SeestarAdapter(),
+    )
+    registry.register(
+        TelescopeAdapterDescriptor(
+            adapter_id="simulator",
+            label="Simulator",
+            source_kind="simulator",
+            is_simulated=True,
+            capabilities=TelescopeAdapterCapabilities(
+                can_connect=True,
+                can_disconnect=True,
+                can_manual_pointing=True,
+                can_slew_to_coordinates=True,
+            ),
+        ),
+        lambda: SimulatorTelescopeAdapter(),
+    )
+    return registry
 
 
 def _lerp(start: float, end: float, fraction: float) -> float:

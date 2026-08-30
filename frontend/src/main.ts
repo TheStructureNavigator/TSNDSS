@@ -13,11 +13,13 @@ import {
   fetchProjectRun,
   fetchProjectRuns,
   fetchProjects,
+  fetchTelescopeAdapters,
   fetchTelescopeState,
   generateMosaicPanels,
   generateProjectRunPreview,
   importCapture,
   selectMosaicPanel,
+  setActiveTelescopeAdapter,
   slewToPlannedTelescopePointing,
   startProjectRun,
   type MosaicPlan,
@@ -69,6 +71,8 @@ const state: AppState = {
   currentView: 'core',
   theme: loadThemePreference(),
   telescopeSnapshot: null,
+  telescopeAdapters: [],
+  activeTelescopeAdapterId: null,
   followTelescope: false,
   message: null,
   error: null,
@@ -88,13 +92,16 @@ async function bootstrap(): Promise<void> {
 }
 
 async function refreshState(preferredSlug?: string): Promise<void> {
-  const [health, projects] = await Promise.all([
+  const [health, projects, telescopeAdaptersPayload] = await Promise.all([
     fetchHealth().catch(() => null),
     fetchProjects().catch(() => []),
+    fetchTelescopeAdapters().catch(() => null),
   ]);
 
   state.health = health;
   state.projects = projects;
+  state.telescopeAdapters = telescopeAdaptersPayload?.adapters ?? state.telescopeAdapters;
+  state.activeTelescopeAdapterId = telescopeAdaptersPayload?.active_adapter_id ?? state.activeTelescopeAdapterId;
   state.telescopeSnapshot = await fetchTelescopeState().catch(() => state.telescopeSnapshot);
 
   const selectedSlug = preferredSlug ?? state.selectedProject?.slug ?? projects[0]?.slug ?? null;
@@ -154,6 +161,7 @@ function render(): void {
   bindForms();
   bindInlineProjectSkyTarget();
   bindSkyFollowToggle();
+  bindTelescopeAdapterForm();
   hydrateSkySimulatorPanel();
   if (state.currentView === 'sky') {
     void refreshSkyViewLive();
@@ -458,6 +466,7 @@ function bindForms(): void {
   const importForm = rootElement.querySelector<HTMLFormElement>('[data-form="import-capture"]');
   const startRunForm = rootElement.querySelector<HTMLFormElement>('[data-form="start-run"]');
   const skySimulatorForm = rootElement.querySelector<HTMLFormElement>('[data-form="sky-simulator"]');
+  const telescopeAdapterForm = rootElement.querySelector<HTMLFormElement>('[data-form="telescope-adapter"]');
   const createMosaicForm = rootElement.querySelector<HTMLFormElement>('[data-form="create-mosaic"]');
   const updateMosaicPanelStatusForm = rootElement.querySelector<HTMLFormElement>('[data-form="update-mosaic-panel-status"]');
 
@@ -479,6 +488,11 @@ function bindForms(): void {
   skySimulatorForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void handleSkySimulatorUpdate(skySimulatorForm);
+  });
+
+  telescopeAdapterForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void handleTelescopeAdapterSwitch(telescopeAdapterForm);
   });
 
   createMosaicForm?.addEventListener('submit', (event) => {
@@ -575,6 +589,18 @@ function bindSkyFollowToggle(): void {
     state.followTelescope = input.checked;
     render();
   });
+}
+
+function bindTelescopeAdapterForm(): void {
+  const form = rootElement.querySelector<HTMLFormElement>('[data-form="telescope-adapter"]');
+  if (!form) {
+    return;
+  }
+
+  const select = form.elements.namedItem('adapter_id');
+  if (select instanceof HTMLSelectElement) {
+    select.value = state.activeTelescopeAdapterId ?? state.telescopeSnapshot?.telescope_state.adapter_id ?? select.value;
+  }
 }
 
 function hydrateSkySimulatorPanel(): void {
@@ -813,6 +839,27 @@ async function handleSkySimulatorUpdate(form: HTMLFormElement): Promise<void> {
     state.telescopeSnapshot = snapshot;
     setMessage(`Telescope updated: ${snapshot.telescope_state.target_name ?? 'simulator pointing'}`);
     render();
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleTelescopeAdapterSwitch(form: HTMLFormElement): Promise<void> {
+  const formData = new FormData(form);
+  const adapterId = String(formData.get('adapter_id') ?? '').trim();
+  if (!adapterId) {
+    setError('Select a telescope adapter first.');
+    return;
+  }
+
+  setBusy(true);
+  try {
+    const payload = await setActiveTelescopeAdapter(adapterId);
+    state.activeTelescopeAdapterId = payload.active_adapter_id;
+    state.telescopeSnapshot = payload.snapshot;
+    setMessage(`Active telescope adapter: ${payload.active_adapter_id}`);
   } catch (error) {
     setError(getErrorMessage(error));
   } finally {
@@ -1164,6 +1211,7 @@ async function pollTelescopeState(): Promise<void> {
   try {
     const snapshot = await fetchTelescopeState();
     state.telescopeSnapshot = snapshot;
+    state.activeTelescopeAdapterId = snapshot.telescope_state.adapter_id;
     if (state.currentView === 'sky') {
       hydrateSkySimulatorPanel();
       void refreshSkyViewLive();

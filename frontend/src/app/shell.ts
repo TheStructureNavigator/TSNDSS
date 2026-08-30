@@ -15,6 +15,7 @@ import {
   type ProjectRun,
   type ProjectSummary,
   type RunArtifactImage,
+  type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
 
@@ -57,6 +58,8 @@ export type AppState = {
   currentView: ViewName;
   theme: ThemeName;
   telescopeSnapshot: TelescopeSnapshot | null;
+  telescopeAdapters: TelescopeAdapterDescriptor[];
+  activeTelescopeAdapterId: string | null;
   followTelescope: boolean;
   message: string | null;
   error: string | null;
@@ -481,7 +484,13 @@ function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, _
 
       <section class="project-detail-stack">
         ${state.skyDetailTab === 'telescope'
-          ? renderSkyTelescopeControls(primaryProject.sky_target, state.followTelescope, state.telescopeSnapshot)
+          ? renderSkyTelescopeControls(
+            primaryProject.sky_target,
+            state.followTelescope,
+            state.telescopeSnapshot,
+            state.telescopeAdapters,
+            state.activeTelescopeAdapterId,
+          )
           : renderSkyMosaicSidebar(state, primaryProject, selectedMosaic)}
         ${renderSkyDetailPanel(selectedMosaic, selectedPanel)}
       </section>
@@ -512,13 +521,19 @@ function renderSkyTelescopeControls(
   projectSkyTarget: string | null,
   followTelescope: boolean,
   telescopeSnapshot: TelescopeSnapshot | null,
+  telescopeAdapters: TelescopeAdapterDescriptor[],
+  activeAdapterId: string | null,
 ): string {
   const telescopeState = telescopeSnapshot?.telescope_state ?? null;
   const plannedPointing = telescopeSnapshot?.planned_pointing ?? null;
-  const adapterLabel = telescopeState?.source_kind || telescopeState?.adapter_id || 'unknown';
+  const activeAdapter =
+    telescopeAdapters.find((adapter) => adapter.adapter_id === activeAdapterId)
+    ?? telescopeAdapters.find((adapter) => adapter.adapter_id === telescopeState?.adapter_id)
+    ?? null;
+  const adapterLabel = activeAdapter?.label || telescopeState?.source_kind || telescopeState?.adapter_id || 'unknown';
   const adapterMode = telescopeState?.is_simulated ? 'simulated' : 'live';
   const isEditable = telescopeState?.is_simulated ?? false;
-  const capabilities = getSkyCapabilities(telescopeState);
+  const capabilities = getSkyCapabilities(activeAdapter, telescopeState);
   const liveStatus = telescopeState?.status ?? 'unknown';
   const plannedStateLabel = plannedPointing ? 'ready' : 'empty';
 
@@ -548,6 +563,21 @@ function renderSkyTelescopeControls(
           <div class="project-tags">${capabilities.map((value) => `<span>${escapeHtml(value)}</span>`).join('')}</div>
         </div>
       </div>
+      <form class="telescope-adapter-form" data-form="telescope-adapter">
+        <label class="field">
+          <span>Active adapter</span>
+          <select name="adapter_id">
+            ${telescopeAdapters.map((adapter) => `
+              <option value="${escapeHtml(adapter.adapter_id)}" ${adapter.adapter_id === (activeAdapterId ?? telescopeState?.adapter_id) ? 'selected' : ''}>
+                ${escapeHtml(adapter.label)}
+              </option>
+            `).join('')}
+          </select>
+        </label>
+        <button class="action-button telescope-panel__submit" type="submit">
+          Switch adapter
+        </button>
+      </form>
       <section class="telescope-panel__section">
         <div class="telescope-panel__section-header">
           <div>
@@ -1600,8 +1630,26 @@ function getHardwareDetail(
 }
 
 function getSkyCapabilities(
+  adapter: TelescopeAdapterDescriptor | null,
   telescopeState: TelescopeSnapshot['telescope_state'] | null,
 ): string[] {
+  if (adapter) {
+    const values = ['state snapshot', 'map centering', 'fov overlay'];
+    if (adapter.capabilities.can_manual_pointing) {
+      values.push('manual pointing');
+    }
+    if (adapter.capabilities.can_stream_preview) {
+      values.push('preview stream');
+    }
+    if (adapter.capabilities.can_start_stack) {
+      values.push('stack control');
+    }
+    if (adapter.capabilities.can_run_observation_plans) {
+      values.push('observation plans');
+    }
+    return values;
+  }
+
   if (!telescopeState) {
     return ['state snapshot'];
   }

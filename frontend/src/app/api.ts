@@ -118,6 +118,26 @@ export type TelescopeSnapshot = {
   planned_pointing: PlannedPointing | null;
 };
 
+export type TelescopeAdapterCapabilities = {
+  can_connect: boolean;
+  can_disconnect: boolean;
+  can_manual_pointing: boolean;
+  can_slew_to_coordinates: boolean;
+  can_park: boolean;
+  can_set_tracking: boolean;
+  can_stream_preview: boolean;
+  can_start_stack: boolean;
+  can_run_observation_plans: boolean;
+};
+
+export type TelescopeAdapterDescriptor = {
+  adapter_id: string;
+  label: string;
+  source_kind: string;
+  is_simulated: boolean;
+  capabilities: TelescopeAdapterCapabilities;
+};
+
 export type MosaicPanel = {
   id: string;
   mosaic_plan_id: string;
@@ -167,6 +187,25 @@ export async function fetchHealth(): Promise<ApiHealth> {
 
 export async function fetchTelescopeState(): Promise<TelescopeSnapshot> {
   return getJson<TelescopeSnapshot>('/api/telescope/state');
+}
+
+export async function fetchTelescopeAdapters(): Promise<{
+  active_adapter_id: string;
+  adapters: TelescopeAdapterDescriptor[];
+}> {
+  return getJson<{ active_adapter_id: string; adapters: TelescopeAdapterDescriptor[] }>('/api/telescope/adapters');
+}
+
+export async function setActiveTelescopeAdapter(adapterId: string): Promise<{
+  active_adapter_id: string;
+  snapshot: TelescopeSnapshot;
+  capabilities: TelescopeAdapterCapabilities;
+}> {
+  return sendJson<{
+    active_adapter_id: string;
+    snapshot: TelescopeSnapshot;
+    capabilities: TelescopeAdapterCapabilities;
+  }>('/api/telescope/active-adapter', { adapter_id: adapterId });
 }
 
 export async function updateSimulatorTelescopeState(input: {

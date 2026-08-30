@@ -118,6 +118,19 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 )
                 return
 
+            if path == "/api/telescope/adapters":
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "active_adapter_id": context.telescope_service.get_active_adapter_id(),
+                        "adapters": [
+                            _telescope_adapter_descriptor_to_dict(descriptor)
+                            for descriptor in context.telescope_service.list_available_adapters()
+                        ],
+                    },
+                )
+                return
+
             if path == "/api/projects":
                 self._write_json(
                     HTTPStatus.OK,
@@ -654,6 +667,36 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(HTTPStatus.OK, snapshot.to_dict())
                 return
 
+            if path == "/api/telescope/active-adapter":
+                adapter_id = str(payload.get("adapter_id", "")).strip()
+                if not adapter_id:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_adapter_id", "message": "Field 'adapter_id' is required."},
+                    )
+                    return
+
+                try:
+                    snapshot = context.telescope_service.set_active_adapter(adapter_id)
+                except (KeyError, ValueError) as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_adapter_id", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "active_adapter_id": context.telescope_service.get_active_adapter_id(),
+                        "snapshot": snapshot.to_dict(),
+                        "capabilities": _telescope_adapter_capabilities_to_dict(
+                            context.telescope_service.get_adapter_capabilities()
+                        ),
+                    },
+                )
+                return
+
             if path == "/api/telescope/planned-pointing":
                 try:
                     ra_hours = _coerce_required_float(payload.get("ra_hours"))
@@ -954,6 +997,30 @@ def _run_to_dict(snapshot: Any) -> dict[str, Any]:
     payload = asdict(snapshot)
     payload["artifact_images"] = _list_run_artifact_images(snapshot)
     return payload
+
+
+def _telescope_adapter_descriptor_to_dict(descriptor: Any) -> dict[str, Any]:
+    return {
+        "adapter_id": descriptor.adapter_id,
+        "label": descriptor.label,
+        "source_kind": descriptor.source_kind,
+        "is_simulated": descriptor.is_simulated,
+        "capabilities": _telescope_adapter_capabilities_to_dict(descriptor.capabilities),
+    }
+
+
+def _telescope_adapter_capabilities_to_dict(capabilities: Any) -> dict[str, Any]:
+    return {
+        "can_connect": capabilities.can_connect,
+        "can_disconnect": capabilities.can_disconnect,
+        "can_manual_pointing": capabilities.can_manual_pointing,
+        "can_slew_to_coordinates": capabilities.can_slew_to_coordinates,
+        "can_park": capabilities.can_park,
+        "can_set_tracking": capabilities.can_set_tracking,
+        "can_stream_preview": capabilities.can_stream_preview,
+        "can_start_stack": capabilities.can_start_stack,
+        "can_run_observation_plans": capabilities.can_run_observation_plans,
+    }
 
 
 def _mosaic_plan_to_dict(plan: Any) -> dict[str, Any]:

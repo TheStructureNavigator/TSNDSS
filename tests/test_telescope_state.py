@@ -4,12 +4,74 @@ import json
 import tempfile
 import threading
 import unittest
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from tsn_dss.engine.telescope import TelescopeStateService
+from tsn_dss.domain.models import ImagingProfile, TelescopeState
+from tsn_dss.engine.telescope import (
+    SeestarAdapter,
+    TelescopeStateService,
+    build_default_telescope_adapter_registry,
+)
 from tsn_dss.gui.http_api import create_http_server
+
+
+@dataclass
+class FakeHardwareAdapter:
+    connected: bool = True
+
+    def __post_init__(self) -> None:
+        self.last_slew: tuple[float, float, str | None] | None = None
+
+    def get_state(self) -> TelescopeState:
+        return TelescopeState(
+            adapter_id="fake-hardware",
+            source_kind="fake_hardware",
+            timestamp_utc="2026-08-30T00:00:00Z",
+            connected=self.connected,
+            status="tracking",
+            is_simulated=False,
+            ra_hours=12.5,
+            dec_deg=22.75,
+            target_name="Deneb",
+        )
+
+    def get_imaging_profile(self) -> ImagingProfile:
+        return ImagingProfile(
+            profile_id="fake_profile",
+            label="Fake hardware profile",
+            focal_length_mm=400.0,
+            sensor_width_mm=23.5,
+            sensor_height_mm=15.6,
+            fov_width_deg=3.365,
+            fov_height_deg=2.234,
+        )
+
+    def get_capabilities(self):
+        from tsn_dss.engine.telescope import TelescopeAdapterCapabilities
+
+        return TelescopeAdapterCapabilities(
+            can_manual_pointing=False,
+            can_slew_to_coordinates=True,
+            can_stream_preview=True,
+        )
+
+    def connect(self) -> None:
+        self.connected = True
+
+    def disconnect(self) -> None:
+        self.connected = False
+
+    def slew_to_coordinates(
+        self,
+        *,
+        ra_hours: float,
+        dec_deg: float,
+        target_name: str | None = None,
+    ) -> None:
+        self.last_slew = (ra_hours, dec_deg, target_name)
 
 
 class TelescopeStateServiceTests(unittest.TestCase):
@@ -31,6 +93,23 @@ class TelescopeStateServiceTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot.imaging_profile.sensor_height_mm, 6.3)
         self.assertAlmostEqual(snapshot.imaging_profile.fov_width_deg or 0.0, 4.0107, places=3)
         self.assertAlmostEqual(snapshot.imaging_profile.fov_height_deg or 0.0, 2.2558, places=3)
+
+    def test_service_accepts_hardware_agnostic_adapter_contract(self) -> None:
+        adapter = FakeHardwareAdapter()
+        service = TelescopeStateService(adapter=adapter)
+
+        snapshot = service.get_snapshot()
+
+        self.assertEqual(snapshot.telescope_state.adapter_id, "fake-hardware")
+        self.assertEqual(snapshot.telescope_state.source_kind, "fake_hardware")
+        self.assertFalse(snapshot.telescope_state.is_simulated)
+        self.assertEqual(snapshot.imaging_profile.profile_id, "fake_profile")
+        self.assertEqual(snapshot.imaging_profile.label, "Fake hardware profile")
+
+        capabilities = service.get_adapter_capabilities()
+        self.assertFalse(capabilities.can_manual_pointing)
+        self.assertTrue(capabilities.can_slew_to_coordinates)
+        self.assertTrue(capabilities.can_stream_preview)
 
     def test_update_simulator_pointing_changes_snapshot(self) -> None:
         service = TelescopeStateService()
@@ -97,6 +176,45 @@ class TelescopeStateServiceTests(unittest.TestCase):
         self.assertEqual(completed.telescope_state.ra_hours, 20.75)
         self.assertEqual(completed.telescope_state.dec_deg, 30.5)
         self.assertEqual(completed.telescope_state.status, "tracking")
+
+    def test_manual_pointing_update_is_rejected_for_non_manual_adapter(self) -> None:
+        service = TelescopeStateService(adapter=FakeHardwareAdapter())
+
+        with self.assertRaisesRegex(ValueError, "does not support manual pointing"):
+            service.update_simulator_pointing(ra_hours=1.5, dec_deg=2.5)
+
+    def test_default_registry_lists_simulator_and_seestar(self) -> None:
+        registry = build_default_telescope_adapter_registry()
+
+        descriptors = registry.list_descriptors()
+        descriptor_ids = [descriptor.adapter_id for descriptor in descriptors]
+
+        self.assertEqual(descriptor_ids, ["seestar", "simulator"])
+        self.assertEqual(registry.get_descriptor("seestar").source_kind, "seestar")
+        self.assertTrue(registry.get_descriptor("simulator").is_simulated)
+
+    def test_service_can_switch_to_registered_seestar_adapter(self) -> None:
+        service = TelescopeStateService()
+
+        snapshot = service.set_active_adapter("seestar")
+
+        self.assertEqual(service.get_active_adapter_id(), "seestar")
+        self.assertEqual(snapshot.telescope_state.adapter_id, "seestar")
+        self.assertEqual(snapshot.telescope_state.source_kind, "seestar")
+        self.assertFalse(snapshot.telescope_state.is_simulated)
+        self.assertEqual(snapshot.telescope_state.status, "disconnected")
+        self.assertEqual(snapshot.imaging_profile.profile_id, "seestar_s30_pro_tele")
+
+    def test_seestar_adapter_skeleton_exposes_future_capabilities(self) -> None:
+        adapter = SeestarAdapter()
+
+        capabilities = adapter.get_capabilities()
+
+        self.assertTrue(capabilities.can_stream_preview)
+        self.assertTrue(capabilities.can_start_stack)
+        self.assertTrue(capabilities.can_run_observation_plans)
+        with self.assertRaisesRegex(NotImplementedError, "not implemented yet"):
+            adapter.slew_to_coordinates(ra_hours=5.5, dec_deg=-5.3, target_name="M42")
 
 
 class TelescopeStateApiTests(unittest.TestCase):

@@ -8,6 +8,7 @@ import time
 import unittest
 from base64 import b64decode
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from tsn_dss.engine.projects import ProjectStorage
@@ -132,6 +133,39 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["service"], "tsn-dss-api")
         self.assertEqual(payload["projects_root"], str(self.projects_root.resolve()))
+
+    def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
+        payload = self._read_json("/api/telescope/adapters")
+
+        self.assertEqual(payload["active_adapter_id"], "simulator")
+        self.assertEqual([adapter["adapter_id"] for adapter in payload["adapters"]], ["seestar", "simulator"])
+        seestar = payload["adapters"][0]
+        self.assertEqual(seestar["source_kind"], "seestar")
+        self.assertTrue(seestar["capabilities"]["can_slew_to_coordinates"])
+        self.assertTrue(seestar["capabilities"]["can_stream_preview"])
+
+    def test_active_telescope_adapter_can_be_switched_via_api(self) -> None:
+        payload = self._send_json("/api/telescope/active-adapter", {"adapter_id": "seestar"})
+
+        self.assertEqual(payload["active_adapter_id"], "seestar")
+        self.assertEqual(payload["snapshot"]["telescope_state"]["adapter_id"], "seestar")
+        self.assertEqual(payload["snapshot"]["telescope_state"]["source_kind"], "seestar")
+        self.assertEqual(payload["snapshot"]["imaging_profile"]["profile_id"], "seestar_s30_pro_tele")
+        self.assertFalse(payload["capabilities"]["can_manual_pointing"])
+
+    def test_switching_active_adapter_rejects_unknown_id(self) -> None:
+        with self.assertRaises(HTTPError) as context:
+            self._send_json("/api/telescope/active-adapter", {"adapter_id": "unknown"})
+
+        self.assertEqual(context.exception.code, 400)
+
+    def test_simulator_update_is_rejected_when_non_manual_adapter_is_active(self) -> None:
+        self._send_json("/api/telescope/active-adapter", {"adapter_id": "seestar"})
+
+        with self.assertRaises(HTTPError) as context:
+            self._send_json("/api/telescope/simulator/state", {"ra_hours": 5.5, "dec_deg": -5.4})
+
+        self.assertEqual(context.exception.code, 400)
 
     def test_projects_endpoint_lists_local_projects(self) -> None:
         payload = self._read_json("/api/projects")

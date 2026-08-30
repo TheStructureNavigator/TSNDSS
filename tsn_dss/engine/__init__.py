@@ -23,6 +23,19 @@ from .siril import (
     SirilRunner,
     find_osc_preprocessing_result,
 )
+from .telescope import (
+    build_default_telescope_adapter_registry,
+    ManualPointingAdapter,
+    SeestarAdapter,
+    SeestarAdapterConfig,
+    SimulatorTelescopeAdapter,
+    TelescopeAdapter,
+    TelescopeAdapterCapabilities,
+    TelescopeAdapterDescriptor,
+    TelescopeAdapterRegistry,
+    TelescopeSnapshot,
+    TelescopeStateService,
+)
 
 __all__ = [
     "EXPECTED_USER_VERSION",
@@ -48,4 +61,15 @@ __all__ = [
     "SirilProcessingService",
     "SirilOutputNotFoundError",
     "find_osc_preprocessing_result",
+    "TelescopeAdapter",
+    "ManualPointingAdapter",
+    "TelescopeAdapterCapabilities",
+    "TelescopeAdapterDescriptor",
+    "TelescopeAdapterRegistry",
+    "SeestarAdapterConfig",
+    "SeestarAdapter",
+    "SimulatorTelescopeAdapter",
+    "TelescopeSnapshot",
+    "TelescopeStateService",
+    "build_default_telescope_adapter_registry",
 ]
