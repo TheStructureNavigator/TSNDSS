@@ -343,7 +343,21 @@ Testable outcome:
 
 ## Recommended Next Step
 
-Work next on replacing the Seestar skeleton with a real `seestarpy`-backed adapter, while keeping the frontend contract unchanged. After that, add adapter-facing profile/config selection in the GUI and start shaping the bridge from planned target into live acquisition workflows.
+Work next on broadening the planning context around the telescope layer, not only on the adapter itself.
+
+Near-term priority should be:
+
+1. introduce persistent observation sites and site metadata
+2. add observing conditions around those sites:
+   - weather / atmosphere
+   - darkness windows
+   - Sun / Moon context
+   - target altitude and airmass
+   - light-pollution / sky-quality metadata
+3. connect project targets and mosaic panels to those visibility constraints
+4. keep the telescope adapter contract stable while later replacing the Seestar skeleton with a real `seestarpy`-backed implementation
+
+This keeps TSN DSS focused on a normalized planning model first, while still preserving the path toward real hardware control.
 
 Still avoid:
 

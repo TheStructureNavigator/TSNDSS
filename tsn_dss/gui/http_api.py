@@ -35,6 +35,7 @@ class ApiContext:
     """Runtime dependencies shared by every HTTP handler instance."""
     projects_root: Path
     database_path: Path
+    core_content_path: Path
     run_manager: ProjectRunManager
     telescope_service: TelescopeStateService
 
@@ -68,6 +69,7 @@ def create_http_server(
     context = ApiContext(
         projects_root=resolved_projects_root,
         database_path=resolved_database_path,
+        core_content_path=_default_core_content_path(),
         run_manager=ProjectRunManager(project_storage=storage),
         telescope_service=TelescopeStateService(),
     )
@@ -113,6 +115,13 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         "projects_root": str(context.projects_root.resolve()),
                         "default_siril_executable": os.environ.get("TSN_DSS_SIRIL_EXECUTABLE", "siril-cli"),
                     },
+                )
+                return
+
+            if path == "/api/core-content":
+                self._write_json(
+                    HTTPStatus.OK,
+                    _read_core_content(context.core_content_path),
                 )
                 return
 
@@ -971,6 +980,35 @@ def _project_to_dict(project: Any) -> dict[str, Any]:
         "capture_names": list(project.capture_names),
         "run_names": list(project.run_names),
         "sky_target": project.sky_target,
+    }
+
+
+def _default_core_content_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "docs" / "app" / "core-content.json"
+
+
+def _read_core_content(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {
+            "current_version": "dev",
+            "releases": [],
+            "todo": [],
+        }
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if not isinstance(payload, dict):
+        raise ValueError("Core content file must contain a JSON object.")
+
+    current_version = str(payload.get("current_version", "dev")).strip() or "dev"
+    releases = payload.get("releases", [])
+    todo = payload.get("todo", [])
+
+    return {
+        "current_version": current_version,
+        "releases": releases if isinstance(releases, list) else [],
+        "todo": todo if isinstance(todo, list) else [],
     }
 
 

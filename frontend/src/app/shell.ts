@@ -1,8 +1,8 @@
 import iconUrl from '../assets/tsn_dss_icon.png';
-import coreContent from '../content/core-content.json';
 import {
   type CaptureDetails,
   type CaptureFileEntry,
+  type CoreContent,
   getCaptureFileUrl,
   getCaptureThumbnailUrl,
   getApiBaseUrl,
@@ -25,24 +25,6 @@ import {
  * `shell.ts` turns the current `AppState` into HTML, but does not own
  * fetching, polling or business actions. Those stay in `main.ts`.
  */
-type CoreContent = {
-  current_version: string;
-  releases: Array<{
-    version: string;
-    date?: string;
-    changelog: string[];
-  }>;
-  todo: string[];
-};
-
-const typedCoreContent = coreContent as CoreContent;
-const currentRelease =
-  typedCoreContent.releases.find((release) => release.version === typedCoreContent.current_version)
-  ?? typedCoreContent.releases[0]
-  ?? { version: typedCoreContent.current_version, changelog: [] };
-const APP_VERSION = typedCoreContent.current_version;
-const historicalReleases = typedCoreContent.releases.filter((release) => release.version !== currentRelease.version);
-
 export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
 export type ThemeName = 'dark' | 'observation';
 
@@ -58,6 +40,7 @@ export type ThemeName = 'dark' | 'observation';
  * - transient modal / toast UI state
  */
 export type AppState = {
+  coreContent: CoreContent | null;
   health: ApiHealth | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
@@ -94,6 +77,7 @@ export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 export type SkyDetailTab = 'telescope' | 'mosaic';
 
 export function renderAppShell(state: AppState): string {
+  const appVersion = state.coreContent?.current_version ?? 'dev';
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
   const latestRun = state.activeRun ?? state.projectRuns[0] ?? null;
   const telescopeState = state.telescopeSnapshot?.telescope_state ?? null;
@@ -164,7 +148,7 @@ export function renderAppShell(state: AppState): string {
       </div>
 
       <footer class="app-footer">
-        <span>TSN DSS | TheStructureNavigator | ${APP_VERSION}</span>
+        <span>TSN DSS | TheStructureNavigator | ${appVersion}</span>
       </footer>
 
       ${state.createProjectModalOpen ? renderCreateProjectModal(state.busy) : ''}
@@ -197,13 +181,20 @@ function renderView(state: AppState, primaryProject: ProjectSummary | null, late
 }
 
 function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
+  const coreContent = state.coreContent ?? { current_version: 'dev', releases: [], todo: [] };
+  const currentRelease =
+    coreContent.releases.find((release) => release.version === coreContent.current_version)
+    ?? coreContent.releases[0]
+    ?? { version: coreContent.current_version, changelog: [] };
+  const historicalReleases = coreContent.releases.filter((release) => release.version !== currentRelease.version);
+
   return `
     <section class="core-workspace">
       <section class="project-detail-stack">
         <div class="project-summary-strip">
           <div class="project-summary-strip__item">
             <span class="project-summary-strip__label">Version</span>
-            <span class="project-summary-strip__value">${APP_VERSION}</span>
+            <span class="project-summary-strip__value">${coreContent.current_version}</span>
           </div>
           <div class="project-summary-strip__item">
             <span class="project-summary-strip__label">API</span>
@@ -225,7 +216,7 @@ function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, 
           <article class="panel">
             <div class="panel__header">
               <h3>Changelog</h3>
-              <span>v${escapeHtml(APP_VERSION)}</span>
+              <span>v${escapeHtml(coreContent.current_version)}</span>
             </div>
             <div class="release-stack">
               <details class="release-disclosure" open>
@@ -266,7 +257,7 @@ function renderCoreView(state: AppState, primaryProject: ProjectSummary | null, 
               <span>next</span>
             </div>
             <ul class="core-list">
-              ${typedCoreContent.todo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+              ${coreContent.todo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
             </ul>
           </article>
         </div>

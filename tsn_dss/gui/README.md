@@ -18,6 +18,7 @@ This module connects the frontend to the Python engine and local project workspa
 It currently exposes API behavior around:
 
 - health/runtime info
+- external Core content (version / changelog / TODO)
 - projects
 - capture browsing and thumbnails
 - project runs, logs, outputs, and preview regeneration

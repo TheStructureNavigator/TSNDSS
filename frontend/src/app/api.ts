@@ -12,6 +12,16 @@ export type ApiHealth = {
   default_siril_executable?: string;
 };
 
+export type CoreContent = {
+  current_version: string;
+  releases: Array<{
+    version: string;
+    date?: string;
+    changelog: string[];
+  }>;
+  todo: string[];
+};
+
 export type ProjectSummary = {
   slug: string;
   project_root: string;
@@ -190,6 +200,10 @@ export function getApiBaseUrl(): string {
 
 export async function fetchHealth(): Promise<ApiHealth> {
   return getJson<ApiHealth>('/api/health');
+}
+
+export async function fetchCoreContent(): Promise<CoreContent> {
+  return getJson<CoreContent>('/api/core-content');
 }
 
 export async function fetchTelescopeState(): Promise<TelescopeSnapshot> {

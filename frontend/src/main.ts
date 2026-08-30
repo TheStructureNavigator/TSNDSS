@@ -4,6 +4,7 @@ import {
   createProject,
   createMosaicPlan,
   deleteMosaicPlan,
+  fetchCoreContent,
   fetchCaptureDetails,
   fetchMosaics,
   deleteProjectRun,
@@ -66,6 +67,7 @@ const THEME_STORAGE_KEY = 'tsn_dss_theme';
 
 // One shared application state keeps this no-framework UI predictable.
 const state: AppState = {
+  coreContent: null,
   health: null,
   projects: [],
   selectedProject: null,
@@ -104,12 +106,14 @@ async function bootstrap(): Promise<void> {
 }
 
 async function refreshState(preferredSlug?: string): Promise<void> {
-  const [health, projects, telescopeAdaptersPayload] = await Promise.all([
+  const [coreContent, health, projects, telescopeAdaptersPayload] = await Promise.all([
+    fetchCoreContent().catch(() => state.coreContent),
     fetchHealth().catch(() => null),
     fetchProjects().catch(() => []),
     fetchTelescopeAdapters().catch(() => null),
   ]);
 
+  state.coreContent = coreContent;
   state.health = health;
   state.projects = projects;
   state.telescopeAdapters = telescopeAdaptersPayload?.adapters ?? state.telescopeAdapters;

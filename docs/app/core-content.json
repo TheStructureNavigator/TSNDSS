@@ -49,7 +49,13 @@
     }
   ],
   "todo": [
-    "Connect the Sky workspace more tightly with project targets and outputs.",
-    "Prepare the next domain-facing workflow layers on top of the current engine."
+    "Introduce observation sites with persistent coordinates and site metadata.",
+    "Integrate weather forecasts and atmospheric conditions for observation sites.",
+    "Add astronomical observing conditions including Sun, Moon, target altitude, darkness windows, and airmass.",
+    "Add light-pollution metadata and sky-quality information to observation sites.",
+    "Connect project targets and mosaic panels with observing conditions and visibility windows.",
+    "Expand the Seestar adapter from the current skeleton toward real device discovery, state synchronization, and telescope control.",
+    "Add observation-session tracking to connect planned targets, acquired data, site conditions, and resulting datasets.",
+    "Prepare the observation planning layer that combines targets, sites, conditions, telescope state, and project progress."
   ]
 }

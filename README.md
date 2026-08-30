@@ -15,6 +15,7 @@ Current foundation already covers the main v0.1 domain flow:
 - `tsn_dss/engine/telescope.py` — telescope state service, simulator, adapter registry, Seestar adapter skeleton
 - `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
 - `frontend/` — Vite + TypeScript web GUI
+- `docs/app/` — external app-facing content such as version, changelog, and TODO data
 - `tests/` — automated `unittest` coverage
 - `docs/plans/` — active planning notes for cleanup, telescope state, and mosaic work
 - `sqlite/` — schema, seed data, ERD, example queries, and reference database snapshot
@@ -53,6 +54,7 @@ TSN DSS currently has three practical layers:
 
 - exposes the engine to the frontend
 - acts as the app bridge, not as a public network service
+- also serves editable app metadata such as Core changelog/TODO content
 
 3. Web GUI
 
@@ -111,6 +113,7 @@ That value is then used as the default executable in the GUI run form.
 - [docs/plans/REPO_CLEANUP_AUDIT_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/REPO_CLEANUP_AUDIT_PLAN.md)
 - [docs/plans/TELESCOPE_STATE_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TELESCOPE_STATE_PLAN.md)
 - [docs/plans/TSN_DSS_Mosaic_Planner_Plan.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TSN_DSS_Mosaic_Planner_Plan.md)
+- [docs/app/core-content.json](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/app/core-content.json)
 - [tsn_dss/domain/models.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/domain/models.py)
 - [tsn_dss/engine/telescope.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/engine/telescope.py)
 - [tsn_dss/gui/http_api.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/gui/http_api.py)
@@ -119,4 +122,14 @@ That value is then used as the default executable in the GUI run form.
 
 ## Current Direction
 
-The next major direction is real hardware adapter work, starting from the current telescope-state and adapter foundation, while keeping the frontend hardware-agnostic.
+The next major direction is observation planning on top of the current project, sky, and telescope foundation.
+
+That means TSN DSS should grow in three connected areas:
+
+- observation sites with persistent coordinates and site metadata
+- observing conditions such as weather, darkness windows, Moon/Sun context, altitude, and airmass
+- hardware adapters that stay behind the normalized telescope-state contract, including the future real `seestarpy` implementation
+
+The goal is to keep the frontend hardware-agnostic while gradually connecting:
+
+`project target -> mosaic plan -> visibility window -> telescope state -> future observation session`

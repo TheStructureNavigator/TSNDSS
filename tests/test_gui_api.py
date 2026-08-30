@@ -134,6 +134,13 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(payload["service"], "tsn-dss-api")
         self.assertEqual(payload["projects_root"], str(self.projects_root.resolve()))
 
+    def test_core_content_endpoint_returns_versioned_frontend_content(self) -> None:
+        payload = self._read_json("/api/core-content")
+
+        self.assertEqual(payload["current_version"], "0.1.3")
+        self.assertGreaterEqual(len(payload["releases"]), 1)
+        self.assertIn("todo", payload)
+
     def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
         payload = self._read_json("/api/telescope/adapters")
 
