@@ -40,6 +40,17 @@ import {
   type ViewName,
 } from './app/shell';
 
+/**
+ * TSN DSS frontend entrypoint.
+ *
+ * Responsibilities:
+ * - owns the single mutable `state`
+ * - coordinates API fetches and polling
+ * - binds DOM events after each render
+ * - hands Sky snapshots to the dedicated Aladin wrapper
+ *
+ * Rendering itself stays in `shell.ts`.
+ */
 const appElement = document.querySelector<HTMLDivElement>('#app');
 
 if (appElement === null) {
@@ -53,6 +64,7 @@ let toastTimer: number | null = null;
 const TOAST_DURATION_MS = 3200;
 const THEME_STORAGE_KEY = 'tsn_dss_theme';
 
+// One shared application state keeps this no-framework UI predictable.
 const state: AppState = {
   health: null,
   projects: [],
@@ -124,6 +136,8 @@ async function refreshState(preferredSlug?: string): Promise<void> {
   render();
 }
 
+// Render is intentionally followed by explicit event rebinding because the app
+// replaces the workspace HTML on each state change.
 function render(): void {
   const workspaceScrollTop = getWorkspaceScrollTop();
   const preservedSkyViewElement = state.currentView === 'sky'
@@ -1168,6 +1182,7 @@ function syncRunPolling(): void {
   }, 1000);
 }
 
+// Active run polling is short-interval because users expect near-live logs.
 async function pollActiveRun(): Promise<void> {
   if (state.activeRun === null) {
     return;
@@ -1207,6 +1222,7 @@ function syncTelescopePolling(): void {
   }, 3000);
 }
 
+// Telescope polling is gentler because Sky updates are informational, not logs.
 async function pollTelescopeState(): Promise<void> {
   try {
     const snapshot = await fetchTelescopeState();

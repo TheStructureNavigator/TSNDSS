@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Hardware-agnostic telescope state, adapters, and sky-facing control service."""
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ def _compute_fov_deg(sensor_size_mm: float, focal_length_mm: float) -> float:
 
 @dataclass(slots=True)
 class TelescopeSnapshot:
+    """Combined telescope telemetry, imaging geometry, and optional planned pointing."""
     telescope_state: TelescopeState
     imaging_profile: ImagingProfile
     planned_pointing: PlannedPointing | None = None
@@ -34,6 +36,7 @@ class TelescopeSnapshot:
 
 @dataclass(slots=True)
 class TelescopeAdapterCapabilities:
+    """Capability flags used by the API and GUI to shape telescope controls."""
     can_connect: bool = True
     can_disconnect: bool = True
     can_manual_pointing: bool = False
@@ -47,6 +50,7 @@ class TelescopeAdapterCapabilities:
 
 @dataclass(slots=True)
 class TelescopeAdapterDescriptor:
+    """Static metadata about one registered telescope adapter implementation."""
     adapter_id: str
     label: str
     source_kind: str
@@ -56,6 +60,7 @@ class TelescopeAdapterDescriptor:
 
 @dataclass(slots=True)
 class SeestarAdapterConfig:
+    """Configuration placeholder for the future real Seestar-backed adapter."""
     adapter_id: str = "seestar"
     host: str | None = None
     auth_key_path: str | None = None
@@ -67,6 +72,7 @@ class SeestarAdapterConfig:
 
 @runtime_checkable
 class TelescopeAdapter(Protocol):
+    """Neutral adapter contract implemented by simulator and hardware backends."""
     def get_state(self) -> TelescopeState:
         ...
 
@@ -93,6 +99,8 @@ class TelescopeAdapter(Protocol):
 
 
 class TelescopeAdapterRegistry:
+    """Factory registry for named telescope adapters exposed to TSN DSS."""
+
     def __init__(self) -> None:
         self._descriptors: dict[str, TelescopeAdapterDescriptor] = {}
         self._factories: dict[str, Callable[[], TelescopeAdapter]] = {}
@@ -120,6 +128,7 @@ class TelescopeAdapterRegistry:
 
 @runtime_checkable
 class ManualPointingAdapter(TelescopeAdapter, Protocol):
+    """Optional adapter extension for sources that allow direct manual pointing updates."""
     def update_pointing(
         self,
         *,
@@ -134,6 +143,8 @@ class ManualPointingAdapter(TelescopeAdapter, Protocol):
 
 
 class SimulatorTelescopeAdapter:
+    """Built-in telescope adapter used for UI work and hardware-free testing."""
+
     def __init__(
         self,
         *,
@@ -225,6 +236,7 @@ class SimulatorTelescopeAdapter:
         target_name: str | None = None,
         status: str | None = None,
     ) -> None:
+        """Update simulator coordinates immediately or animate a synthetic slew."""
         if target_name is not None:
             self._target_name = target_name
         current_ra_hours, current_dec_deg, current_alt_deg, current_az_deg = self._get_current_pointing()
@@ -329,6 +341,8 @@ class SimulatorTelescopeAdapter:
 
 
 class SeestarAdapter:
+    """Registered hardware adapter skeleton reserved for future seestarpy integration."""
+
     def __init__(self, config: SeestarAdapterConfig | None = None) -> None:
         self._config = config or SeestarAdapterConfig()
         self._connected = False
@@ -392,6 +406,8 @@ class SeestarAdapter:
 
 
 class TelescopeStateService:
+    """Own the active adapter and expose normalized telescope-facing operations."""
+
     def __init__(
         self,
         *,
@@ -421,6 +437,7 @@ class TelescopeStateService:
         return self._registry.list_descriptors()
 
     def set_active_adapter(self, adapter_id: str) -> TelescopeSnapshot:
+        """Swap the active adapter without changing the frontend contract."""
         self._adapter = self._registry.create(adapter_id)
         self._active_adapter_id = adapter_id
         return self.get_snapshot()
@@ -435,6 +452,7 @@ class TelescopeStateService:
         target_name: str | None = None,
         status: str | None = None,
     ) -> TelescopeSnapshot:
+        """Forward manual pointing changes only to adapters that explicitly support them."""
         if not isinstance(self._adapter, ManualPointingAdapter):
             raise ValueError("The active telescope adapter does not support manual pointing updates.")
 
@@ -457,6 +475,7 @@ class TelescopeStateService:
         source_kind: str = "manual",
         source_id: str | None = None,
     ) -> TelescopeSnapshot:
+        """Store a planned sky position independently from live telescope telemetry."""
         self._planned_pointing = PlannedPointing(
             target_name=target_name,
             ra_hours=ra_hours,
@@ -472,6 +491,7 @@ class TelescopeStateService:
         return self.get_snapshot()
 
     def slew_to_planned_pointing(self) -> TelescopeSnapshot:
+        """Ask the active adapter to slew to the current planned pointing."""
         if self._planned_pointing is None:
             raise ValueError("No planned pointing is set.")
 
@@ -488,6 +508,7 @@ class TelescopeStateService:
 
 
 def _build_seestar_s30_pro_tele_profile(*, profile_id: str) -> ImagingProfile:
+    """Return the default imaging profile currently used for simulator and Seestar work."""
     focal_length_mm = 160.0
     sensor_width_mm = 11.2
     sensor_height_mm = 6.3
@@ -504,6 +525,7 @@ def _build_seestar_s30_pro_tele_profile(*, profile_id: str) -> ImagingProfile:
 
 
 def build_default_telescope_adapter_registry() -> TelescopeAdapterRegistry:
+    """Register the built-in simulator and current Seestar skeleton adapters."""
     registry = TelescopeAdapterRegistry()
     registry.register(
         TelescopeAdapterDescriptor(

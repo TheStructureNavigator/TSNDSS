@@ -1,3 +1,10 @@
+"""Curated top-level exports for TSN DSS.
+
+The root package exposes the domain model plus the main service entrypoints
+used by the local application. Lower-level helpers stay inside submodules so
+the package surface remains easier to reason about during future hardware work.
+"""
+
 from .domain.models import (
     AcquisitionPlan,
     AcquisitionSequence,
@@ -33,27 +40,19 @@ from .engine.sqlite.db import (
     integrity_check,
     transaction,
 )
-from .engine.projects import ProjectLayout, ProjectStorage, RunLayout
 from .engine.project_processing import (
     DEFAULT_SIRIL_EXECUTABLE,
     ProjectRunManager,
     ProjectRunSnapshot,
 )
+from .engine.projects import ProjectStorage
 from .engine.siril import (
     DEFAULT_OSC_SCRIPT_PATH,
     SirilOutputNotFoundError,
-    SirilProcessResult,
     SirilProcessingService,
-    SirilRunner,
-    find_osc_preprocessing_result,
 )
 from .engine.telescope import (
     build_default_telescope_adapter_registry,
-    ManualPointingAdapter,
-    SeestarAdapter,
-    SeestarAdapterConfig,
-    SimulatorTelescopeAdapter,
-    TelescopeAdapter,
     TelescopeAdapterCapabilities,
     TelescopeAdapterDescriptor,
     TelescopeAdapterRegistry,
@@ -92,26 +91,16 @@ __all__ = [
     "initialize_database",
     "integrity_check",
     "transaction",
-    "ProjectLayout",
-    "RunLayout",
     "ProjectStorage",
     "DEFAULT_SIRIL_EXECUTABLE",
     "ProjectRunManager",
     "ProjectRunSnapshot",
     "DEFAULT_OSC_SCRIPT_PATH",
-    "SirilProcessResult",
-    "SirilRunner",
     "SirilProcessingService",
     "SirilOutputNotFoundError",
-    "find_osc_preprocessing_result",
-    "TelescopeAdapter",
-    "ManualPointingAdapter",
     "TelescopeAdapterCapabilities",
     "TelescopeAdapterDescriptor",
     "TelescopeAdapterRegistry",
-    "SeestarAdapterConfig",
-    "SeestarAdapter",
-    "SimulatorTelescopeAdapter",
     "TelescopeSnapshot",
     "TelescopeStateService",
     "build_default_telescope_adapter_registry",

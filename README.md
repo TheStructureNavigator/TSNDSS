@@ -1,93 +1,122 @@
 # TSN Deep Space System
 
-TSN DSS to mały, działający fundament domenowy dla prywatnego systemu obserwacyjnego i astrofotograficznego.
+TSN DSS is a local deep-sky imaging workspace for managing projects, captures, processing runs, telescope state, and sky planning around a small SQLite-centered core.
 
-Aktualny cel v0.1 został zamknięty:
+Current foundation already covers the main v0.1 domain flow:
 
 `Target -> AcquisitionPlan -> Observation -> Frames -> Dataset -> ProcessingRun -> Output`
 
-## Struktura repo
+## Repository Structure
 
-- `tsn_dss/domain/` — modele domenowe
-- `tsn_dss/engine/sqlite/` — aktualny engine oparty o SQLite
-- `tsn_dss/engine/projects.py` — układ projektów, capture i workspace pod processing
-- `tsn_dss/engine/siril.py` — minimalne podpięcie Sirila jako zewnętrznego engine
-- `frontend/` — GUI webowe oparte o Vite + TypeScript
-- `tsn_dss/gui/` — zarezerwowane miejsce pod przyszłe GUI
-- `tsn_dss/__init__.py` — publiczne API pakietu
-- `tests/` — testy `unittest`
-- `sqlite/` — schemat SQLite, seed, przykładowe query, ERD i przykładowa baza
-- `projects/` — lokalne projekty, raw capture i artefakty processingu
+- `tsn_dss/domain/` — normalized domain models
+- `tsn_dss/engine/sqlite/` — SQLite repositories, validation, and database bootstrap
+- `tsn_dss/engine/projects.py` — project, capture, and run folder layout
+- `tsn_dss/engine/project_processing.py` — TSN-managed Siril run workflow
+- `tsn_dss/engine/telescope.py` — telescope state service, simulator, adapter registry, Seestar adapter skeleton
+- `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
+- `frontend/` — Vite + TypeScript web GUI
+- `tests/` — automated `unittest` coverage
+- `docs/plans/` — active planning notes for cleanup, telescope state, and mosaic work
+- `sqlite/` — schema, seed data, ERD, example queries, and reference database snapshot
+- `projects/` — local project workspace, imported captures, runs, logs, and artifacts
 
-## Co już działa
+## What Already Works
 
-- inicjalizacja i kontrola wersji SQLite
-- CRUD dla target, site, equipment, plan i sequence
-- observation lifecycle i assignment equipment
-- frame review oraz walidacje domenowe
-- dataset z `dataset_observations` i `dataset_frames`
-- processing run z wersjonowaniem i outputem
-- storage projektu z odseparowaniem raw capture od run workspace
-- headless uruchamianie Sirila przez `siril-cli -d ... -s ...`
-- frontend shell pod przyszłe GUI i integrację z Aladin Lite
-- lokalne HTTP API dla GUI: health + listing projektów
+- SQLite initialization with `PRAGMA foreign_keys = ON`
+- schema version control with `PRAGMA user_version = 1`
+- CRUD and validation for targets, sites, equipment, plans, observations, frames, datasets, processing runs, and mosaic plans
+- dataset ownership of exact frame membership through `dataset_frames`
+- project-local capture import and run workspace creation
+- headless Siril execution through the official CLI/script workflow
+- preview export and run artifact tracking
+- local HTTP API for projects, captures, runs, mosaics, and telescope state
+- web GUI for:
+  - project creation and deletion
+  - capture import and browsing
+  - Siril run creation, logs, outputs, and preview review
+  - sky view with Aladin Lite
+  - telescope simulator controls
+  - hardware-agnostic telescope state and adapter selection
+  - mosaic planning and panel selection
 
-## Jak uruchomić testy
+## Runtime Pieces
+
+TSN DSS currently has three practical layers:
+
+1. Python domain/engine
+
+- owns the normalized models and workflow logic
+- stores durable state in SQLite
+- manages project folders and Siril runs
+
+2. Local HTTP API
+
+- exposes the engine to the frontend
+- acts as the app bridge, not as a public network service
+
+3. Web GUI
+
+- runs locally in the browser
+- renders Core, Projects, Processing, and Sky workspaces
+- uses Aladin Lite for sky visualization
+
+## How to Run Tests
 
 ```bash
 py -m pip install -r requirements.txt
 py -m unittest discover -s tests -v
 ```
 
-## Jak odpalić lokalne GUI
+## How to Run the Local App
 
-W jednym terminalu uruchom lokalne API:
+Start the Python API:
 
 ```bash
 py -m pip install -r requirements.txt
 py -m tsn_dss.gui.http_api --projects-root projects
 ```
 
-W drugim terminalu uruchom frontend:
+Start the frontend:
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
-Albo po prostu uruchom z root repo:
+Or use the root helper:
 
-```bash
+```bat
 run_tsn_dss_gui.bat
 ```
 
-Przed uruchomieniem GUI możesz ustawić ścieżkę do lokalnego Sirila w:
+## Siril Path
 
-- [run_tsn_dss_gui.bat](C:\Users\treze\OneDrive\Desktop\TSN_DSS\run_tsn_dss_gui.bat)
+If needed, set the local Siril CLI path in:
 
-Linia:
+- [run_tsn_dss_gui.bat](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/run_tsn_dss_gui.bat)
+
+Example:
 
 ```bat
 set "TSN_DSS_SIRIL_EXECUTABLE=C:\PATH\TO\siril-cli.exe"
 ```
 
-Ta wartość będzie automatycznie podstawiana w formularzu uruchamiania runu.
+That value is then used as the default executable in the GUI run form.
 
-Aktualnie z GUI możesz już:
+## Main Reference Files
 
-- utworzyć nowy projekt,
-- zaimportować istniejący folder capture zawierający `biases/`, `darks/`, `flats/`, `lights/`,
-- podejrzeć szczegóły projektu i listę capture / runów,
-- przeglądać capture w siatce miniaturek ładowanych z lokalnego cache.
+- [sqlite/README.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/sqlite/README.md)
+- [sqlite/ERD.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/sqlite/ERD.md)
+- [docs/plans/REPO_CLEANUP_AUDIT_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/REPO_CLEANUP_AUDIT_PLAN.md)
+- [docs/plans/TELESCOPE_STATE_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TELESCOPE_STATE_PLAN.md)
+- [docs/plans/TSN_DSS_Mosaic_Planner_Plan.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TSN_DSS_Mosaic_Planner_Plan.md)
+- [tsn_dss/domain/models.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/domain/models.py)
+- [tsn_dss/engine/telescope.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/engine/telescope.py)
+- [tsn_dss/gui/http_api.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/gui/http_api.py)
+- [tests/test_gui_api.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tests/test_gui_api.py)
+- [tests/test_telescope_state.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tests/test_telescope_state.py)
 
-## Gdzie patrzeć dalej
+## Current Direction
 
-- model SQLite: [sqlite/README.md](./sqlite/README.md)
-- publiczne API modułu: [tsn_dss/__init__.py](./tsn_dss/__init__.py)
-- engine SQLite: [tsn_dss/engine/sqlite](./tsn_dss/engine/sqlite)
-- modele domenowe: [tsn_dss/domain/models.py](./tsn_dss/domain/models.py)
-- test pełnego workflow: [tests/test_processing_repository.py](./tests/test_processing_repository.py)
-
-## Uwaga
-
-Repo jest nadal świadomie małe. Nie ma tu jeszcze CLI, GUI ani integracji sprzętowych. Kolejne kroki można budować na aktualnym modelu bez przebudowy fundamentów.
+The next major direction is real hardware adapter work, starting from the current telescope-state and adapter foundation, while keeping the frontend hardware-agnostic.

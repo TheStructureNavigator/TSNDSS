@@ -1,3 +1,10 @@
+/**
+ * Browser-side HTTP client for the local TSN DSS API.
+ *
+ * This module is intentionally dumb: it only defines payload shapes,
+ * endpoint helpers and a few URL builders used by the shell renderer.
+ * Higher-level state orchestration belongs in `main.ts`.
+ */
 export type ApiHealth = {
   status: string;
   service: string;

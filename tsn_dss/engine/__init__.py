@@ -1,3 +1,11 @@
+"""Curated engine-level exports for the TSN DSS package.
+
+This package is used by the local app rather than by third-party consumers,
+so the public surface is intentionally small. Service-level entrypoints stay
+exported here, while lower-level implementation details remain in their
+own modules.
+"""
+
 from .sqlite import (
     DatasetRepository,
     EXPECTED_USER_VERSION,
@@ -14,22 +22,15 @@ from .sqlite import (
     integrity_check,
     transaction,
 )
-from .projects import ProjectLayout, ProjectStorage, RunLayout
+from .projects import ProjectStorage
+from .project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager, ProjectRunSnapshot
 from .siril import (
     DEFAULT_OSC_SCRIPT_PATH,
     SirilOutputNotFoundError,
-    SirilProcessResult,
     SirilProcessingService,
-    SirilRunner,
-    find_osc_preprocessing_result,
 )
 from .telescope import (
     build_default_telescope_adapter_registry,
-    ManualPointingAdapter,
-    SeestarAdapter,
-    SeestarAdapterConfig,
-    SimulatorTelescopeAdapter,
-    TelescopeAdapter,
     TelescopeAdapterCapabilities,
     TelescopeAdapterDescriptor,
     TelescopeAdapterRegistry,
@@ -52,23 +53,16 @@ __all__ = [
     "initialize_database",
     "integrity_check",
     "transaction",
-    "ProjectLayout",
-    "RunLayout",
     "ProjectStorage",
+    "DEFAULT_SIRIL_EXECUTABLE",
+    "ProjectRunManager",
+    "ProjectRunSnapshot",
     "DEFAULT_OSC_SCRIPT_PATH",
-    "SirilProcessResult",
-    "SirilRunner",
     "SirilProcessingService",
     "SirilOutputNotFoundError",
-    "find_osc_preprocessing_result",
-    "TelescopeAdapter",
-    "ManualPointingAdapter",
     "TelescopeAdapterCapabilities",
     "TelescopeAdapterDescriptor",
     "TelescopeAdapterRegistry",
-    "SeestarAdapterConfig",
-    "SeestarAdapter",
-    "SimulatorTelescopeAdapter",
     "TelescopeSnapshot",
     "TelescopeStateService",
     "build_default_telescope_adapter_registry",

@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Core TSN DSS domain models shared across storage, processing, and GUI layers."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class Target:
+    """A durable sky target identified by catalog coordinates and optional metadata."""
     id: str
     catalog: str
     catalog_id: str
@@ -22,6 +24,7 @@ class Target:
 
 @dataclass(slots=True)
 class Site:
+    """An observing location with optional environmental metadata."""
     id: str
     name: str
     latitude_deg: float | None = None
@@ -35,6 +38,7 @@ class Site:
 
 @dataclass(slots=True)
 class Equipment:
+    """A single equipment asset such as a camera, mount, filter, or scope."""
     id: str
     equipment_type: str
     manufacturer: str | None = None
@@ -47,6 +51,7 @@ class Equipment:
 
 @dataclass(slots=True)
 class AcquisitionSequence:
+    """A planned sequence of homogeneous frames inside an acquisition plan."""
     sequence_order: int
     frame_type: str
     frame_count: int
@@ -64,6 +69,7 @@ class AcquisitionSequence:
 
 @dataclass(slots=True)
 class AcquisitionPlan:
+    """A target-specific capture plan composed of ordered acquisition sequences."""
     id: str
     target_id: str
     name: str
@@ -74,6 +80,7 @@ class AcquisitionPlan:
 
 @dataclass(slots=True)
 class ObservationEquipmentAssignment:
+    """An observation-to-equipment role binding."""
     observation_id: str
     equipment_id: str
     role: str
@@ -81,6 +88,7 @@ class ObservationEquipmentAssignment:
 
 @dataclass(slots=True)
 class Observation:
+    """A concrete observing session for one target, optionally linked to a plan."""
     id: str
     target_id: str
     status: str = "planned"
@@ -97,6 +105,7 @@ class Observation:
 
 @dataclass(slots=True)
 class Frame:
+    """A single captured file plus review, quality, and capture metadata."""
     observation_id: str
     frame_type: str
     file_path: str
@@ -126,6 +135,7 @@ class Frame:
 
 @dataclass(slots=True)
 class Dataset:
+    """A curated set of observation material selected for downstream processing."""
     id: str
     target_id: str
     name: str
@@ -138,6 +148,7 @@ class Dataset:
 
 @dataclass(slots=True)
 class ProcessingRun:
+    """A durable processing record tied to a dataset version and engine output."""
     id: str
     dataset_id: str
     version_label: str
@@ -156,6 +167,7 @@ class ProcessingRun:
 
 @dataclass(slots=True)
 class TelescopeState:
+    """A normalized hardware-agnostic telescope telemetry snapshot."""
     adapter_id: str
     source_kind: str
     timestamp_utc: str
@@ -175,6 +187,7 @@ class TelescopeState:
 
 @dataclass(slots=True)
 class PlannedPointing:
+    """A target location chosen for future slew or acquisition actions."""
     target_name: str | None
     ra_hours: float
     dec_deg: float
@@ -185,6 +198,7 @@ class PlannedPointing:
 
 @dataclass(slots=True)
 class ImagingProfile:
+    """The optical and sensor geometry used to derive field-of-view overlays."""
     profile_id: str
     label: str
     focal_length_mm: float
@@ -199,6 +213,7 @@ class ImagingProfile:
 
 @dataclass(slots=True)
 class MosaicPanel:
+    """One planned footprint tile inside a mosaic plan."""
     id: str
     mosaic_plan_id: str
     panel_index: int
@@ -217,6 +232,7 @@ class MosaicPanel:
 
 @dataclass(slots=True)
 class MosaicPlan:
+    """A saved multi-panel sky coverage plan based on an imaging profile."""
     id: str
     project_slug: str
     name: str

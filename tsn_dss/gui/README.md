@@ -1,30 +1,73 @@
-# TSN DSS GUI
+# TSN DSS GUI Backend Bridge
 
-Ten katalog jest przygotowany pod przyszłą warstwę GUI.
+`tsn_dss/gui/` is not the browser frontend itself.
 
-Na tym etapie katalog pozostaje lekki celowo.
+At the current stage:
 
-Aktualne webowe GUI zostało wydzielone do:
+- `frontend/` contains the actual Vite + TypeScript GUI
+- `tsn_dss/gui/` contains the local Python bridge that serves the frontend
 
-- `frontend/` — Vite + TypeScript, bez frameworka
+The key file here is:
 
-Ten katalog `tsn_dss/gui/` zawiera teraz także minimalne lokalne HTTP API:
+- `http_api.py` — local HTTP API for the TSN DSS web app
 
-- `http_api.py` — endpointy `GET /api/health` oraz `GET /api/projects`
+## Current Responsibility
 
-To API jest celowo cienkie i służy obecnie jako most między frontendem a lokalnym `engine`.
+This module connects the frontend to the Python engine and local project workspace.
 
-Uruchomienie:
+It currently exposes API behavior around:
+
+- health/runtime info
+- projects
+- capture browsing and thumbnails
+- project runs, logs, outputs, and preview regeneration
+- project sky target updates
+- telescope state, planned pointing, simulator control, and adapter selection
+- mosaic CRUD and panel generation/selection
+
+## Why This Folder Exists
+
+This keeps the application boundary explicit:
+
+- engine logic stays in `tsn_dss/engine/`
+- browser UI stays in `frontend/`
+- local app-facing HTTP glue stays in `tsn_dss/gui/`
+
+So despite the name, this folder currently acts more like:
+
+- GUI backend
+- local app API
+- frontend bridge
+
+than a standalone GUI toolkit.
+
+## Run the Local API
 
 ```bash
 py -m pip install -r requirements.txt
 py -m tsn_dss.gui.http_api --projects-root projects
 ```
 
-Ten katalog `tsn_dss/gui/` można dalej traktować jako miejsce na:
+Start the frontend:
 
-- ewentualne pythonowe adaptery GUI
-- integrację aplikacyjną między frontendem a `engine`
-- przyszłą warstwę desktopową, jeśli kiedykolwiek wejdzie w zakres
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-Gdy GUI naprawdę wejdzie do zakresu prac, można tu wydzielić osobny frontend albo lekką warstwę desktop/web bez ruszania bieżącego `engine`.
+Or use:
+
+```bat
+run_tsn_dss_gui.bat
+```
+
+## Notes for Future Cleanup
+
+The current naming is acceptable, but slightly historical.
+
+For now the recommended approach is:
+
+- keep the package name stable
+- document the boundary clearly
+- postpone any rename until it gives real value

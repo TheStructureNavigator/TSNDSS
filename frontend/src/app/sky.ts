@@ -1,5 +1,15 @@
 import type { MosaicPanel, MosaicPlan, TelescopeSnapshot } from './api';
 
+/**
+ * Thin Aladin Lite integration layer.
+ *
+ * This module owns:
+ * - one long-lived Aladin instance
+ * - telescope / planned-pointing / mosaic overlays
+ * - incremental map updates without rebuilding the viewer
+ *
+ * It does not fetch data on its own; `main.ts` passes snapshots in.
+ */
 let currentContainerId: string | null = null;
 let initialized = false;
 let loadState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
@@ -161,6 +171,10 @@ export async function mountSkyView(
   }
 }
 
+/**
+ * Map clicks are used only for mosaic panel selection, so UI chrome and
+ * built-in Aladin controls must be ignored here.
+ */
 function bindMapClickSelection(container: HTMLElement): void {
   if (currentMapClickHandler) {
     container.removeEventListener('click', currentMapClickHandler);
@@ -534,6 +548,10 @@ function updateMosaicFootprints(mosaicPlan: MosaicPlan | null, selectedPanelId: 
   }
 }
 
+/**
+ * Approximate rectangular footprint on the sky using small-angle geometry.
+ * This is enough for UI planning overlays and keeps the implementation light.
+ */
 function computeFootprintCorners(
   centerRaDeg: number,
   centerDecDeg: number,

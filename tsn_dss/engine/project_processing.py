@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Run-manager layer for TSN-controlled Siril preprocessing workspaces."""
 
 import json
 import shutil
@@ -19,6 +20,7 @@ TERMINAL_RUN_STATUSES = {"completed", "failed"}
 
 @dataclass(slots=True)
 class ProjectRunSnapshot:
+    """Serialized state of one processing run as seen by the GUI and local API."""
     id: str
     project_slug: str
     capture_name: str
@@ -46,6 +48,8 @@ class ProjectRunSnapshot:
 
 
 class ProjectRunManager:
+    """Starts, tracks, restores, and deletes project-local Siril runs."""
+
     def __init__(self, *, project_storage: ProjectStorage) -> None:
         self.project_storage = project_storage
         self._runs: dict[str, ProjectRunSnapshot] = {}
@@ -61,6 +65,7 @@ class ProjectRunManager:
         script_path: str | Path = DEFAULT_OSC_SCRIPT_PATH,
         keep_process_dir: bool = False,
     ) -> ProjectRunSnapshot:
+        """Create an isolated workspace and launch Siril asynchronously for one capture."""
         capture_root = self.project_storage.ensure_project(project_slug).captures_dir / capture_name
         frame_sources = self._collect_capture_frame_sources(capture_root)
         run_id = f"run_{project_slug}_{capture_name}_{_utc_now().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -127,6 +132,7 @@ class ProjectRunManager:
         return [_copy_snapshot(item) for item in items]
 
     def regenerate_preview(self, run_id: str) -> ProjectRunSnapshot:
+        """Retry browser preview generation from an already-produced FITS output."""
         snapshot = self.get_run(run_id)
         if not snapshot.output_path:
             raise ValueError("This run does not have an output FITS yet.")
@@ -147,6 +153,7 @@ class ProjectRunManager:
         return self.get_run(run_id)
 
     def delete_run(self, run_id: str) -> None:
+        """Remove a finished run from disk and from the in-memory registry."""
         snapshot = self.get_run(run_id)
         if snapshot.status not in TERMINAL_RUN_STATUSES:
             raise ValueError("Cannot delete a run that is still in progress.")
@@ -165,6 +172,7 @@ class ProjectRunManager:
             self._runs.pop(run_id, None)
 
     def _run_osc_preprocessing(self, run_id: str, run_layout: RunLayout) -> None:
+        """Worker entrypoint that streams logs, finds output, and finalizes run state."""
         snapshot = self.get_run(run_id)
         stdout_log = Path(snapshot.stdout_log_path)
         stderr_log = Path(snapshot.stderr_log_path)
@@ -402,6 +410,7 @@ class ProjectRunManager:
         artifacts_dir: Path,
         logs_dir: Path,
     ) -> tuple[str | None, str | None, str | None]:
+        """Ask Siril to export a stretched JPEG preview next to the FITS artifacts."""
         output_path = output_path.resolve()
         artifacts_dir = artifacts_dir.resolve()
         logs_dir = logs_dir.resolve()
@@ -462,6 +471,7 @@ class ProjectRunManager:
 
 
 def _normalize_executable(executable: str | Sequence[str]) -> tuple[str, ...]:
+    """Normalize a configured executable value into subprocess-ready argv parts."""
     if isinstance(executable, str):
         normalized = executable.strip()
         if not normalized:
@@ -475,6 +485,7 @@ def _normalize_executable(executable: str | Sequence[str]) -> tuple[str, ...]:
 
 
 def _extract_executable_parts(command: Sequence[str]) -> tuple[str, ...]:
+    """Recover the executable prefix from a previously built Siril command."""
     if "-d" in command:
         split_index = command.index("-d")
         return tuple(command[:split_index])
@@ -499,6 +510,7 @@ def _copy_snapshot(snapshot: ProjectRunSnapshot) -> ProjectRunSnapshot:
 
 
 def _progress_from_log_line(line: str) -> tuple[int, str | None]:
+    """Map broad Siril log hints to coarse GUI progress stages."""
     text = line.lower()
     if "register" in text or "align" in text:
         return 65, "Registering frames"

@@ -168,28 +168,32 @@ During the cleanup pass:
 
 ### Milestone C1 — Documentation Reality Check
 
+Status: completed on 2026-08-30
+
 Goal:
 
 Make the docs describe the repo as it actually exists today.
 
 Tasks:
 
-- refresh `README.md`
-- refresh `tsn_dss/gui/README.md`
-- clearly describe current runtime pieces:
+- [x] refresh `README.md`
+- [x] refresh `tsn_dss/gui/README.md`
+- [x] clearly describe current runtime pieces:
   - domain
   - SQLite engine
   - project/run processing
   - GUI backend API
   - frontend GUI
   - sky / telescope / mosaic work
-- remove stale statements about missing GUI or overly small API scope
+- [x] remove stale statements about missing GUI or overly small API scope
 
 Testable outcome:
 
 - a new contributor can read the docs and correctly understand how the repo is structured and launched
 
 ### Milestone C2 — Python Module and API Documentation
+
+Status: completed on 2026-08-30
 
 Goal:
 
@@ -206,16 +210,18 @@ Primary files:
 
 Tasks:
 
-- add module docstrings
-- add class docstrings
-- add targeted function docstrings for non-obvious flows
-- document important invariants and responsibilities
+- [x] add module docstrings
+- [x] add class docstrings
+- [x] add targeted function docstrings for non-obvious flows
+- [x] document important invariants and responsibilities
 
 Testable outcome:
 
 - core files are readable without reverse-engineering every function call
 
 ### Milestone C3 — Frontend Responsibility Cleanup
+
+Status: completed on 2026-08-30
 
 Goal:
 
@@ -240,6 +246,8 @@ Testable outcome:
 
 ### Milestone C4 — Export Surface and Obsolete File Review
 
+Status: completed on 2026-08-30
+
 Goal:
 
 Reduce confusion around what is public and what is legacy.
@@ -252,10 +260,10 @@ Primary files:
 
 Tasks:
 
-- review re-exports
-- remove only clearly unnecessary exports
-- verify deleted helpers are not referenced
-- keep changes conservative
+- [x] review re-exports
+- [x] remove only clearly unnecessary exports
+- [x] verify deleted helpers are not referenced
+- [x] keep changes conservative
 
 Testable outcome:
 
@@ -264,15 +272,17 @@ Testable outcome:
 
 ### Milestone C5 — Repo Layout Follow-up
 
+Status: completed on 2026-08-30
+
 Goal:
 
 Leave the repository in a cleaner long-term shape without changing behavior.
 
 Tasks:
 
-- decide whether to introduce a `docs/` directory for active plans
-- move planning documents only if the value is clear
-- keep root minimal and practical
+- [x] decide whether to introduce a `docs/` directory for active plans
+- [x] move planning documents only if the value is clear
+- [x] keep root minimal and practical
 
 Testable outcome:
 
@@ -280,11 +290,11 @@ Testable outcome:
 
 ## Recommended Execution Order
 
-1. C1 — docs reality check
-2. C2 — Python docstrings
-3. C3 — frontend responsibility cleanup
-4. C4 — exports and obsolete leftovers
-5. C5 — optional repo layout pass
+1. C1 — docs reality check — completed
+2. C2 — Python docstrings — completed
+3. C3 — frontend responsibility cleanup — completed
+4. C4 — exports and obsolete leftovers — completed
+5. C5 — optional repo layout pass — completed
 
 ## What Should Stay Out of Scope for This Cleanup
 
@@ -309,4 +319,4 @@ This cleanup pass is successful if:
 
 ## Recommended Next Step
 
-Start with **Milestone C1 — Documentation Reality Check** and only after that move into docstrings and export cleanup.
+Cleanup pass complete. The repo is ready for the next hardware-facing phase.

@@ -19,6 +19,12 @@ import {
   type TelescopeSnapshot,
 } from './api';
 
+/**
+ * Pure rendering layer for the TSN DSS frontend.
+ *
+ * `shell.ts` turns the current `AppState` into HTML, but does not own
+ * fetching, polling or business actions. Those stay in `main.ts`.
+ */
 type CoreContent = {
   current_version: string;
   releases: Array<{
@@ -40,6 +46,17 @@ const historicalReleases = typedCoreContent.releases.filter((release) => release
 export type ViewName = 'core' | 'projects' | 'processing' | 'sky';
 export type ThemeName = 'dark' | 'observation';
 
+/**
+ * Single in-memory UI state shared by the lightweight Vite app.
+ *
+ * The structure is grouped by workspace so we can keep rendering flat while
+ * still making ownership boundaries obvious:
+ * - app/meta state
+ * - project workspace selection
+ * - processing workspace selection
+ * - sky workspace selection
+ * - transient modal / toast UI state
+ */
 export type AppState = {
   health: ApiHealth | null;
   projects: ProjectSummary[];
@@ -280,6 +297,9 @@ function renderProjectsView(state: AppState, primaryProject: ProjectSummary | nu
   `;
 }
 
+/**
+ * Project workspace: left side owns selection, right side owns media/results.
+ */
 function renderSelectedProjectPanel(state: AppState, project: ProjectSummary | null): string {
   if (project === null) {
     return `
@@ -379,6 +399,9 @@ function renderSelectedProjectTab(state: AppState, project: ProjectSummary): str
   `;
 }
 
+/**
+ * Processing workspace: capture selection -> run selection -> run details.
+ */
 function renderProcessingView(state: AppState, primaryProject: ProjectSummary | null, latestRun: ProjectRun | null): string {
   if (primaryProject === null) {
     return `
@@ -445,6 +468,10 @@ function renderProcessingView(state: AppState, primaryProject: ProjectSummary | 
   `;
 }
 
+/**
+ * Sky workspace keeps one shared Aladin surface and swaps the control panel
+ * above it between telescope control and mosaic planning.
+ */
 function renderSkyView(state: AppState, primaryProject: ProjectSummary | null, _latestRun: ProjectRun | null): string {
   if (primaryProject === null) {
     return `

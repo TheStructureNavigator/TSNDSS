@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Filesystem layout helpers for TSN DSS projects, captures, and run workspaces."""
 
 import json
 import os
@@ -17,6 +18,7 @@ FRAME_TYPE_TO_CAPTURE_DIR = {
 
 @dataclass(slots=True)
 class ProjectLayout:
+    """Stable top-level directories belonging to one TSN DSS project."""
     project_root: Path
     captures_dir: Path
     runs_dir: Path
@@ -24,6 +26,7 @@ class ProjectLayout:
 
 @dataclass(slots=True)
 class RunLayout:
+    """Concrete workspace directories prepared for one processing run."""
     run_root: Path
     workspace_dir: Path
     artifacts_dir: Path
@@ -33,6 +36,7 @@ class RunLayout:
 
 @dataclass(slots=True)
 class ProjectSummary:
+    """Lightweight project listing payload for UI and API consumers."""
     slug: str
     project_root: Path
     captures_dir: Path
@@ -44,6 +48,7 @@ class ProjectSummary:
 
 @dataclass(slots=True)
 class CaptureFileEntry:
+    """One file inside a capture folder listing."""
     name: str
     relative_path: str
     size_bytes: int
@@ -52,6 +57,7 @@ class CaptureFileEntry:
 
 @dataclass(slots=True)
 class CaptureFolderEntry:
+    """A raw capture subfolder and the files currently visible inside it."""
     name: str
     file_count: int
     files: tuple[CaptureFileEntry, ...]
@@ -59,6 +65,7 @@ class CaptureFolderEntry:
 
 @dataclass(slots=True)
 class CaptureDetails:
+    """Expanded capture description grouped by canonical raw frame folders."""
     project_slug: str
     capture_name: str
     capture_root: Path
@@ -66,10 +73,13 @@ class CaptureDetails:
 
 
 class ProjectStorage:
+    """Owns the on-disk project layout used by captures and processing runs."""
+
     def __init__(self, projects_root: str | Path) -> None:
         self.projects_root = Path(projects_root)
 
     def ensure_project(self, project_slug: str) -> ProjectLayout:
+        """Create the canonical folder structure for a project if it does not exist."""
         project_root = self.projects_root / project_slug
         captures_dir = project_root / "captures"
         runs_dir = project_root / "runs"
@@ -167,6 +177,7 @@ class ProjectStorage:
         *,
         move: bool = False,
     ) -> Path:
+        """Copy or move a user-provided capture tree into the project workspace."""
         source_path = Path(source_dir)
         self._validate_capture_source(source_path)
 
@@ -184,6 +195,7 @@ class ProjectStorage:
         return destination
 
     def describe_capture(self, project_slug: str, capture_name: str) -> CaptureDetails:
+        """Return a UI-friendly listing of the canonical capture subdirectories."""
         layout = self.ensure_project(project_slug)
         capture_root = layout.captures_dir / capture_name
         if not capture_root.exists() or not capture_root.is_dir():
@@ -219,6 +231,7 @@ class ProjectStorage:
         )
 
     def resolve_capture_file(self, project_slug: str, capture_name: str, relative_path: str | Path) -> tuple[Path, Path]:
+        """Resolve a capture-relative file path while preventing path escape."""
         layout = self.ensure_project(project_slug)
         capture_root = (layout.captures_dir / capture_name).resolve()
         if not capture_root.exists() or not capture_root.is_dir():
@@ -242,6 +255,7 @@ class ProjectStorage:
         *,
         frame_sources: list[tuple[str, str | Path]],
     ) -> RunLayout:
+        """Build an isolated Siril workspace containing only the selected dataset files."""
         layout = self.ensure_project(project_slug)
 
         run_root = layout.runs_dir / safe_path_component(run_id)
@@ -355,11 +369,13 @@ class ProjectStorage:
 
 
 def safe_path_component(value: str) -> str:
+    """Normalize free-form text into a filesystem-safe path fragment."""
     sanitized = "".join(character if character.isalnum() or character in ("-", "_", ".") else "_" for character in value)
     return sanitized.strip("._") or "unnamed"
 
 
 def _link_or_copy_file(source: Path, destination: Path) -> None:
+    """Prefer hardlinks for workspace assembly and fall back to file copy when needed."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.link(source, destination)

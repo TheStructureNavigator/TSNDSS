@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Local HTTP API that bridges the TSN DSS engine to the browser frontend."""
 
 import argparse
 import hashlib
@@ -31,6 +32,7 @@ from ..engine.telescope import TelescopeStateService
 
 @dataclass(slots=True)
 class ApiContext:
+    """Runtime dependencies shared by every HTTP handler instance."""
     projects_root: Path
     database_path: Path
     run_manager: ProjectRunManager
@@ -56,6 +58,7 @@ def create_http_server(
     projects_root: str | Path,
     database_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
+    """Create a local threaded API server wired to the project workspace and SQLite db."""
     resolved_projects_root = Path(projects_root)
     resolved_projects_root.mkdir(parents=True, exist_ok=True)
     resolved_database_path = Path(database_path) if database_path is not None else (resolved_projects_root / "tsn_dss.db")
@@ -79,6 +82,7 @@ def run_server(
     projects_root: str | Path = "projects",
     database_path: str | Path | None = None,
 ) -> None:
+    """Run the local TSN DSS HTTP API until interrupted."""
     server = create_http_server(host=host, port=port, projects_root=projects_root, database_path=database_path)
     print(
         f"TSN DSS API listening on http://{host}:{port} "
@@ -93,6 +97,7 @@ def run_server(
 
 
 def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
+    """Build a request handler class bound to one concrete API context."""
     class TsnDssApiHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed_url = urlsplit(self.path)
@@ -994,6 +999,7 @@ def _capture_to_dict(capture: Any) -> dict[str, Any]:
 
 
 def _run_to_dict(snapshot: Any) -> dict[str, Any]:
+    """Serialize a processing run and append discoverable artifact images."""
     payload = asdict(snapshot)
     payload["artifact_images"] = _list_run_artifact_images(snapshot)
     return payload
@@ -1209,6 +1215,7 @@ def _ensure_capture_thumbnail(
     source_path: Path,
     size: int,
 ) -> Path:
+    """Generate or reuse a cached JPEG thumbnail for a previewable capture file."""
     if Image is None or ImageOps is None:
         raise RuntimeError("Thumbnail support requires Pillow. Install dependencies from requirements.txt.")
 
