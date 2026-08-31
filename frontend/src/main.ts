@@ -76,6 +76,7 @@ let telescopePollTimer: number | null = null;
 let toastTimer: number | null = null;
 const TOAST_DURATION_MS = 3200;
 const THEME_STORAGE_KEY = 'tsn_dss_theme';
+const DEFAULT_CONDITIONS_FORECAST_HOURS = 24;
 
 // One shared application state keeps this no-framework UI predictable.
 const state: AppState = {
@@ -83,6 +84,7 @@ const state: AppState = {
   health: null,
   sites: [],
   activeSiteId: null,
+  conditionsForecastHours: DEFAULT_CONDITIONS_FORECAST_HOURS,
   siteForecast: null,
   astronomicalConditions: null,
   projects: [],
@@ -98,6 +100,7 @@ const state: AppState = {
   selectedMosaicPanelId: null,
   activeRun: null,
   selectedProcessingCapture: null,
+  selectedObservingWindowIndex: null,
   currentView: 'core',
   theme: loadThemePreference(),
   telescopeSnapshot: null,
@@ -213,6 +216,7 @@ function render(): void {
   bindForms();
   bindInlineProjectSkyTarget();
   bindSkyFollowToggle();
+  bindConditionsControls();
   bindTelescopeAdapterForm();
   bindActiveSiteForm();
   bindSiteEditorForm();
@@ -738,6 +742,40 @@ function bindSkyFollowToggle(): void {
   input?.addEventListener('change', () => {
     state.followTelescope = input.checked;
     render();
+  });
+}
+
+function bindConditionsControls(): void {
+  const hoursInput = rootElement.querySelector<HTMLInputElement>('[data-conditions-hours-range]');
+  const hoursValue = rootElement.querySelector<HTMLElement>('[data-conditions-hours-value]');
+  if (hoursInput && hoursValue) {
+    hoursInput.addEventListener('input', () => {
+      hoursValue.textContent = `${hoursInput.value}h`;
+    });
+    hoursInput.addEventListener('change', async () => {
+      const nextHours = Number.parseInt(hoursInput.value, 10);
+      if (!Number.isFinite(nextHours) || nextHours <= 0 || nextHours === state.conditionsForecastHours) {
+        hoursValue.textContent = `${state.conditionsForecastHours}h`;
+        return;
+      }
+      state.conditionsForecastHours = nextHours;
+      state.selectedObservingWindowIndex = null;
+      state.siteForecast = await loadActiveSiteForecast();
+      state.astronomicalConditions = await loadActiveAstronomicalConditions();
+      render();
+    });
+  }
+
+  const observingWindowButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-observing-window-index]');
+  observingWindowButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextIndex = Number.parseInt(button.dataset.observingWindowIndex ?? '', 10);
+      if (!Number.isFinite(nextIndex)) {
+        return;
+      }
+      state.selectedObservingWindowIndex = nextIndex;
+      render();
+    });
   });
 }
 
@@ -1964,7 +2002,7 @@ async function loadActiveSiteForecast() {
   }
 
   try {
-    return await fetchSiteForecast(state.activeSiteId, 24);
+    return await fetchSiteForecast(state.activeSiteId, state.conditionsForecastHours);
   } catch {
     return null;
   }
@@ -1998,7 +2036,7 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         mosaic_panel_id: selectedPanel.id,
         min_target_altitude_deg: 30,
-        forecast_hours: 24,
+        forecast_hours: state.conditionsForecastHours,
       });
     }
 
@@ -2007,7 +2045,7 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         use_planned_pointing: true,
         min_target_altitude_deg: 30,
-        forecast_hours: 24,
+        forecast_hours: state.conditionsForecastHours,
       });
     }
 
@@ -2022,7 +2060,7 @@ async function loadActiveAstronomicalConditions() {
           source_kind: 'project_sky_target',
           source_id: state.selectedProject.slug,
           min_target_altitude_deg: 30,
-          forecast_hours: 24,
+          forecast_hours: state.conditionsForecastHours,
         });
       }
 
@@ -2030,14 +2068,14 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         target_name: state.selectedProject.sky_target,
         min_target_altitude_deg: 30,
-        forecast_hours: 24,
+        forecast_hours: state.conditionsForecastHours,
       });
     }
 
     return await fetchAstronomicalConditions({
       site_id: state.activeSiteId,
       min_target_altitude_deg: 30,
-      forecast_hours: 24,
+      forecast_hours: state.conditionsForecastHours,
     });
   } catch {
     return null;

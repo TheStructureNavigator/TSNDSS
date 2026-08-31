@@ -1,6 +1,17 @@
 {
-  "current_version": "0.1.6",
+  "current_version": "0.1.7",
   "releases": [
+    {
+      "version": "0.1.7",
+      "date": "2026-08-31",
+      "changelog": [
+        "Added a configurable forecast-range slider to Conditions and wired it to reload both weather and astronomical snapshots for the active site.",
+        "Expanded observing-window handling so Conditions can expose multiple windows across the selected time range and let the user switch the active window.",
+        "Added a Horizon Compass to Target visibility, showing the current target direction from Alt/Az together with a human-readable field orientation summary.",
+        "Extended the Horizon Compass with the target trajectory across the visible sky, including hourly points, observing-window highlighting, and hover-based time details.",
+        "Refined the Conditions layout by removing redundant summary sections and making observing-window cues more prominent, including short-window fallbacks on the compass."
+      ]
+    },
     {
       "version": "0.1.6",
       "date": "2026-08-31",

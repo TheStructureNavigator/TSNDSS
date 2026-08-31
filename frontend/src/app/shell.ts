@@ -53,6 +53,7 @@ export type AppState = {
   health: ApiHealth | null;
   sites: Site[];
   activeSiteId: string | null;
+  conditionsForecastHours: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
   projects: ProjectSummary[];
@@ -68,6 +69,7 @@ export type AppState = {
   selectedMosaicPanelId: string | null;
   activeRun: ProjectRun | null;
   selectedProcessingCapture: string | null;
+  selectedObservingWindowIndex: number | null;
   currentView: ViewName;
   theme: ThemeName;
   telescopeSnapshot: TelescopeSnapshot | null;
@@ -92,11 +94,37 @@ export type SkyDetailTab = 'telescope' | 'mosaic';
 export type ObservationCenterTab = 'sites' | 'conditions';
 
 const OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT = 35;
+const CONDITIONS_FORECAST_HOURS_MIN = 12;
+const CONDITIONS_FORECAST_HOURS_MAX = 72;
+const CONDITIONS_FORECAST_HOURS_STEP = 6;
 const NIGHT_TIMELINE_REJECTION_REASONS = [
   'Not astronomical night',
   'Target below 30°',
   'Cloud cover above threshold',
 ] as const;
+
+type ConditionsTimelinePoint = {
+  index: number;
+  timeText: string | null;
+  timeMs: number | null;
+  skyState: string | null;
+  targetAltitudeDeg: number | null;
+  targetAzimuthDeg: number | null;
+  moonAltitudeDeg: number | null;
+  cloudCoverPct: number | null;
+  moonIlluminationPct: number | null;
+  moonTargetSeparationDeg: number | null;
+  dewRisk: string | null;
+  windSpeedKmh: number | null;
+  windGustsKmh: number | null;
+};
+
+type ObservingWindowRange = {
+  startIndex: number;
+  endIndex: number;
+  startMs: number;
+  endMs: number;
+};
 
 export function renderAppShell(state: AppState): string {
   const appVersion = state.coreContent?.current_version ?? 'dev';
@@ -925,28 +953,20 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
         ${renderConditionCard('Dew risk', formatDewRisk(currentWeather?.dew_risk))}
         ${renderConditionCard('Clouds', formatWeatherValue(currentWeather?.cloud_cover_pct, '%'))}
         ${renderConditionCard('Wind', formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg))}
-        ${renderConditionCard('Weather status', formatConditionSummary(currentWeather?.condition_code, currentWeather?.is_day))}
       </div>
       <div class="conditions-sections">
         ${renderConditionSection(
           'Sky darkness',
           [
-            ['Sky state', formatSkyState(currentAstronomy?.sky_state)],
-            ['Sun altitude', formatAngleValue(currentAstronomy?.sun_altitude_deg)],
             ['Astronomical night', formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc)],
-            ['Sun set / rise', formatTimeRange(currentAstronomy?.sunset_utc, currentAstronomy?.sunrise_utc)],
-            ['Civil twilight', formatTimeRange(currentAstronomy?.civil_twilight_evening_end_utc, currentAstronomy?.civil_twilight_morning_start_utc)],
-            ['Nautical twilight', formatTimeRange(currentAstronomy?.nautical_twilight_evening_end_utc, currentAstronomy?.nautical_twilight_morning_start_utc)],
           ],
         )}
-        ${renderAstronomicalTargetSummary(currentAstronomy?.target ?? null, astronomy?.min_target_altitude_deg ?? 30)}
-        ${renderConditionSection(
-          'Moon',
-          [
-            ['Phase', formatMoonPhase(currentAstronomy?.moon_phase_label, currentAstronomy?.moon_illumination_pct)],
-            ['Moon altitude', formatAngleValue(currentAstronomy?.moon_altitude_deg)],
-            ['Moon rise / set', formatTimeRange(currentAstronomy?.moonrise_utc, currentAstronomy?.moonset_utc)],
-          ],
+        ${renderAstronomicalTargetSummary(
+          currentAstronomy?.target ?? null,
+          forecast,
+          astronomy,
+          astronomy?.min_target_altitude_deg ?? 30,
+          state.selectedObservingWindowIndex,
         )}
         ${renderConditionSection(
           'Weather',
@@ -957,28 +977,35 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
             ['Dew margin', formatWeatherValue(currentWeather?.dew_margin_c, '°C')],
             ['Visibility', formatDistanceMeters(currentWeather?.visibility_m)],
             ['Surface pressure', formatWeatherValue(currentWeather?.surface_pressure_hpa, 'hPa')],
-            ['Wind', formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg)],
             ['Gusts', formatWeatherValue(currentWeather?.wind_gusts_kmh, 'km/h')],
             ['Precipitation', formatWeatherValue(currentWeather?.precipitation_mm, 'mm')],
             ['Precip chance', formatWeatherValue(currentWeather?.precipitation_probability_pct, '%')],
-          ],
-        )}
-        ${renderConditionSection(
-          'Cloud layers',
-          [
-            ['Total', formatWeatherValue(currentWeather?.cloud_cover_pct, '%')],
-            ['Low', formatWeatherValue(currentWeather?.cloud_cover_low_pct, '%')],
-            ['Mid', formatWeatherValue(currentWeather?.cloud_cover_mid_pct, '%')],
-            ['High', formatWeatherValue(currentWeather?.cloud_cover_high_pct, '%')],
+            ['Conditions', formatConditionSummary(currentWeather?.condition_code, currentWeather?.is_day)],
           ],
         )}
       </div>
     </article>
 
     <article class="panel">
-      <div class="panel__header">
-        <h3>Next 24 hours</h3>
-        <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
+      <div class="panel__header panel__header--conditions">
+        <div>
+          <h3>Next ${state.conditionsForecastHours} hours</h3>
+          <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
+        </div>
+        <label class="conditions-hours-control" aria-label="Conditions forecast hours">
+          <span class="conditions-hours-control__label">Range</span>
+          <div class="conditions-hours-control__input">
+            <input
+              type="range"
+              min="${CONDITIONS_FORECAST_HOURS_MIN}"
+              max="${CONDITIONS_FORECAST_HOURS_MAX}"
+              step="${CONDITIONS_FORECAST_HOURS_STEP}"
+              value="${state.conditionsForecastHours}"
+              data-conditions-hours-range
+            />
+            <span class="conditions-hours-control__value" data-conditions-hours-value>${state.conditionsForecastHours}h</span>
+          </div>
+        </label>
       </div>
       ${renderConditionsTimeline(state, forecast, astronomy)}
       ${renderConditionsHourlyTable(forecast, astronomy)}
@@ -988,7 +1015,10 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
 
 function renderAstronomicalTargetSummary(
   target: AstronomicalConditionsSnapshot['current']['target'] | null,
+  forecast: SiteForecastSnapshot | null,
+  astronomy: AstronomicalConditionsSnapshot | null,
   minTargetAltitudeDeg: number,
+  selectedObservingWindowIndex: number | null,
 ): string {
   if (!target) {
     return renderConditionSection('Target visibility', [
@@ -996,34 +1026,40 @@ function renderAstronomicalTargetSummary(
     ]);
   }
 
-  return renderConditionSection('Target visibility', [
-    ['Target', target.target_name ?? 'Target'],
-    ['Source', target.source_kind ?? 'target'],
-    ['Alt / az', `${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`],
-    ['Airmass', formatAirmass(target.airmass)],
-    ['Transit', formatTimestampDisplay(target.transit_time_utc)],
-    ['Max altitude', formatAngleValue(target.max_altitude_deg)],
-    ['Moon separation', formatAngleValue(target.moon_separation_deg)],
-    ['Above horizon', formatObservationFlag(target.above_horizon)],
-    [`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold)],
-    ['Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status)],
-    ['Night observe window', formatWindowSummary(target.observation_window_start_utc, target.observation_window_end_utc, target.observation_window_status)],
-  ]);
+  const points = buildConditionsTimelinePoints(forecast, astronomy);
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, selectedObservingWindowIndex);
+  const observingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
+
+  return `
+    <section class="conditions-section">
+      <div class="panel__header panel__header--nested conditions-section__header">
+        <h3>Target visibility</h3>
+      </div>
+      <div class="conditions-target-layout">
+        <div class="conditions-grid">
+          ${renderConditionCard('Target', target.target_name ?? 'Target')}
+          ${renderConditionCard('Source', target.source_kind ?? 'target')}
+          ${renderConditionCard('Alt / az', `${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`)}
+          ${renderConditionCard('Airmass', formatAirmass(target.airmass))}
+          ${renderConditionCard('Transit', formatTimestampDisplay(target.transit_time_utc))}
+          ${renderConditionCard('Max altitude', formatAngleValue(target.max_altitude_deg))}
+          ${renderConditionCard('Above horizon', formatObservationFlag(target.above_horizon))}
+          ${renderConditionCard(`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold))}
+          ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}
+        </div>
+        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, points, observingWindow)}
+      </div>
+    </section>
+  `;
 }
 
-function renderConditionsTimeline(
-  state: AppState,
+function buildConditionsTimelinePoints(
   forecast: SiteForecastSnapshot | null,
   astronomy: AstronomicalConditionsSnapshot | null,
-): string {
+): ConditionsTimelinePoint[] {
   const rowCount = Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0);
-  if (rowCount < 2) {
-    return '';
-  }
-
-  const currentAstronomy = astronomy?.current ?? null;
-  const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
-  const points = Array.from({ length: rowCount }, (_, index) => {
+  return Array.from({ length: rowCount }, (_, index) => {
     const weatherHour = forecast?.hourly[index] ?? null;
     const astronomyHour = astronomy?.hourly[index] ?? null;
     return {
@@ -1032,6 +1068,7 @@ function renderConditionsTimeline(
       timeMs: toTimestampMillis(astronomyHour?.time_utc ?? weatherHour?.time ?? null),
       skyState: astronomyHour?.sky_state ?? null,
       targetAltitudeDeg: astronomyHour?.target_altitude_deg ?? null,
+      targetAzimuthDeg: astronomyHour?.target_azimuth_deg ?? null,
       moonAltitudeDeg: astronomyHour?.moon_altitude_deg ?? null,
       cloudCoverPct: weatherHour?.cloud_cover_pct ?? null,
       moonIlluminationPct: astronomyHour?.moon_illumination_pct ?? null,
@@ -1041,6 +1078,96 @@ function renderConditionsTimeline(
       windGustsKmh: weatherHour?.wind_gusts_kmh ?? null,
     };
   });
+}
+
+function isObservingWindowPoint(point: ConditionsTimelinePoint, minTargetAltitudeDeg: number): boolean {
+  return point.skyState === 'astronomical_night'
+    && point.targetAltitudeDeg != null
+    && Number.isFinite(point.targetAltitudeDeg)
+    && point.targetAltitudeDeg >= minTargetAltitudeDeg
+    && point.cloudCoverPct != null
+    && Number.isFinite(point.cloudCoverPct)
+    && point.cloudCoverPct <= OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT;
+}
+
+function getObservingWindows(
+  points: ConditionsTimelinePoint[],
+  minTargetAltitudeDeg: number,
+): ObservingWindowRange[] {
+  const observingFlags = points.map((point) => isObservingWindowPoint(point, minTargetAltitudeDeg));
+  let activeWindowStartIndex: number | null = null;
+  const observingWindows: ObservingWindowRange[] = [];
+
+  for (let index = 0; index < observingFlags.length; index += 1) {
+    const isActive = observingFlags[index];
+    if (isActive && activeWindowStartIndex == null) {
+      activeWindowStartIndex = index;
+      continue;
+    }
+    if (!isActive && activeWindowStartIndex != null) {
+      const startPoint = points[activeWindowStartIndex];
+      const endPoint = points[index] ?? points[index - 1];
+      if (startPoint?.timeMs != null && endPoint?.timeMs != null) {
+        observingWindows.push({
+          startIndex: activeWindowStartIndex,
+          endIndex: index - 1,
+          startMs: startPoint.timeMs,
+          endMs: endPoint.timeMs,
+        });
+      }
+      activeWindowStartIndex = null;
+    }
+  }
+
+  if (activeWindowStartIndex != null) {
+    const startPoint = points[activeWindowStartIndex];
+    const lastPoint = points[points.length - 1];
+    if (startPoint?.timeMs != null && lastPoint?.timeMs != null) {
+      observingWindows.push({
+        startIndex: activeWindowStartIndex,
+        endIndex: points.length - 1,
+        startMs: startPoint.timeMs,
+        endMs: lastPoint.timeMs,
+      });
+    }
+  }
+
+  return observingWindows;
+}
+
+function getActiveObservingWindowIndex(
+  observingWindows: ObservingWindowRange[],
+  selectedObservingWindowIndex: number | null,
+): number | null {
+  const defaultObservingWindowIndex = observingWindows
+    .map((window, index) => ({ window, index }))
+    .sort((leftWindow, rightWindow) => {
+      const leftDuration = leftWindow.window.endMs - leftWindow.window.startMs;
+      const rightDuration = rightWindow.window.endMs - rightWindow.window.startMs;
+      if (rightDuration !== leftDuration) {
+        return rightDuration - leftDuration;
+      }
+      return leftWindow.window.startMs - rightWindow.window.startMs;
+    })[0]?.index ?? null;
+
+  return selectedObservingWindowIndex != null && observingWindows[selectedObservingWindowIndex]
+    ? selectedObservingWindowIndex
+    : defaultObservingWindowIndex;
+}
+
+function renderConditionsTimeline(
+  state: AppState,
+  forecast: SiteForecastSnapshot | null,
+  astronomy: AstronomicalConditionsSnapshot | null,
+): string {
+  const points = buildConditionsTimelinePoints(forecast, astronomy);
+  const rowCount = points.length;
+  if (rowCount < 2) {
+    return '';
+  }
+
+  const currentAstronomy = astronomy?.current ?? null;
+  const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
 
   const validTimes = points
     .map((point) => point.timeMs)
@@ -1105,15 +1232,7 @@ function renderConditionsTimeline(
     }
   };
 
-  const observingFlags = points.map((point) => (
-    point.skyState === 'astronomical_night'
-    && point.targetAltitudeDeg != null
-    && Number.isFinite(point.targetAltitudeDeg)
-    && point.targetAltitudeDeg >= minTargetAltitudeDeg
-    && point.cloudCoverPct != null
-    && Number.isFinite(point.cloudCoverPct)
-    && point.cloudCoverPct <= OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT
-  ));
+  const observingFlags = points.map((point) => isObservingWindowPoint(point, minTargetAltitudeDeg));
 
   const rejectionReasonByPoint = points.map((point) => {
     const reasons: string[] = [];
@@ -1137,50 +1256,11 @@ function renderConditionsTimeline(
     return reasons;
   });
 
-  let activeWindowStartIndex: number | null = null;
-  const observingWindows: Array<{ startIndex: number; endIndex: number; startMs: number; endMs: number }> = [];
-  for (let index = 0; index < observingFlags.length; index += 1) {
-    const isActive = observingFlags[index];
-    if (isActive && activeWindowStartIndex == null) {
-      activeWindowStartIndex = index;
-      continue;
-    }
-    if (!isActive && activeWindowStartIndex != null) {
-      const startPoint = points[activeWindowStartIndex];
-      const endPoint = points[index] ?? points[index - 1];
-      if (startPoint?.timeMs != null && endPoint?.timeMs != null) {
-        observingWindows.push({
-          startIndex: activeWindowStartIndex,
-          endIndex: index - 1,
-          startMs: startPoint.timeMs,
-          endMs: endPoint.timeMs,
-        });
-      }
-      activeWindowStartIndex = null;
-    }
-  }
-  if (activeWindowStartIndex != null) {
-    const startPoint = points[activeWindowStartIndex];
-    const lastPoint = points[points.length - 1];
-    if (startPoint?.timeMs != null && lastPoint?.timeMs != null) {
-      observingWindows.push({
-        startIndex: activeWindowStartIndex,
-        endIndex: points.length - 1,
-        startMs: startPoint.timeMs,
-        endMs: lastPoint.timeMs,
-      });
-    }
-  }
-  const observingWindow = observingWindows
-    .slice()
-    .sort((leftWindow, rightWindow) => {
-      const leftDuration = leftWindow.endMs - leftWindow.startMs;
-      const rightDuration = rightWindow.endMs - rightWindow.startMs;
-      if (rightDuration !== leftDuration) {
-        return rightDuration - leftDuration;
-      }
-      return leftWindow.startMs - rightWindow.startMs;
-    })[0] ?? null;
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, state.selectedObservingWindowIndex);
+  const observingWindow = observingWindowIndex != null
+    ? observingWindows[observingWindowIndex] ?? null
+    : null;
   const observingWindowPoints = observingWindow
     ? points.slice(observingWindow.startIndex, observingWindow.endIndex + 1)
     : [];
@@ -1358,6 +1438,31 @@ function renderConditionsTimeline(
     })
     .filter(Boolean)
     .join('');
+  const observingWindowButtons = observingWindows.length
+    ? `
+      <div class="conditions-window-selector">
+        <span class="conditions-window-selector__label">Windows</span>
+        <div class="conditions-window-selector__list">
+          ${observingWindows.map((window, index) => {
+            const activeClass = index === observingWindowIndex ? ' conditions-window-selector__button--active' : '';
+            const startLabel = points[window.startIndex]?.timeText ?? null;
+            const endLabel = points[Math.min(window.endIndex + 1, points.length - 1)]?.timeText
+              ?? points[window.endIndex]?.timeText
+              ?? null;
+            return `
+              <button
+                class="conditions-window-selector__button${activeClass}"
+                type="button"
+                data-observing-window-index="${index}"
+              >
+                Window ${index + 1} · ${escapeHtml(formatObservingWindowRange(startLabel, endLabel))}
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `
+    : '';
 
   return `
     <section class="conditions-timeline">
@@ -1372,7 +1477,7 @@ function renderConditionsTimeline(
         <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--rejection"></span>Limiting factors</span>
       </div>
       <div class="conditions-timeline__chart">
-        <svg class="conditions-timeline__svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Timeline of darkness, target altitude, moon altitude, cloud cover and observing window for the next 24 hours.">
+        <svg class="conditions-timeline__svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Timeline of darkness, target altitude, moon altitude, cloud cover and observing window for the selected forecast range.">
           <rect x="${left}" y="${top}" width="${innerWidth}" height="${cloudTop + cloudHeight - top}" fill="rgba(255,255,255,0.01)" />
           ${backgroundSegments}
           ${observingWindowOverlay}
@@ -1409,6 +1514,7 @@ function renderConditionsTimeline(
           target ≥ ${minTargetAltitudeDeg.toFixed(0)}° · clouds ≤ ${OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT}%
         </span>
       </div>
+      ${observingWindowButtons}
       ${renderObservingWindowObservationContext(state, astronomy)}
       ${renderObservingWindowConditions(observingWindowPoints, getObservationIntentContext(state))}
       <div class="conditions-timeline__factors">
@@ -2712,19 +2818,6 @@ function formatSkyState(value: string | null | undefined): string {
   }
 }
 
-function formatMoonPhase(label: string | null | undefined, illuminationPct: number | null | undefined): string {
-  if (!label && illuminationPct == null) {
-    return '—';
-  }
-  if (!label) {
-    return formatPercent(illuminationPct);
-  }
-  if (illuminationPct == null) {
-    return label;
-  }
-  return `${label} · ${formatPercent(illuminationPct)}`;
-}
-
 function formatAirmass(value: number | null | undefined): string {
   if (value == null) {
     return '—';
@@ -2929,6 +3022,215 @@ function renderConditionAssessmentCard(factor: ConditionAssessmentFactor): strin
       <p class="conditions-assessment-card__reason">${escapeHtml(factor.reason)}</p>
     </div>
   `;
+}
+
+function renderHorizonCompass(
+  azimuthDeg: number | null | undefined,
+  altitudeDeg: number | null | undefined,
+  timelinePoints: ConditionsTimelinePoint[],
+  observingWindow: ObservingWindowRange | null,
+): string {
+  if (azimuthDeg == null || !Number.isFinite(azimuthDeg)) {
+    return `
+      <div class="horizon-compass horizon-compass--empty">
+        <span class="conditions-timeline__summary-label">Horizon compass</span>
+        <p class="muted">Azimuth is not available for this target yet.</p>
+      </div>
+    `;
+  }
+
+  const normalizedAzimuth = normalizeAzimuth(azimuthDeg);
+  const altitude = altitudeDeg != null && Number.isFinite(altitudeDeg) ? altitudeDeg : null;
+  const cx = 116;
+  const cy = 116;
+  const radius = 82;
+  const currentProjectedPoint = altitude == null
+    ? projectHorizonCompassPoint(normalizedAzimuth, 0, cx, cy, radius)
+    : projectHorizonCompassPoint(normalizedAzimuth, altitude, cx, cy, radius);
+  const markerX = currentProjectedPoint.x;
+  const markerY = currentProjectedPoint.y;
+  const directionLabel = formatCompassDirection(normalizedAzimuth);
+  const description = `${directionLabel} · ${normalizedAzimuth.toFixed(0)}° azimuth · ${altitude == null ? 'altitude unavailable' : `${altitude.toFixed(0)}° above horizon`}`;
+  const cardinalPoints = [
+    { label: 'N', azimuth: 0 },
+    { label: 'NE', azimuth: 45 },
+    { label: 'E', azimuth: 90 },
+    { label: 'SE', azimuth: 135 },
+    { label: 'S', azimuth: 180 },
+    { label: 'SW', azimuth: 225 },
+    { label: 'W', azimuth: 270 },
+    { label: 'NW', azimuth: 315 },
+  ];
+  const altitudeRings = [30, 60, 90];
+  const trajectoryPoints = timelinePoints
+    .filter((point) => (
+      point.targetAzimuthDeg != null
+      && Number.isFinite(point.targetAzimuthDeg)
+      && point.targetAltitudeDeg != null
+      && Number.isFinite(point.targetAltitudeDeg)
+      && point.targetAltitudeDeg >= 0
+    ))
+    .map((point) => {
+      const projected = projectHorizonCompassPoint(point.targetAzimuthDeg as number, point.targetAltitudeDeg as number, cx, cy, radius);
+      return {
+        ...point,
+        ...projected,
+      };
+    });
+  const trajectoryPath = buildCompassPath(trajectoryPoints);
+  const observingWindowPath = buildCompassPath(
+    trajectoryPoints.filter((point) => (
+      observingWindow != null
+      && point.index >= observingWindow.startIndex
+      && point.index <= observingWindow.endIndex
+    )),
+  );
+  const observingWindowPoints = trajectoryPoints.filter((point) => (
+    observingWindow != null
+    && point.index >= observingWindow.startIndex
+    && point.index <= observingWindow.endIndex
+  ));
+  return `
+    <div class="horizon-compass">
+      <div class="horizon-compass__header">
+        <span class="conditions-timeline__summary-label">Horizon compass</span>
+        <span class="horizon-compass__description">${escapeHtml(description)}</span>
+      </div>
+      <svg class="horizon-compass__svg" viewBox="0 0 232 232" role="img" aria-label="${escapeHtml(description)}">
+        <circle class="horizon-compass__outer" cx="${cx}" cy="${cy}" r="${radius}" />
+        <circle class="horizon-compass__inner" cx="${cx}" cy="${cy}" r="${(radius - 16).toFixed(2)}" />
+        ${altitudeRings.map((ringAltitude) => {
+          const ringRadius = projectHorizonCompassRadius(ringAltitude, radius);
+          return `
+            <circle class="horizon-compass__altitude-ring" cx="${cx}" cy="${cy}" r="${ringRadius.toFixed(2)}" />
+            <text class="horizon-compass__ring-label" x="${cx}" y="${(cy - ringRadius - 4).toFixed(2)}" text-anchor="middle">${ringAltitude}°</text>
+          `;
+        }).join('')}
+        ${cardinalPoints.map((point) => renderHorizonCompassLabel(point.label, point.azimuth, cx, cy, radius + 18)).join('')}
+        ${cardinalPoints.map((point) => renderHorizonCompassTick(point.azimuth, cx, cy, radius)).join('')}
+        <line class="horizon-compass__crosshair" x1="${cx}" y1="${(cy - radius).toFixed(2)}" x2="${cx}" y2="${(cy + radius).toFixed(2)}" />
+        <line class="horizon-compass__crosshair" x1="${(cx - radius).toFixed(2)}" y1="${cy}" x2="${(cx + radius).toFixed(2)}" y2="${cy}" />
+        ${trajectoryPath ? `<path class="horizon-compass__trajectory" d="${trajectoryPath}" />` : ''}
+        ${observingWindowPath ? `<path class="horizon-compass__trajectory horizon-compass__trajectory--window" d="${observingWindowPath}" />` : ''}
+        ${observingWindowPoints.length > 0 && observingWindowPath.length === 0
+          ? observingWindowPoints.map((point) => `
+            <circle class="horizon-compass__window-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="5.5" />
+          `).join('')
+          : ''}
+        ${observingWindowPoints.length > 0 ? `
+          <circle class="horizon-compass__window-start" cx="${observingWindowPoints[0]!.x.toFixed(2)}" cy="${observingWindowPoints[0]!.y.toFixed(2)}" r="4.2" />
+          <circle class="horizon-compass__window-end" cx="${observingWindowPoints[observingWindowPoints.length - 1]!.x.toFixed(2)}" cy="${observingWindowPoints[observingWindowPoints.length - 1]!.y.toFixed(2)}" r="4.2" />
+        ` : ''}
+        ${trajectoryPoints.map((point) => `
+          <circle class="horizon-compass__hour-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3">
+            <title>${escapeHtml(formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg))}</title>
+          </circle>
+        `).join('')}
+        <circle class="horizon-compass__current-glow" cx="${markerX.toFixed(2)}" cy="${markerY.toFixed(2)}" r="10" />
+        ${trajectoryPoints.length ? `
+          <circle class="horizon-compass__start-point" cx="${trajectoryPoints[0]!.x.toFixed(2)}" cy="${trajectoryPoints[0]!.y.toFixed(2)}" r="3.5">
+            <title>${escapeHtml(`Start · ${formatHorizonCompassPointTitle(trajectoryPoints[0]!.timeText, trajectoryPoints[0]!.targetAltitudeDeg, trajectoryPoints[0]!.targetAzimuthDeg)}`)}</title>
+          </circle>
+          <circle class="horizon-compass__end-point" cx="${trajectoryPoints[trajectoryPoints.length - 1]!.x.toFixed(2)}" cy="${trajectoryPoints[trajectoryPoints.length - 1]!.y.toFixed(2)}" r="3.5">
+            <title>${escapeHtml(`End · ${formatHorizonCompassPointTitle(trajectoryPoints[trajectoryPoints.length - 1]!.timeText, trajectoryPoints[trajectoryPoints.length - 1]!.targetAltitudeDeg, trajectoryPoints[trajectoryPoints.length - 1]!.targetAzimuthDeg)}`)}</title>
+          </circle>
+        ` : ''}
+        <line class="horizon-compass__pointer" x1="${cx}" y1="${cy}" x2="${markerX.toFixed(2)}" y2="${markerY.toFixed(2)}" />
+        <circle class="horizon-compass__marker-ring" cx="${markerX.toFixed(2)}" cy="${markerY.toFixed(2)}" r="8" />
+        <circle class="horizon-compass__marker" cx="${markerX.toFixed(2)}" cy="${markerY.toFixed(2)}" r="5.5">
+          <title>${escapeHtml(`Now · ${description}`)}</title>
+        </circle>
+        <circle class="horizon-compass__center" cx="${cx}" cy="${cy}" r="3.6" />
+      </svg>
+      <div class="horizon-compass__footer">
+        <span class="horizon-compass__altitude-badge">${escapeHtml(altitude == null ? 'Alt —' : `Alt ${altitude.toFixed(0)}°`)}</span>
+        ${observingWindow ? '<span class="horizon-compass__window-badge">Bright path = observing window</span>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderHorizonCompassLabel(
+  label: string,
+  azimuthDeg: number,
+  cx: number,
+  cy: number,
+  radius: number,
+): string {
+  const angleRad = ((azimuthDeg - 90) * Math.PI) / 180;
+  const x = cx + Math.cos(angleRad) * radius;
+  const y = cy + Math.sin(angleRad) * radius;
+  return `<text class="horizon-compass__label" x="${x.toFixed(2)}" y="${(y + 4).toFixed(2)}" text-anchor="middle">${escapeHtml(label)}</text>`;
+}
+
+function renderHorizonCompassTick(
+  azimuthDeg: number,
+  cx: number,
+  cy: number,
+  radius: number,
+): string {
+  const angleRad = ((azimuthDeg - 90) * Math.PI) / 180;
+  const x1 = cx + Math.cos(angleRad) * (radius - 6);
+  const y1 = cy + Math.sin(angleRad) * (radius - 6);
+  const x2 = cx + Math.cos(angleRad) * radius;
+  const y2 = cy + Math.sin(angleRad) * radius;
+  return `<line class="horizon-compass__tick" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" />`;
+}
+
+function projectHorizonCompassPoint(
+  azimuthDeg: number,
+  altitudeDeg: number,
+  cx: number,
+  cy: number,
+  radius: number,
+): { x: number; y: number } {
+  const normalizedAzimuth = normalizeAzimuth(azimuthDeg);
+  const distance = projectHorizonCompassRadius(altitudeDeg, radius);
+  const angleRad = ((normalizedAzimuth - 90) * Math.PI) / 180;
+  return {
+    x: cx + Math.cos(angleRad) * distance,
+    y: cy + Math.sin(angleRad) * distance,
+  };
+}
+
+function projectHorizonCompassRadius(altitudeDeg: number, radius: number): number {
+  const normalizedAltitude = Math.max(0, Math.min(90, altitudeDeg));
+  return radius * (1 - normalizedAltitude / 90);
+}
+
+function buildCompassPath(points: Array<{ x: number; y: number }>): string {
+  if (points.length < 2) {
+    return '';
+  }
+
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(' ');
+}
+
+function normalizeAzimuth(value: number): number {
+  const normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function formatCompassDirection(azimuthDeg: number): string {
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return directions[Math.round(normalizeAzimuth(azimuthDeg) / 45) % directions.length] ?? 'N';
+}
+
+function formatHorizonCompassPointTitle(
+  timeText: string | null,
+  altitudeDeg: number | null | undefined,
+  azimuthDeg: number | null | undefined,
+): string {
+  const timeLabel = formatTimestampDisplay(timeText);
+  const altitudeLabel = altitudeDeg == null || !Number.isFinite(altitudeDeg)
+    ? 'Alt —'
+    : `Alt ${altitudeDeg.toFixed(0)}°`;
+  const azimuthLabel = azimuthDeg == null || !Number.isFinite(azimuthDeg)
+    ? 'Az —'
+    : `Az ${normalizeAzimuth(azimuthDeg).toFixed(0)}°`;
+  return `${timeLabel} · ${altitudeLabel} · ${azimuthLabel}`;
 }
 
 function formatValueRange(
