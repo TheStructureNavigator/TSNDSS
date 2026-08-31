@@ -9,7 +9,8 @@
         "Expanded observing-window handling so Conditions can expose multiple windows across the selected time range and let the user switch the active window.",
         "Added a Horizon Compass to Target visibility, showing the current target direction from Alt/Az together with a human-readable field orientation summary.",
         "Extended the Horizon Compass with the target trajectory across the visible sky, including hourly points, observing-window highlighting, and hover-based time details.",
-        "Refined the Conditions layout by removing redundant summary sections and making observing-window cues more prominent, including short-window fallbacks on the compass."
+        "Refined the Conditions layout by removing redundant summary sections and making observing-window cues more prominent, including short-window fallbacks on the compass.",
+        "Color-coded the hourly Conditions table so day, twilight, astronomical night, and the active observing window are easier to scan at a glance."
       ]
     },
     {

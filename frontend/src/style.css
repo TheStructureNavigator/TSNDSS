@@ -2523,6 +2523,10 @@ pre {
   font-size: 0.8rem;
 }
 
+.weather-table__row {
+  transition: background-color 120ms ease;
+}
+
 .weather-table th,
 .weather-table td {
   padding: 0.55rem 0.6rem;
@@ -2541,6 +2545,40 @@ pre {
 
 .weather-table td {
   color: var(--color-text-muted);
+}
+
+.weather-table__row--day td {
+  background: rgba(124, 156, 198, 0.05);
+}
+
+.weather-table__row--civil td {
+  background: rgba(126, 138, 198, 0.06);
+}
+
+.weather-table__row--nautical td {
+  background: rgba(74, 94, 152, 0.07);
+}
+
+.weather-table__row--astronomical-twilight td {
+  background: rgba(38, 60, 116, 0.08);
+}
+
+.weather-table__row--night td {
+  background: rgba(8, 12, 24, 0.28);
+}
+
+.weather-table__row--limited td {
+  box-shadow: inset 3px 0 0 rgba(255, 155, 126, 0.22);
+}
+
+.weather-table__row--observing td {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface-panel-strong));
+  color: var(--color-text);
+  box-shadow: inset 3px 0 0 var(--color-accent-strong);
+}
+
+.weather-table__row--observing td:first-child {
+  font-weight: 700;
 }
 
 .conditions-assessment {

@@ -1008,7 +1008,7 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
         </label>
       </div>
       ${renderConditionsTimeline(state, forecast, astronomy)}
-      ${renderConditionsHourlyTable(forecast, astronomy)}
+      ${renderConditionsHourlyTable(state, forecast, astronomy)}
     </article>
   `;
 }
@@ -1153,6 +1153,51 @@ function getActiveObservingWindowIndex(
   return selectedObservingWindowIndex != null && observingWindows[selectedObservingWindowIndex]
     ? selectedObservingWindowIndex
     : defaultObservingWindowIndex;
+}
+
+function getConditionsTableRowClass(
+  point: ConditionsTimelinePoint | null,
+  observingWindow: ObservingWindowRange | null,
+  minTargetAltitudeDeg: number,
+): string {
+  const classes = ['weather-table__row'];
+  if (!point) {
+    return classes.join(' ');
+  }
+
+  const inActiveObservingWindow = observingWindow != null
+    && point.index >= observingWindow.startIndex
+    && point.index <= observingWindow.endIndex;
+
+  if (inActiveObservingWindow) {
+    classes.push('weather-table__row--observing');
+    return classes.join(' ');
+  }
+
+  switch (point.skyState) {
+    case 'day':
+      classes.push('weather-table__row--day');
+      break;
+    case 'civil_twilight':
+      classes.push('weather-table__row--civil');
+      break;
+    case 'nautical_twilight':
+      classes.push('weather-table__row--nautical');
+      break;
+    case 'astronomical_twilight':
+      classes.push('weather-table__row--astronomical-twilight');
+      break;
+    case 'astronomical_night':
+      classes.push('weather-table__row--night');
+      if (!isObservingWindowPoint(point, minTargetAltitudeDeg)) {
+        classes.push('weather-table__row--limited');
+      }
+      break;
+    default:
+      break;
+  }
+
+  return classes.join(' ');
 }
 
 function renderConditionsTimeline(
@@ -1526,13 +1571,20 @@ function renderConditionsTimeline(
 }
 
 function renderConditionsHourlyTable(
+  state: AppState,
   forecast: SiteForecastSnapshot | null,
   astronomy: AstronomicalConditionsSnapshot | null,
 ): string {
-  const rowCount = Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0);
+  const points = buildConditionsTimelinePoints(forecast, astronomy);
+  const rowCount = points.length;
   if (rowCount === 0) {
     return '<p class="muted">No hourly observation points are available for this site yet.</p>';
   }
+
+  const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, state.selectedObservingWindowIndex);
+  const activeObservingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
 
   return `
     <div class="weather-table-wrap">
@@ -1558,8 +1610,10 @@ function renderConditionsHourlyTable(
           ${Array.from({ length: rowCount }, (_, index) => {
             const weatherHour = forecast?.hourly[index] ?? null;
             const astronomyHour = astronomy?.hourly[index] ?? null;
+            const point = points[index] ?? null;
+            const rowClass = getConditionsTableRowClass(point, activeObservingWindow, minTargetAltitudeDeg);
             return `
-            <tr>
+            <tr class="${rowClass}">
               <td>${escapeHtml(formatTimestampDisplay(astronomyHour?.time_utc ?? weatherHour?.time ?? null))}</td>
               <td>${escapeHtml(astronomyHour ? formatSkyState(astronomyHour.sky_state) : formatConditionSummary(weatherHour?.condition_code, weatherHour?.is_day))}</td>
               <td>${escapeHtml(formatAngleValue(astronomyHour?.sun_altitude_deg))}</td>
