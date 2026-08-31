@@ -174,7 +174,10 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 try:
-                    forecast = context.weather_client.fetch_site_forecast(site)
+                    forecast = context.weather_client.fetch_site_forecast(
+                        site,
+                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=24) or 24,
+                    )
                 except ValueError as error:
                     self._write_json(
                         HTTPStatus.BAD_REQUEST,
@@ -234,7 +237,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                             fallback=30.0,
                         )
                         or 30.0,
-                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=12) or 12,
+                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=24) or 24,
                     )
                 except ValueError as error:
                     self._write_json(
@@ -664,6 +667,33 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 self._write_json(HTTPStatus.CREATED, {"mosaic": _mosaic_plan_to_dict(saved)})
+                return
+
+            if path.startswith("/api/mosaics/") and not path.endswith("/generate-panels") and not path.endswith("/select-panel"):
+                mosaic_id = unquote(path.removeprefix("/api/mosaics/")).split("/", 1)[0]
+                try:
+                    with context.open_database() as connection:
+                        repository = MosaicRepository(connection)
+                        current = repository.get_mosaic_plan(mosaic_id)
+                        if current is None:
+                            raise KeyError(mosaic_id)
+                        updated = repository.save_mosaic_plan(
+                            _merge_mosaic_plan_payload(current, payload)
+                        )
+                except KeyError:
+                    self._write_json(
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "mosaic_not_found", "message": f"Unknown mosaic: {mosaic_id}"},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "mosaic_update_failed", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"mosaic": _mosaic_plan_to_dict(updated)})
                 return
 
             if path.startswith("/api/mosaics/") and path.endswith("/generate-panels"):
@@ -1329,6 +1359,8 @@ def _mosaic_plan_to_dict(plan: Any) -> dict[str, Any]:
         "project_slug": plan.project_slug,
         "name": plan.name,
         "target_name": plan.target_name,
+        "observation_type": plan.observation_type,
+        "filter": plan.filter,
         "imaging_profile_id": plan.imaging_profile_id,
         "imaging_profile_label": plan.imaging_profile_label,
         "fov_width_deg": plan.fov_width_deg,
@@ -1446,16 +1478,28 @@ def _resolve_astronomical_target_context(
 ) -> AstronomicalTargetContext | None:
     explicit_ra_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_ra_deg"))
     explicit_dec_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_dec_deg"))
+    explicit_target_name = _coerce_optional_string(_first_query_value(query_params, "target_name"))
     if explicit_ra_deg is not None or explicit_dec_deg is not None:
         if explicit_ra_deg is None or explicit_dec_deg is None:
             raise ValueError("Both target_ra_deg and target_dec_deg are required when explicit target coordinates are provided.")
         return AstronomicalTargetContext(
-            target_name=_coerce_optional_string(_first_query_value(query_params, "target_name")),
+            target_name=explicit_target_name,
             ra_deg=explicit_ra_deg,
             dec_deg=explicit_dec_deg,
             source_kind=_coerce_optional_string(_first_query_value(query_params, "source_kind")) or "manual",
             source_id=_coerce_optional_string(_first_query_value(query_params, "source_id")),
         )
+
+    if explicit_target_name:
+        matched_target = planning_repository.find_target_by_query(explicit_target_name)
+        if matched_target is not None:
+            return AstronomicalTargetContext(
+                target_name=matched_target.name,
+                ra_deg=matched_target.ra_deg,
+                dec_deg=matched_target.dec_deg,
+                source_kind="target",
+                source_id=matched_target.id,
+            )
 
     mosaic_panel_id = _coerce_optional_string(_first_query_value(query_params, "mosaic_panel_id"))
     if mosaic_panel_id:
@@ -1557,6 +1601,8 @@ def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any)
     overlap_percent = _coerce_required_float(payload.get("overlap_percent"), fallback=10.0)
     status = str(payload.get("status", "draft")).strip() or "draft"
     target_name = _coerce_optional_string(payload.get("target_name"))
+    observation_type = _coerce_optional_string(payload.get("observation_type"))
+    filter_name = _coerce_optional_string(payload.get("filter"))
     selected_panel_id = _coerce_optional_string(payload.get("selected_panel_id"))
     provided_id = _coerce_optional_string(payload.get("id"))
 
@@ -1568,6 +1614,8 @@ def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any)
         project_slug=project_slug,
         name=name,
         target_name=target_name,
+        observation_type=observation_type,
+        filter=filter_name,
         imaging_profile_id=imaging_profile_id,
         imaging_profile_label=imaging_profile_label,
         fov_width_deg=fov_width_deg,
@@ -1580,6 +1628,30 @@ def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any)
         overlap_percent=overlap_percent,
         status=status,
         selected_panel_id=selected_panel_id,
+    )
+
+
+def _merge_mosaic_plan_payload(current: Any, payload: dict[str, Any]) -> Any:
+    return MosaicPlan(
+        id=current.id,
+        project_slug=str(payload.get("project_slug", current.project_slug)).strip() or current.project_slug,
+        name=str(payload.get("name", current.name)).strip() or current.name,
+        target_name=_coerce_optional_string(payload.get("target_name")) if "target_name" in payload else current.target_name,
+        observation_type=_coerce_optional_string(payload.get("observation_type")) if "observation_type" in payload else current.observation_type,
+        filter=_coerce_optional_string(payload.get("filter")) if "filter" in payload else current.filter,
+        imaging_profile_id=str(payload.get("imaging_profile_id", current.imaging_profile_id)).strip() or current.imaging_profile_id,
+        imaging_profile_label=str(payload.get("imaging_profile_label", current.imaging_profile_label)).strip() or current.imaging_profile_label,
+        fov_width_deg=_coerce_required_float(payload.get("fov_width_deg"), fallback=current.fov_width_deg),
+        fov_height_deg=_coerce_required_float(payload.get("fov_height_deg"), fallback=current.fov_height_deg),
+        center_ra_deg=_coerce_required_float(payload.get("center_ra_deg"), fallback=current.center_ra_deg),
+        center_dec_deg=_coerce_required_float(payload.get("center_dec_deg"), fallback=current.center_dec_deg),
+        region_width_deg=_coerce_required_float(payload.get("region_width_deg"), fallback=current.region_width_deg),
+        region_height_deg=_coerce_required_float(payload.get("region_height_deg"), fallback=current.region_height_deg),
+        rotation_deg=_coerce_required_float(payload.get("rotation_deg"), fallback=current.rotation_deg),
+        overlap_percent=_coerce_required_float(payload.get("overlap_percent"), fallback=current.overlap_percent),
+        status=str(payload.get("status", current.status)).strip() or current.status,
+        selected_panel_id=_coerce_optional_string(payload.get("selected_panel_id")) if "selected_panel_id" in payload else current.selected_panel_id,
+        panels=current.panels,
     )
 
 

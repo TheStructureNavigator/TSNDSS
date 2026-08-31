@@ -31,6 +31,7 @@ import {
   startProjectRun,
   type MosaicPlan,
   updateMosaicPanel,
+  updateMosaicPlan,
   updatePlannedTelescopePointing,
   updateSimulatorTelescopeState,
   updateProjectSkyTarget,
@@ -41,7 +42,7 @@ import {
   mountObservationCenterMap,
   preserveObservationCenterMapState,
 } from './app/observation_center_map';
-import { mountSkyView, preserveSkyViewState } from './app/sky';
+import { mountSkyView, preserveSkyViewState, resolveSkyTargetCoordinates } from './app/sky';
 import {
   renderAppShell,
   type AppState,
@@ -554,6 +555,7 @@ function bindForms(): void {
   const activeSiteForm = rootElement.querySelector<HTMLFormElement>('[data-form="active-site"]');
   const siteEditorForm = rootElement.querySelector<HTMLFormElement>('[data-form="site-editor"]');
   const createMosaicForm = rootElement.querySelector<HTMLFormElement>('[data-form="create-mosaic"]');
+  const updateMosaicPlanForm = rootElement.querySelector<HTMLFormElement>('[data-form="update-mosaic-plan"]');
   const updateMosaicPanelStatusForm = rootElement.querySelector<HTMLFormElement>('[data-form="update-mosaic-panel-status"]');
 
   createForm?.addEventListener('submit', (event) => {
@@ -594,6 +596,11 @@ function bindForms(): void {
   createMosaicForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void handleCreateMosaic(createMosaicForm);
+  });
+
+  updateMosaicPlanForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void handleUpdateMosaicPlan(updateMosaicPlanForm);
   });
 
   updateMosaicPanelStatusForm?.addEventListener('submit', (event) => {
@@ -1043,6 +1050,8 @@ async function handleCreateMosaic(form: HTMLFormElement): Promise<void> {
       project_slug: state.selectedProject.slug,
       name: String(formData.get('name') ?? '').trim() || 'New mosaic',
       target_name: normalizeOptionalText(formData.get('target_name')),
+      observation_type: normalizeOptionalText(formData.get('observation_type')),
+      filter: normalizeOptionalText(formData.get('filter')),
       imaging_profile_id: profile?.profile_id,
       imaging_profile_label: profile?.label,
       fov_width_deg: profile?.fov_width_deg ?? undefined,
@@ -1059,6 +1068,44 @@ async function handleCreateMosaic(form: HTMLFormElement): Promise<void> {
     syncSelectedMosaic();
     state.astronomicalConditions = await loadActiveAstronomicalConditions();
     setMessage(`Mosaic created: ${mosaic.name}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleUpdateMosaicPlan(form: HTMLFormElement): Promise<void> {
+  const mosaicId = String(new FormData(form).get('mosaic_id') ?? '').trim();
+  if (!mosaicId) {
+    setError('Select a mosaic first.');
+    return;
+  }
+
+  const current =
+    state.mosaics.find((mosaic) => mosaic.id === mosaicId)
+    ?? (state.selectedMosaicId ? state.mosaics.find((mosaic) => mosaic.id === state.selectedMosaicId) : null)
+    ?? null;
+  if (!current) {
+    setError('Selected mosaic is no longer available.');
+    return;
+  }
+
+  const formData = new FormData(form);
+  setBusy(true);
+  try {
+    const updated = await updateMosaicPlan(mosaicId, {
+      name: String(formData.get('name') ?? '').trim() || current.name,
+      target_name: normalizeOptionalText(formData.get('target_name')),
+      observation_type: normalizeOptionalText(formData.get('observation_type')),
+      filter: normalizeOptionalText(formData.get('filter')),
+      status: normalizeOptionalText(formData.get('status')) ?? current.status,
+    });
+    replaceMosaicInState(updated);
+    state.selectedMosaicId = updated.id;
+    syncSelectedMosaic();
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
+    setMessage(`Mosaic updated: ${updated.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
   } finally {
@@ -1917,7 +1964,7 @@ async function loadActiveSiteForecast() {
   }
 
   try {
-    return await fetchSiteForecast(state.activeSiteId);
+    return await fetchSiteForecast(state.activeSiteId, 24);
   } catch {
     return null;
   }
@@ -1951,7 +1998,7 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         mosaic_panel_id: selectedPanel.id,
         min_target_altitude_deg: 30,
-        forecast_hours: 12,
+        forecast_hours: 24,
       });
     }
 
@@ -1960,14 +2007,37 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         use_planned_pointing: true,
         min_target_altitude_deg: 30,
-        forecast_hours: 12,
+        forecast_hours: 24,
+      });
+    }
+
+    if (state.selectedProject?.sky_target) {
+      const resolvedCoordinates = await resolveSkyTargetCoordinates(state.selectedProject.sky_target).catch(() => null);
+      if (resolvedCoordinates) {
+        return await fetchAstronomicalConditions({
+          site_id: state.activeSiteId,
+          target_name: state.selectedProject.sky_target,
+          target_ra_deg: resolvedCoordinates.raDeg,
+          target_dec_deg: resolvedCoordinates.decDeg,
+          source_kind: 'project_sky_target',
+          source_id: state.selectedProject.slug,
+          min_target_altitude_deg: 30,
+          forecast_hours: 24,
+        });
+      }
+
+      return await fetchAstronomicalConditions({
+        site_id: state.activeSiteId,
+        target_name: state.selectedProject.sky_target,
+        min_target_altitude_deg: 30,
+        forecast_hours: 24,
       });
     }
 
     return await fetchAstronomicalConditions({
       site_id: state.activeSiteId,
       min_target_altitude_deg: 30,
-      forecast_hours: 12,
+      forecast_hours: 24,
     });
   } catch {
     return null;

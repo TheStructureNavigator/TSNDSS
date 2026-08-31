@@ -85,6 +85,13 @@ export type ProcessingDetailTab = 'overview' | 'logs' | 'settings';
 export type SkyDetailTab = 'telescope' | 'mosaic';
 export type ObservationCenterTab = 'sites' | 'conditions';
 
+const OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT = 35;
+const NIGHT_TIMELINE_REJECTION_REASONS = [
+  'Not astronomical night',
+  'Target below 30°',
+  'Cloud cover above threshold',
+] as const;
+
 export function renderAppShell(state: AppState): string {
   const appVersion = state.coreContent?.current_version ?? 'dev';
   const primaryProject = state.selectedProject ?? state.projects[0] ?? null;
@@ -900,130 +907,74 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
         <h3>Conditions</h3>
         <span>${escapeHtml(activeSite.name)}</span>
       </div>
-      <div class="project-summary-strip project-summary-strip--weather-primary">
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Sky state</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatSkyState(currentAstronomy?.sky_state))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Sun altitude</span>
-          <span class="project-summary-strip__value">${formatAngleValue(currentAstronomy?.sun_altitude_deg)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Astronomical night</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Moon phase</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatMoonPhase(currentAstronomy?.moon_phase_label, currentAstronomy?.moon_illumination_pct))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Moon altitude</span>
-          <span class="project-summary-strip__value">${formatAngleValue(currentAstronomy?.moon_altitude_deg)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Temperature</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.temperature_c, '°C')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Dew point</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.dew_point_c, '°C')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Dew margin</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.dew_margin_c, '°C')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Dew risk</span>
-          <span class="project-summary-strip__value">${formatDewRisk(currentWeather?.dew_risk)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Clouds total</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_pct, '%')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">High clouds</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_high_pct, '%')}</span>
-        </div>
+      ${renderConditionsMetadata([
+        ['Site', activeSite.name],
+        ['Provider', [forecast?.provider, astronomy?.provider].filter(Boolean).join(' + ') || 'pending'],
+        ['Timezone', forecast?.timezone ?? 'UTC / browser local view'],
+        ['Updated', formatTimestampDisplay(currentAstronomy?.time_utc ?? currentWeather?.time ?? forecast?.generated_at ?? null)],
+      ])}
+      <div class="conditions-grid conditions-grid--summary">
+        ${renderConditionCard('Current sky', formatSkyState(currentAstronomy?.sky_state))}
+        ${renderConditionCard('Target', currentAstronomy?.target?.target_name ?? 'Site only')}
+        ${renderConditionCard('Dew risk', formatDewRisk(currentWeather?.dew_risk))}
+        ${renderConditionCard('Clouds', formatWeatherValue(currentWeather?.cloud_cover_pct, '%'))}
+        ${renderConditionCard('Wind', formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg))}
+        ${renderConditionCard('Weather status', formatConditionSummary(currentWeather?.condition_code, currentWeather?.is_day))}
       </div>
-      <div class="project-summary-strip project-summary-strip--weather-secondary">
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Low clouds</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_low_pct, '%')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Mid clouds</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.cloud_cover_mid_pct, '%')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Visibility</span>
-          <span class="project-summary-strip__value">${formatDistanceMeters(currentWeather?.visibility_m)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Surface pressure</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.surface_pressure_hpa, 'hPa')}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Wind</span>
-          <span class="project-summary-strip__value">${formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Precipitation</span>
-          <span class="project-summary-strip__value">${formatWeatherValue(currentWeather?.precipitation_mm, 'mm')}</span>
-        </div>
-      </div>
-      <div class="project-summary-strip project-summary-strip--weather-secondary">
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Moon rise / set</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.moonrise_utc, currentAstronomy?.moonset_utc))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Sun set / rise</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.sunset_utc, currentAstronomy?.sunrise_utc))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Civil twilight</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.civil_twilight_evening_end_utc, currentAstronomy?.civil_twilight_morning_start_utc))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Nautical twilight</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatTimeRange(currentAstronomy?.nautical_twilight_evening_end_utc, currentAstronomy?.nautical_twilight_morning_start_utc))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Weather status</span>
-          <span class="project-summary-strip__value">${escapeHtml(formatConditionSummary(currentWeather?.condition_code, currentWeather?.is_day))}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Timezone</span>
-          <span class="project-summary-strip__value">${escapeHtml(forecast?.timezone ?? 'UTC / browser local view')}</span>
-        </div>
-      </div>
-      ${renderAstronomicalTargetSummary(currentAstronomy?.target ?? null, astronomy?.min_target_altitude_deg ?? 30)}
-      <div class="run-log-meta">
-        <div class="run-log-meta__row">
-          <span class="run-log-meta__label">provider</span>
-          <span class="run-log-meta__value">${escapeHtml([forecast?.provider, astronomy?.provider].filter(Boolean).join(' + ') || 'pending')}</span>
-        </div>
-        <div class="run-log-meta__row">
-          <span class="run-log-meta__label">time</span>
-          <span class="run-log-meta__value">${escapeHtml(formatTimestampDisplay(currentAstronomy?.time_utc ?? currentWeather?.time ?? forecast?.generated_at ?? null))}</span>
-        </div>
-        <div class="run-log-meta__row">
-          <span class="run-log-meta__label">target</span>
-          <span class="run-log-meta__value">${escapeHtml(currentAstronomy?.target?.target_name ?? 'No target context selected')}</span>
-        </div>
-        <div class="run-log-meta__row">
-          <span class="run-log-meta__label">source</span>
-          <span class="run-log-meta__value">${escapeHtml(currentAstronomy?.target?.source_kind ?? 'site only')}</span>
-        </div>
+      <div class="conditions-sections">
+        ${renderConditionSection(
+          'Sky darkness',
+          [
+            ['Sky state', formatSkyState(currentAstronomy?.sky_state)],
+            ['Sun altitude', formatAngleValue(currentAstronomy?.sun_altitude_deg)],
+            ['Astronomical night', formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc)],
+            ['Sun set / rise', formatTimeRange(currentAstronomy?.sunset_utc, currentAstronomy?.sunrise_utc)],
+            ['Civil twilight', formatTimeRange(currentAstronomy?.civil_twilight_evening_end_utc, currentAstronomy?.civil_twilight_morning_start_utc)],
+            ['Nautical twilight', formatTimeRange(currentAstronomy?.nautical_twilight_evening_end_utc, currentAstronomy?.nautical_twilight_morning_start_utc)],
+          ],
+        )}
+        ${renderAstronomicalTargetSummary(currentAstronomy?.target ?? null, astronomy?.min_target_altitude_deg ?? 30)}
+        ${renderConditionSection(
+          'Moon',
+          [
+            ['Phase', formatMoonPhase(currentAstronomy?.moon_phase_label, currentAstronomy?.moon_illumination_pct)],
+            ['Moon altitude', formatAngleValue(currentAstronomy?.moon_altitude_deg)],
+            ['Moon rise / set', formatTimeRange(currentAstronomy?.moonrise_utc, currentAstronomy?.moonset_utc)],
+          ],
+        )}
+        ${renderConditionSection(
+          'Weather',
+          [
+            ['Temperature', formatWeatherValue(currentWeather?.temperature_c, '°C')],
+            ['Humidity', formatWeatherValue(currentWeather?.relative_humidity_pct, '%')],
+            ['Dew point', formatWeatherValue(currentWeather?.dew_point_c, '°C')],
+            ['Dew margin', formatWeatherValue(currentWeather?.dew_margin_c, '°C')],
+            ['Visibility', formatDistanceMeters(currentWeather?.visibility_m)],
+            ['Surface pressure', formatWeatherValue(currentWeather?.surface_pressure_hpa, 'hPa')],
+            ['Wind', formatWind(currentWeather?.wind_speed_kmh, currentWeather?.wind_direction_deg)],
+            ['Gusts', formatWeatherValue(currentWeather?.wind_gusts_kmh, 'km/h')],
+            ['Precipitation', formatWeatherValue(currentWeather?.precipitation_mm, 'mm')],
+            ['Precip chance', formatWeatherValue(currentWeather?.precipitation_probability_pct, '%')],
+          ],
+        )}
+        ${renderConditionSection(
+          'Cloud layers',
+          [
+            ['Total', formatWeatherValue(currentWeather?.cloud_cover_pct, '%')],
+            ['Low', formatWeatherValue(currentWeather?.cloud_cover_low_pct, '%')],
+            ['Mid', formatWeatherValue(currentWeather?.cloud_cover_mid_pct, '%')],
+            ['High', formatWeatherValue(currentWeather?.cloud_cover_high_pct, '%')],
+          ],
+        )}
       </div>
     </article>
 
     <article class="panel">
       <div class="panel__header">
-        <h3>Next hours</h3>
+        <h3>Next 24 hours</h3>
         <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
       </div>
+      ${renderConditionsTimeline(state, forecast, astronomy)}
       ${renderConditionsHourlyTable(forecast, astronomy)}
     </article>
   `;
@@ -1034,59 +985,431 @@ function renderAstronomicalTargetSummary(
   minTargetAltitudeDeg: number,
 ): string {
   if (!target) {
-    return `
-      <div class="run-log-meta">
-        <div class="run-log-meta__row">
-          <span class="run-log-meta__label">target visibility</span>
-          <span class="run-log-meta__value">Select a planned pointing or mosaic panel to see target-specific conditions.</span>
-        </div>
-      </div>
-    `;
+    return renderConditionSection('Target visibility', [
+      ['Target', 'Select a planned pointing, mosaic panel, or project sky target to see target-specific conditions.'],
+    ]);
   }
 
+  return renderConditionSection('Target visibility', [
+    ['Target', target.target_name ?? 'Target'],
+    ['Source', target.source_kind ?? 'target'],
+    ['Alt / az', `${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`],
+    ['Airmass', formatAirmass(target.airmass)],
+    ['Transit', formatTimestampDisplay(target.transit_time_utc)],
+    ['Max altitude', formatAngleValue(target.max_altitude_deg)],
+    ['Moon separation', formatAngleValue(target.moon_separation_deg)],
+    ['Above horizon', formatObservationFlag(target.above_horizon)],
+    [`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold)],
+    ['Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status)],
+    ['Night observe window', formatWindowSummary(target.observation_window_start_utc, target.observation_window_end_utc, target.observation_window_status)],
+  ]);
+}
+
+function renderConditionsTimeline(
+  state: AppState,
+  forecast: SiteForecastSnapshot | null,
+  astronomy: AstronomicalConditionsSnapshot | null,
+): string {
+  const rowCount = Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0);
+  if (rowCount < 2) {
+    return '';
+  }
+
+  const currentAstronomy = astronomy?.current ?? null;
+  const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
+  const points = Array.from({ length: rowCount }, (_, index) => {
+    const weatherHour = forecast?.hourly[index] ?? null;
+    const astronomyHour = astronomy?.hourly[index] ?? null;
+    return {
+      index,
+      timeText: astronomyHour?.time_utc ?? weatherHour?.time ?? null,
+      timeMs: toTimestampMillis(astronomyHour?.time_utc ?? weatherHour?.time ?? null),
+      skyState: astronomyHour?.sky_state ?? null,
+      targetAltitudeDeg: astronomyHour?.target_altitude_deg ?? null,
+      moonAltitudeDeg: astronomyHour?.moon_altitude_deg ?? null,
+      cloudCoverPct: weatherHour?.cloud_cover_pct ?? null,
+      moonIlluminationPct: astronomyHour?.moon_illumination_pct ?? null,
+      moonTargetSeparationDeg: astronomyHour?.moon_target_separation_deg ?? null,
+      dewRisk: weatherHour?.dew_risk ?? null,
+      windSpeedKmh: weatherHour?.wind_speed_kmh ?? null,
+      windGustsKmh: weatherHour?.wind_gusts_kmh ?? null,
+    };
+  });
+
+  const validTimes = points
+    .map((point) => point.timeMs)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const startMs = validTimes[0] ?? 0;
+  const endMs = validTimes[validTimes.length - 1] ?? Math.max(1, rowCount - 1);
+  const spanMs = Math.max(endMs - startMs, 1);
+
+  const width = 960;
+  const height = 364;
+  const left = 64;
+  const right = 24;
+  const top = 30;
+  const altitudeTop = top;
+  const altitudeHeight = 134;
+  const cloudTop = 188;
+  const cloudHeight = 56;
+  const axisBottom = 268;
+  const innerWidth = width - left - right;
+  const minAltitude = -18;
+  const maxAltitude = 90;
+
+  const xAtPoint = (point: { index: number; timeMs: number | null }): number => {
+    if (point.timeMs != null && validTimes.length >= 2) {
+      return left + ((point.timeMs - startMs) / spanMs) * innerWidth;
+    }
+    return left + (point.index / Math.max(rowCount - 1, 1)) * innerWidth;
+  };
+
+  const xForTime = (value: string | null | undefined): number | null => {
+    const ms = toTimestampMillis(value);
+    if (ms == null || ms < startMs || ms > endMs) {
+      return null;
+    }
+    return left + ((ms - startMs) / spanMs) * innerWidth;
+  };
+
+  const altitudeY = (value: number): number => {
+    const clamped = Math.max(minAltitude, Math.min(maxAltitude, value));
+    return altitudeTop + ((maxAltitude - clamped) / (maxAltitude - minAltitude)) * altitudeHeight;
+  };
+
+  const cloudY = (value: number): number => {
+    const clamped = Math.max(0, Math.min(100, value));
+    return cloudTop + ((100 - clamped) / 100) * cloudHeight;
+  };
+
+  const stateColor = (value: string | null): string => {
+    switch (value) {
+      case 'day':
+        return 'rgba(124, 156, 198, 0.16)';
+      case 'civil_twilight':
+        return 'rgba(132, 122, 180, 0.22)';
+      case 'nautical_twilight':
+        return 'rgba(84, 98, 156, 0.28)';
+      case 'astronomical_twilight':
+        return 'rgba(54, 62, 108, 0.36)';
+      case 'astronomical_night':
+        return 'rgba(8, 12, 24, 0.72)';
+      default:
+        return 'rgba(255, 255, 255, 0.03)';
+    }
+  };
+
+  const observingFlags = points.map((point) => (
+    point.skyState === 'astronomical_night'
+    && point.targetAltitudeDeg != null
+    && Number.isFinite(point.targetAltitudeDeg)
+    && point.targetAltitudeDeg >= minTargetAltitudeDeg
+    && point.cloudCoverPct != null
+    && Number.isFinite(point.cloudCoverPct)
+    && point.cloudCoverPct <= OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT
+  ));
+
+  const rejectionReasonByPoint = points.map((point) => {
+    const reasons: string[] = [];
+    if (point.skyState !== 'astronomical_night') {
+      reasons.push('Not astronomical night');
+    }
+    if (
+      point.targetAltitudeDeg == null
+      || !Number.isFinite(point.targetAltitudeDeg)
+      || point.targetAltitudeDeg < minTargetAltitudeDeg
+    ) {
+      reasons.push(`Target below ${minTargetAltitudeDeg.toFixed(0)}°`);
+    }
+    if (
+      point.cloudCoverPct == null
+      || !Number.isFinite(point.cloudCoverPct)
+      || point.cloudCoverPct > OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT
+    ) {
+      reasons.push('Cloud cover above threshold');
+    }
+    return reasons;
+  });
+
+  let activeWindowStartIndex: number | null = null;
+  const observingWindows: Array<{ startIndex: number; endIndex: number; startMs: number; endMs: number }> = [];
+  for (let index = 0; index < observingFlags.length; index += 1) {
+    const isActive = observingFlags[index];
+    if (isActive && activeWindowStartIndex == null) {
+      activeWindowStartIndex = index;
+      continue;
+    }
+    if (!isActive && activeWindowStartIndex != null) {
+      const startPoint = points[activeWindowStartIndex];
+      const endPoint = points[index] ?? points[index - 1];
+      if (startPoint?.timeMs != null && endPoint?.timeMs != null) {
+        observingWindows.push({
+          startIndex: activeWindowStartIndex,
+          endIndex: index - 1,
+          startMs: startPoint.timeMs,
+          endMs: endPoint.timeMs,
+        });
+      }
+      activeWindowStartIndex = null;
+    }
+  }
+  if (activeWindowStartIndex != null) {
+    const startPoint = points[activeWindowStartIndex];
+    const lastPoint = points[points.length - 1];
+    if (startPoint?.timeMs != null && lastPoint?.timeMs != null) {
+      observingWindows.push({
+        startIndex: activeWindowStartIndex,
+        endIndex: points.length - 1,
+        startMs: startPoint.timeMs,
+        endMs: lastPoint.timeMs,
+      });
+    }
+  }
+  const observingWindow = observingWindows
+    .slice()
+    .sort((leftWindow, rightWindow) => {
+      const leftDuration = leftWindow.endMs - leftWindow.startMs;
+      const rightDuration = rightWindow.endMs - rightWindow.startMs;
+      if (rightDuration !== leftDuration) {
+        return rightDuration - leftDuration;
+      }
+      return leftWindow.startMs - rightWindow.startMs;
+    })[0] ?? null;
+  const observingWindowPoints = observingWindow
+    ? points.slice(observingWindow.startIndex, observingWindow.endIndex + 1)
+    : [];
+
+  const buildLinePath = (
+    selector: (point: typeof points[number]) => number | null,
+    yMapper: (value: number) => number,
+  ): string => {
+    let path = '';
+    let open = false;
+    for (const point of points) {
+      const value = selector(point);
+      if (value == null || !Number.isFinite(value)) {
+        open = false;
+        continue;
+      }
+      const x = xAtPoint(point);
+      const y = yMapper(value);
+      path += `${open ? ' L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      open = true;
+    }
+    return path;
+  };
+
+  const backgroundSegments = points
+    .map((point, index) => {
+      const nextPoint = points[index + 1];
+      const x1 = xAtPoint(point);
+      const x2 = nextPoint ? xAtPoint(nextPoint) : left + innerWidth;
+      return `<rect x="${x1.toFixed(2)}" y="${top}" width="${Math.max(1, x2 - x1).toFixed(2)}" height="${cloudTop + cloudHeight - top}" fill="${stateColor(point.skyState)}" />`;
+    })
+    .join('');
+
+  const observingWindowOverlay = observingWindow
+    ? (() => {
+        const startPoint = points[observingWindow.startIndex];
+        const endPoint = points[Math.min(observingWindow.endIndex + 1, points.length - 1)] ?? points[observingWindow.endIndex];
+        const x1 = xAtPoint(startPoint);
+        const x2 = Math.max(x1 + 8, xAtPoint(endPoint));
+        return `
+          <rect
+            class="conditions-timeline__observing-window"
+            x="${x1.toFixed(2)}"
+            y="${top}"
+            width="${Math.max(8, x2 - x1).toFixed(2)}"
+            height="${(axisBottom - top).toFixed(2)}"
+          />
+          <text
+            class="conditions-timeline__observing-label"
+            x="${((x1 + x2) / 2).toFixed(2)}"
+            y="${(top + 14).toFixed(2)}"
+            text-anchor="middle"
+          >Observing window</text>
+        `;
+      })()
+    : '';
+
+  const targetPath = buildLinePath((point) => point.targetAltitudeDeg, altitudeY);
+  const moonPath = buildLinePath((point) => point.moonAltitudeDeg, altitudeY);
+  const cloudBarWidth = Math.max(6, innerWidth / rowCount - 2);
+  const cloudBars = points
+    .map((point) => {
+      if (point.cloudCoverPct == null || !Number.isFinite(point.cloudCoverPct)) {
+        return '';
+      }
+      const x = xAtPoint(point) - cloudBarWidth / 2;
+      const y = cloudY(point.cloudCoverPct);
+      return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${cloudBarWidth.toFixed(2)}" height="${(cloudTop + cloudHeight - y).toFixed(2)}" rx="1" fill="rgba(203, 228, 255, 0.18)" />`;
+    })
+    .join('');
+
+  const rejectionBands = NIGHT_TIMELINE_REJECTION_REASONS
+    .map((reason, reasonIndex) => {
+      const y = axisBottom + 34 + reasonIndex * 16;
+      const height = 10;
+      const segments = points
+        .map((point, index) => {
+          if (observingFlags[index] || !rejectionReasonByPoint[index].includes(reason)) {
+            return '';
+          }
+          const nextPoint = points[index + 1];
+          const x1 = xAtPoint(point);
+          const x2 = nextPoint ? xAtPoint(nextPoint) : left + innerWidth;
+          return `<rect class="conditions-timeline__rejection-block" x="${x1.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(1, x2 - x1).toFixed(2)}" height="${height}" rx="1" />`;
+        })
+        .join('');
+
+      return `
+        <text class="conditions-timeline__rejection-label" x="${left - 8}" y="${(y + 8).toFixed(2)}" text-anchor="end">${escapeHtml(reason)}</text>
+        ${segments}
+      `;
+    })
+    .join('');
+
+  const guideLines = [60, minTargetAltitudeDeg, 0]
+    .map((value) => {
+      const y = altitudeY(value);
+      const className = value === minTargetAltitudeDeg ? 'conditions-timeline__threshold' : 'conditions-timeline__guide';
+      return `
+        <line class="${className}" x1="${left}" y1="${y.toFixed(2)}" x2="${(left + innerWidth).toFixed(2)}" y2="${y.toFixed(2)}" />
+        <text class="conditions-timeline__axis-label" x="${left - 8}" y="${(y + 4).toFixed(2)}" text-anchor="end">${value.toFixed(0)}°</text>
+      `;
+    })
+    .join('');
+
+  const cloudGuides = [100, 50, 0]
+    .map((value) => {
+      const y = cloudY(value);
+      return `
+        <line class="conditions-timeline__cloud-guide" x1="${left}" y1="${y.toFixed(2)}" x2="${(left + innerWidth).toFixed(2)}" y2="${y.toFixed(2)}" />
+        <text class="conditions-timeline__cloud-label" x="${left - 8}" y="${(y + 4).toFixed(2)}" text-anchor="end">${value}%</text>
+      `;
+    })
+    .join('');
+
+  const astronomicalNightEvents: Array<[string, number | null]> = [
+    ['Night start', xForTime(currentAstronomy?.astronomical_night_start_utc)],
+    ['Night end', xForTime(currentAstronomy?.astronomical_night_end_utc)],
+  ];
+  const astronomicalNightLines = astronomicalNightEvents
+    .map(([label, x], index) => {
+      if (x == null) {
+        return '';
+      }
+      const clampedX = Math.max(left + 34, Math.min(left + innerWidth - 34, x));
+      const textAnchor = index === 0 ? 'start' : 'end';
+      const textX = index === 0 ? clampedX + 6 : clampedX - 6;
+      return `
+        <line class="conditions-timeline__night-boundary" x1="${x.toFixed(2)}" y1="${top}" x2="${x.toFixed(2)}" y2="${axisBottom}" />
+        <text class="conditions-timeline__event-label conditions-timeline__event-label--night" x="${textX.toFixed(2)}" y="16" text-anchor="${textAnchor}">${escapeHtml(label)}</text>
+      `;
+    })
+    .join('');
+
+  const moonEvents: Array<[string, number | null]> = [
+    ['Moonrise', xForTime(currentAstronomy?.moonrise_utc)],
+    ['Moonset', xForTime(currentAstronomy?.moonset_utc)],
+  ];
+  const moonEventLines = moonEvents
+    .map(([label, x], index) => {
+      if (x == null) {
+        return '';
+      }
+      const clampedX = Math.max(left + 34, Math.min(left + innerWidth - 34, x));
+      const stackedY = axisBottom + 16 + index * 14;
+      return `
+        <line class="conditions-timeline__moon-event" x1="${x.toFixed(2)}" y1="${top}" x2="${x.toFixed(2)}" y2="${axisBottom}" />
+        <text class="conditions-timeline__event-label conditions-timeline__event-label--moon" x="${clampedX.toFixed(2)}" y="${stackedY.toFixed(2)}" text-anchor="middle">${escapeHtml(label)}</text>
+      `;
+    })
+    .join('');
+
+  const tickStep = Math.max(1, Math.ceil((rowCount - 1) / 6));
+  const tickIndexes = Array.from({ length: rowCount }, (_, index) => index)
+    .filter((index) => index === 0 || index === rowCount - 1 || index % tickStep === 0);
+  const axisTicks = tickIndexes
+    .map((index, tickIndex) => {
+      const point = points[index];
+      const x = xAtPoint(point);
+      const labelY = axisBottom + 18 + (tickIndex % 2) * 12;
+      return `
+        <line class="conditions-timeline__tick" x1="${x.toFixed(2)}" y1="${axisBottom}" x2="${x.toFixed(2)}" y2="${(axisBottom + 5).toFixed(2)}" />
+        <text class="conditions-timeline__tick-label" x="${x.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${escapeHtml(formatTimelineTick(point.timeText))}</text>
+      `;
+    })
+    .join('');
+
+  const rejectionSummary = NIGHT_TIMELINE_REJECTION_REASONS
+    .map((reason) => {
+      const count = rejectionReasonByPoint.filter((reasons, index) => !observingFlags[index] && reasons.includes(reason)).length;
+      if (count === 0) {
+        return '';
+      }
+      return `<span class="conditions-timeline__factor-item">${escapeHtml(reason)}</span>`;
+    })
+    .filter(Boolean)
+    .join('');
+
   return `
-    <div class="run-log-meta">
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">target</span>
-        <span class="run-log-meta__value">${escapeHtml(target.target_name ?? 'Target')}</span>
+    <section class="conditions-timeline">
+      <div class="conditions-timeline__legend">
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--day"></span>Day → twilight → night</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--target"></span>Target altitude</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--threshold"></span>${minTargetAltitudeDeg.toFixed(0)}° threshold</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--clouds"></span>Cloud cover</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--moon"></span>Moon altitude</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--night-boundary"></span>Night start / end</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--observing-window"></span>Observing window</span>
+        <span class="conditions-timeline__legend-item"><span class="conditions-timeline__swatch conditions-timeline__swatch--rejection"></span>Limiting factors</span>
       </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">alt / az</span>
-        <span class="run-log-meta__value">${escapeHtml(`${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`)}</span>
+      <div class="conditions-timeline__chart">
+        <svg class="conditions-timeline__svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Timeline of darkness, target altitude, moon altitude, cloud cover and observing window for the next 24 hours.">
+          <rect x="${left}" y="${top}" width="${innerWidth}" height="${cloudTop + cloudHeight - top}" fill="rgba(255,255,255,0.01)" />
+          ${backgroundSegments}
+          ${observingWindowOverlay}
+          ${guideLines}
+          ${cloudGuides}
+          <text class="conditions-timeline__track-label" x="12" y="${(altitudeTop + 14).toFixed(2)}">Altitude</text>
+          <text class="conditions-timeline__track-label" x="12" y="${(cloudTop + 14).toFixed(2)}">Cloud cover</text>
+          <rect x="${left}" y="${cloudTop}" width="${innerWidth}" height="${cloudHeight}" fill="rgba(255,255,255,0.015)" />
+          ${cloudBars}
+          ${astronomicalNightLines}
+          ${moonEventLines}
+          ${targetPath ? `<path class="conditions-timeline__line conditions-timeline__line--target" d="${targetPath}" />` : ''}
+          ${moonPath ? `<path class="conditions-timeline__line conditions-timeline__line--moon" d="${moonPath}" />` : ''}
+          <line class="conditions-timeline__axis" x1="${left}" y1="${axisBottom}" x2="${(left + innerWidth).toFixed(2)}" y2="${axisBottom}" />
+          ${axisTicks}
+          ${rejectionBands}
+        </svg>
       </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">airmass</span>
-        <span class="run-log-meta__value">${escapeHtml(formatAirmass(target.airmass))}</span>
+      <div class="conditions-timeline__summary">
+        <span class="conditions-timeline__summary-label">Observing window</span>
+        <strong class="conditions-timeline__summary-value">
+          ${escapeHtml(
+            observingWindow
+              ? formatObservingWindowRange(
+                  points[observingWindow.startIndex]?.timeText ?? null,
+                  points[Math.min(observingWindow.endIndex + 1, points.length - 1)]?.timeText
+                    ?? points[observingWindow.endIndex]?.timeText
+                    ?? null,
+                )
+              : 'No observing window',
+          )}
+        </strong>
+        <span class="conditions-timeline__summary-hint">
+          target ≥ ${minTargetAltitudeDeg.toFixed(0)}° · clouds ≤ ${OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT}%
+        </span>
       </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">transit</span>
-        <span class="run-log-meta__value">${escapeHtml(formatTimestampDisplay(target.transit_time_utc))}</span>
+      ${renderObservingWindowObservationContext(state, astronomy)}
+      ${renderObservingWindowConditions(observingWindowPoints)}
+      <div class="conditions-timeline__factors">
+        <span class="conditions-timeline__factors-label">Limiting factors</span>
+        ${rejectionSummary || '<span class="conditions-timeline__factors-empty">None inside the visible range.</span>'}
       </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">max altitude</span>
-        <span class="run-log-meta__value">${escapeHtml(formatAngleValue(target.max_altitude_deg))}</span>
-      </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">moon separation</span>
-        <span class="run-log-meta__value">${escapeHtml(formatAngleValue(target.moon_separation_deg))}</span>
-      </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">above horizon</span>
-        <span class="run-log-meta__value">${escapeHtml(formatObservationFlag(target.above_horizon))}</span>
-      </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">above ${minTargetAltitudeDeg.toFixed(0)}°</span>
-        <span class="run-log-meta__value">${escapeHtml(formatObservationFlag(target.above_observation_threshold))}</span>
-      </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">night horizon window</span>
-        <span class="run-log-meta__value">${escapeHtml(formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}</span>
-      </div>
-      <div class="run-log-meta__row">
-        <span class="run-log-meta__label">night observe window</span>
-        <span class="run-log-meta__value">${escapeHtml(formatWindowSummary(target.observation_window_start_utc, target.observation_window_end_utc, target.observation_window_status))}</span>
-      </div>
-    </div>
+    </section>
   `;
 }
 
@@ -1190,6 +1513,14 @@ function renderSkyMosaicSidebar(
           <input name="target_name" type="text" value="${escapeHtml(project.sky_target ?? '')}" placeholder="Cygnus Loop" />
         </label>
         <label class="field">
+          <span>Observation type</span>
+          <input name="observation_type" type="text" placeholder="broadband imaging" />
+        </label>
+        <label class="field">
+          <span>Filter</span>
+          <input name="filter" type="text" placeholder="L-Pro" />
+        </label>
+        <label class="field">
           <span>Center RA (deg)</span>
           <input name="center_ra_deg" type="text" placeholder="312.5" />
         </label>
@@ -1248,6 +1579,14 @@ function renderSkyMosaicSummary(selectedMosaic: MosaicPlan | null, selectedPanel
           <span class="project-summary-strip__value">${escapeHtml(selectedMosaic?.imaging_profile_label ?? 'none')}</span>
         </div>
         <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Observation</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedMosaic?.observation_type ?? '—')}</span>
+        </div>
+        <div class="project-summary-strip__item">
+          <span class="project-summary-strip__label">Filter</span>
+          <span class="project-summary-strip__value">${escapeHtml(selectedMosaic?.filter ?? '—')}</span>
+        </div>
+        <div class="project-summary-strip__item">
           <span class="project-summary-strip__label">Panels</span>
           <span class="project-summary-strip__value">${selectedMosaic?.panels.length ?? 0}</span>
         </div>
@@ -1272,8 +1611,49 @@ function renderSkyMosaicSummary(selectedMosaic: MosaicPlan | null, selectedPanel
           <span class="project-summary-strip__value">${escapeHtml(selectedPanel?.status ?? selectedMosaic?.status ?? 'none')}</span>
         </div>
       </div>
+      ${selectedMosaic ? renderSelectedMosaicPlanControls(selectedMosaic) : ''}
       ${selectedPanel ? renderSelectedMosaicPanelControls(selectedMosaic, selectedPanel) : ''}
     </div>
+  `;
+}
+
+function renderSelectedMosaicPlanControls(selectedMosaic: MosaicPlan): string {
+  return `
+    <article class="panel">
+      <div class="panel__header">
+        <h3>Mosaic details</h3>
+        <span>${escapeHtml(selectedMosaic.name)}</span>
+      </div>
+      <form class="sky-panel-status-form" data-form="update-mosaic-plan">
+        <input type="hidden" name="mosaic_id" value="${escapeHtml(selectedMosaic.id)}" />
+        <label class="field">
+          <span>Name</span>
+          <input name="name" type="text" value="${escapeHtml(selectedMosaic.name)}" />
+        </label>
+        <label class="field">
+          <span>Target name</span>
+          <input name="target_name" type="text" value="${escapeHtml(selectedMosaic.target_name ?? '')}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>Observation type</span>
+          <input name="observation_type" type="text" value="${escapeHtml(selectedMosaic.observation_type ?? '')}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>Filter</span>
+          <input name="filter" type="text" value="${escapeHtml(selectedMosaic.filter ?? '')}" placeholder="optional" />
+        </label>
+        <label class="field">
+          <span>Status</span>
+          <select name="status">
+            <option value="draft" ${selectedMosaic.status === 'draft' ? 'selected' : ''}>draft</option>
+            <option value="ready" ${selectedMosaic.status === 'ready' ? 'selected' : ''}>ready</option>
+            <option value="active" ${selectedMosaic.status === 'active' ? 'selected' : ''}>active</option>
+            <option value="archived" ${selectedMosaic.status === 'archived' ? 'selected' : ''}>archived</option>
+          </select>
+        </label>
+        <button class="action-button" type="submit">Save mosaic</button>
+      </form>
+    </article>
   `;
 }
 
@@ -2383,6 +2763,137 @@ function formatWindowSummary(
   return formatTimeRange(start, end);
 }
 
+function formatTimelineTick(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+  return timestamp.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function toTimestampMillis(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatObservingWindowRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start || !end) {
+    return 'No observing window';
+  }
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return `${start ?? '—'} → ${end ?? '—'}`;
+  }
+
+  const sameDay = startDate.toDateString() === endDate.toDateString();
+  const startLabel = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const endLabel = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) {
+    return `${startLabel} → ${endLabel}`;
+  }
+  return `${startDate.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} → ${endDate.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function renderObservingWindowConditions(
+  points: Array<{
+    moonIlluminationPct: number | null;
+    moonAltitudeDeg: number | null;
+    moonTargetSeparationDeg: number | null;
+    dewRisk: string | null;
+    windSpeedKmh: number | null;
+    windGustsKmh: number | null;
+  }>,
+): string {
+  if (!points.length) {
+    return '';
+  }
+
+  const moonAltitudes = points
+    .map((point) => point.moonAltitudeDeg)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const moonAboveHorizon = moonAltitudes.length
+    ? moonAltitudes.some((value) => value > 0)
+    : null;
+  const dewRisks = Array.from(
+    new Set(
+      points
+        .map((point) => point.dewRisk)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  return `
+    <div class="conditions-timeline__conditions">
+      <span class="conditions-timeline__summary-label">Observing conditions</span>
+      <div class="conditions-grid conditions-grid--window">
+        ${renderConditionCard('Moon illumination', formatValueRange(points.map((point) => point.moonIlluminationPct), (value) => `${value.toFixed(0)}%`))}
+        ${renderConditionCard('Moon altitude', `${formatValueRange(points.map((point) => point.moonAltitudeDeg), (value) => `${value.toFixed(1)}°`)}${moonAboveHorizon == null ? '' : ` · ${moonAboveHorizon ? 'above horizon' : 'below horizon'}`}`)}
+        ${renderConditionCard('Moon-target separation', formatValueRange(points.map((point) => point.moonTargetSeparationDeg), (value) => `${value.toFixed(1)}°`))}
+        ${renderConditionCard('Dew risk', dewRisks.length ? dewRisks.join(' → ') : '—')}
+        ${renderConditionCard('Wind', formatValueRange(points.map((point) => point.windSpeedKmh), (value) => `${value.toFixed(1)} km/h`))}
+        ${renderConditionCard('Gusts', formatValueRange(points.map((point) => point.windGustsKmh), (value) => `${value.toFixed(1)} km/h`))}
+      </div>
+    </div>
+  `;
+}
+
+function renderObservingWindowObservationContext(
+  state: AppState,
+  astronomy: AstronomicalConditionsSnapshot | null,
+): string {
+  const selectedMosaic =
+    (state.selectedMosaicId
+      ? state.mosaics.find((mosaic) => mosaic.id === state.selectedMosaicId)
+      : null)
+    ?? state.mosaics[0]
+    ?? null;
+  const target = astronomy?.current?.target ?? null;
+
+  const imagingProfile = selectedMosaic?.imaging_profile_label ?? null;
+  const observationType = selectedMosaic?.observation_type ?? null;
+  const filterName = selectedMosaic?.filter ?? null;
+
+  return `
+    <div class="conditions-timeline__conditions">
+      <span class="conditions-timeline__summary-label">Observation context</span>
+      <div class="conditions-grid conditions-grid--window">
+        ${renderConditionCard('Target', target?.target_name ?? 'No target context selected')}
+        ${renderConditionCard('Source', target?.source_kind ?? 'site only')}
+        ${renderConditionCard('Imaging profile', imagingProfile ?? 'Not available in current model')}
+        ${renderConditionCard('Observation type', observationType ?? 'Not available in current model')}
+        ${renderConditionCard('Filter', filterName ?? 'Not available in current model')}
+      </div>
+    </div>
+  `;
+}
+
+function formatValueRange(
+  values: Array<number | null | undefined>,
+  formatter: (value: number) => string,
+): string {
+  const filtered = values.filter((value): value is number => value != null && Number.isFinite(value));
+  if (!filtered.length) {
+    return '—';
+  }
+  const min = Math.min(...filtered);
+  const max = Math.max(...filtered);
+  if (Math.abs(max - min) < 0.05) {
+    return formatter(min);
+  }
+  return `${formatter(min)} → ${formatter(max)}`;
+}
+
 function formatConditionSummary(
   conditionCode: number | null | undefined,
   isDay: number | null | undefined,
@@ -2434,6 +2945,45 @@ function getConditionCodeLabel(conditionCode: number | null | undefined): string
     default:
       return conditionCode == null ? 'unknown' : `code ${conditionCode}`;
   }
+}
+
+function renderConditionSection(title: string, items: Array<[string, string]>): string {
+  return `
+    <section class="conditions-section">
+      <div class="panel__header panel__header--nested conditions-section__header">
+        <h3>${escapeHtml(title)}</h3>
+      </div>
+      <div class="conditions-grid">
+        ${items.map(([label, value]) => renderConditionCard(label, value)).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderConditionCard(label: string, value: string): string {
+  return `
+    <div class="conditions-card">
+      <span class="conditions-card__label">${escapeHtml(label)}</span>
+      <span class="conditions-card__value">${escapeHtml(value)}</span>
+    </div>
+  `;
+}
+
+function renderConditionsMetadata(items: Array<[string, string]>): string {
+  return `
+    <div class="conditions-meta">
+      ${items
+        .map(
+          ([label, value]) => `
+            <div class="conditions-meta__item">
+              <span class="conditions-meta__label">${escapeHtml(label)}</span>
+              <span class="conditions-meta__value">${escapeHtml(value)}</span>
+            </div>
+          `,
+        )
+        .join('')}
+    </div>
+  `;
 }
 
 function isPreviewableCaptureFile(fileEntry: CaptureFileEntry): boolean {

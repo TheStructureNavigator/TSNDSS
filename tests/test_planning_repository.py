@@ -58,6 +58,26 @@ class PlanningRepositoryTests(unittest.TestCase):
         self.repository.delete_target("target:ngc7000")
         self.assertIsNone(self.repository.get_target("target:ngc7000"))
 
+    def test_find_target_by_query_matches_name_and_catalog_id(self) -> None:
+        self.repository.create_target(
+            Target(
+                id="target:m31",
+                catalog="Messier",
+                catalog_id="M31",
+                name="Andromeda Galaxy",
+                ra_deg=10.6847083,
+                dec_deg=41.26875,
+            )
+        )
+
+        by_name = self.repository.find_target_by_query("Andromeda Galaxy")
+        by_catalog_id = self.repository.find_target_by_query("M31")
+
+        assert by_name is not None
+        assert by_catalog_id is not None
+        self.assertEqual(by_name.id, "target:m31")
+        self.assertEqual(by_catalog_id.id, "target:m31")
+
     def test_site_crud_round_trip(self) -> None:
         created = self.repository.create_site(
             Site(

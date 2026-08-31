@@ -199,7 +199,7 @@ class AstronomicalConditionsService:
         reference_time_utc: datetime | str | None = None,
         target: AstronomicalTargetContext | None = None,
         min_target_altitude_deg: float = 30.0,
-        forecast_hours: int = 12,
+        forecast_hours: int = 24,
     ) -> AstronomicalConditionsSnapshot:
         if site.latitude_deg is None or site.longitude_deg is None:
             raise ValueError("Site must define latitude and longitude before astronomical conditions can be calculated.")

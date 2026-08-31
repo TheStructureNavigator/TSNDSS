@@ -11,12 +11,14 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from tsn_dss.domain.models import Target
 from tsn_dss.engine.projects import ProjectStorage
+from tsn_dss.engine.sqlite import PlanningRepository, connect_database
 from tsn_dss.gui.http_api import create_http_server
 
 
 class FakeWeatherClient:
-    def fetch_site_forecast(self, site):
+    def fetch_site_forecast(self, site, *, forecast_hours=24):
         return type(
             "ForecastPayload",
             (),
@@ -332,6 +334,46 @@ class GuiApiServerTests(unittest.TestCase):
             self._read_json(f"/api/astronomical-conditions?site_id={site_id}")
 
         self.assertEqual(context.exception.code, 400)
+
+    def test_astronomical_conditions_endpoint_resolves_project_sky_target_name(self) -> None:
+        connection = connect_database(self.projects_root / "tsn_dss.db")
+        try:
+            PlanningRepository(connection).create_target(
+                Target(
+                    id="target:m31",
+                    catalog="Messier",
+                    catalog_id="M31",
+                    name="Andromeda Galaxy",
+                    ra_deg=10.6847083,
+                    dec_deg=41.26875,
+                )
+            )
+        finally:
+            connection.close()
+
+        self._send_json(
+            "/api/projects/orion_nebula/sky-target",
+            {"sky_target": "M31"},
+        )
+        created = self._send_json(
+            "/api/sites",
+            {
+                "name": "Remote Ridge",
+                "latitude_deg": 49.245,
+                "longitude_deg": 22.511,
+                "elevation_m": 640,
+            },
+        )
+        site_id = created["site"]["id"]
+
+        payload = self._read_json(
+            f"/api/astronomical-conditions?site_id={site_id}&target_name=M31&time_utc=2026-10-15T20:00:00Z&forecast_hours=2"
+        )
+
+        conditions = payload["conditions"]
+        self.assertEqual(conditions["target"]["target_name"], "Andromeda Galaxy")
+        self.assertEqual(conditions["target"]["source_kind"], "target")
+        self.assertEqual(conditions["current"]["target"]["source_id"], "target:m31")
 
     def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
         payload = self._read_json("/api/telescope/adapters")
@@ -711,6 +753,8 @@ class GuiApiServerTests(unittest.TestCase):
                 "project_slug": "orion_nebula",
                 "name": "Cygnus Loop",
                 "target_name": "Cygnus Loop",
+                "observation_type": "dual-band imaging",
+                "filter": "L-eXtreme",
                 "imaging_profile_id": "seestar_s30_pro",
                 "imaging_profile_label": "Seestar S30 Pro",
                 "fov_width_deg": 2.59,
@@ -726,10 +770,50 @@ class GuiApiServerTests(unittest.TestCase):
         created = payload["mosaic"]
         self.assertEqual(created["project_slug"], "orion_nebula")
         self.assertEqual(created["name"], "Cygnus Loop")
+        self.assertEqual(created["observation_type"], "dual-band imaging")
+        self.assertEqual(created["filter"], "L-eXtreme")
 
         listed = self._read_json("/api/mosaics?project_slug=orion_nebula")
         self.assertEqual(len(listed["mosaics"]), 1)
         self.assertEqual(listed["mosaics"][0]["id"], created["id"])
+        self.assertEqual(listed["mosaics"][0]["observation_type"], "dual-band imaging")
+        self.assertEqual(listed["mosaics"][0]["filter"], "L-eXtreme")
+
+    def test_mosaic_plan_can_be_updated_via_api(self) -> None:
+        created = self._send_json(
+            "/api/mosaics",
+            {
+                "project_slug": "orion_nebula",
+                "name": "Rosette",
+                "target_name": "Rosette Nebula",
+                "imaging_profile_id": "seestar_s30_pro",
+                "imaging_profile_label": "Seestar S30 Pro",
+                "fov_width_deg": 2.59,
+                "fov_height_deg": 1.47,
+                "center_ra_deg": 97.0,
+                "center_dec_deg": 4.95,
+                "region_width_deg": 3.0,
+                "region_height_deg": 3.0,
+                "overlap_percent": 25.0,
+            },
+        )["mosaic"]
+
+        updated = self._send_json(
+            f"/api/mosaics/{created['id']}",
+            {
+                "observation_type": "broadband imaging",
+                "filter": "UV/IR Cut",
+                "status": "ready",
+            },
+        )["mosaic"]
+
+        self.assertEqual(updated["observation_type"], "broadband imaging")
+        self.assertEqual(updated["filter"], "UV/IR Cut")
+        self.assertEqual(updated["status"], "ready")
+
+        reloaded = self._read_json(f"/api/mosaics/{created['id']}")["mosaic"]
+        self.assertEqual(reloaded["observation_type"], "broadband imaging")
+        self.assertEqual(reloaded["filter"], "UV/IR Cut")
 
     def test_mosaic_panels_can_be_generated_and_selected_via_api(self) -> None:
         payload = self._send_json(

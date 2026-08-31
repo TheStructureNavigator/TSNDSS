@@ -116,6 +116,50 @@ class PlanningRepository:
         ).fetchall()
         return [_row_to_target(row) for row in rows]
 
+    def find_target_by_query(self, query: str) -> Target | None:
+        normalized_query = str(query).strip()
+        if not normalized_query:
+            return None
+
+        row = self.connection.execute(
+            """
+            SELECT
+                id,
+                catalog,
+                catalog_id,
+                name,
+                ra_deg,
+                dec_deg,
+                object_type,
+                angular_major_arcmin,
+                angular_minor_arcmin,
+                distance_ly,
+                constellation,
+                notes
+            FROM targets
+            WHERE lower(name) = lower(?)
+               OR lower(catalog_id) = lower(?)
+               OR lower(catalog || ' ' || catalog_id) = lower(?)
+            ORDER BY
+                CASE
+                    WHEN lower(name) = lower(?) THEN 0
+                    WHEN lower(catalog_id) = lower(?) THEN 1
+                    ELSE 2
+                END,
+                name,
+                id
+            LIMIT 1;
+            """,
+            (
+                normalized_query,
+                normalized_query,
+                normalized_query,
+                normalized_query,
+                normalized_query,
+            ),
+        ).fetchone()
+        return _row_to_target(row) if row else None
+
     def update_target(self, target: Target) -> Target:
         _validate_target(target)
         with transaction(self.connection):

@@ -333,6 +333,8 @@ export type MosaicPlan = {
   project_slug: string;
   name: string;
   target_name: string | null;
+  observation_type: string | null;
+  filter: string | null;
   imaging_profile_id: string;
   imaging_profile_label: string;
   fov_width_deg: number;
@@ -369,8 +371,16 @@ export async function fetchSites(): Promise<{
   return getJson<{ active_site_id: string | null; sites: Site[] }>('/api/sites');
 }
 
-export async function fetchSiteForecast(siteId?: string | null): Promise<SiteForecastSnapshot> {
-  const suffix = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
+export async function fetchSiteForecast(siteId?: string | null, forecastHours = 24): Promise<SiteForecastSnapshot> {
+  const query = new URLSearchParams();
+  if (siteId) {
+    query.set('site_id', siteId);
+  }
+  if (forecastHours > 0) {
+    query.set('forecast_hours', String(forecastHours));
+  }
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
   const payload = await getJson<{ forecast: SiteForecastSnapshot }>(`/api/site-forecast${suffix}`);
   return payload.forecast;
 }
@@ -545,6 +555,8 @@ export async function createMosaicPlan(input: {
   project_slug: string;
   name: string;
   target_name?: string;
+  observation_type?: string | null;
+  filter?: string | null;
   imaging_profile_id?: string;
   imaging_profile_label?: string;
   fov_width_deg?: number;
@@ -558,6 +570,32 @@ export async function createMosaicPlan(input: {
   status?: string;
 }): Promise<MosaicPlan> {
   const payload = await sendJson<{ mosaic: MosaicPlan }>('/api/mosaics', input);
+  return payload.mosaic;
+}
+
+export async function updateMosaicPlan(mosaicId: string, input: {
+  project_slug?: string;
+  name?: string;
+  target_name?: string | null;
+  observation_type?: string | null;
+  filter?: string | null;
+  imaging_profile_id?: string;
+  imaging_profile_label?: string;
+  fov_width_deg?: number;
+  fov_height_deg?: number;
+  center_ra_deg?: number;
+  center_dec_deg?: number;
+  region_width_deg?: number;
+  region_height_deg?: number;
+  rotation_deg?: number;
+  overlap_percent?: number;
+  status?: string;
+  selected_panel_id?: string | null;
+}): Promise<MosaicPlan> {
+  const payload = await sendJson<{ mosaic: MosaicPlan }>(
+    `/api/mosaics/${encodeURIComponent(mosaicId)}`,
+    input,
+  );
   return payload.mosaic;
 }
 

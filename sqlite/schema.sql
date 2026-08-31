@@ -363,6 +363,8 @@ CREATE TABLE IF NOT EXISTS mosaic_plans (
     project_slug TEXT NOT NULL,
     name TEXT NOT NULL,
     target_name TEXT,
+    observation_type TEXT,
+    filter TEXT,
     imaging_profile_id TEXT NOT NULL,
     imaging_profile_label TEXT NOT NULL,
     fov_width_deg REAL NOT NULL CHECK (fov_width_deg > 0),

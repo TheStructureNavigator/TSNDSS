@@ -31,6 +31,46 @@ let mosaicOverlay: any = null;
 let selectedMosaicOverlay: any = null;
 let preservedFoVDeg: number | null = null;
 
+export async function resolveSkyTargetCoordinates(
+  targetName: string,
+): Promise<{ raDeg: number; decDeg: number } | null> {
+  const normalizedTarget = targetName.trim();
+  if (!normalizedTarget) {
+    return null;
+  }
+
+  const { default: A } = await import('aladin-lite');
+  await A.init;
+  const aladinApi = A as unknown as {
+    Utils?: {
+      Sesame?: {
+        resolveAstronomicalName?: (
+          targetName: string,
+          onSuccess: (coordinates: { ra?: number; dec?: number } | null | undefined) => void,
+          onError?: () => void,
+        ) => void;
+      };
+    };
+  };
+
+  return await new Promise((resolve) => {
+    aladinApi.Utils?.Sesame?.resolveAstronomicalName?.(
+      normalizedTarget,
+      (coordinates: { ra?: number; dec?: number } | null | undefined) => {
+        const raDeg = Number(coordinates?.ra);
+        const decDeg = Number(coordinates?.dec);
+        if (!Number.isFinite(raDeg) || !Number.isFinite(decDeg)) {
+          resolve(null);
+          return;
+        }
+        resolve({ raDeg, decDeg });
+      },
+      () => resolve(null),
+    );
+    window.setTimeout(() => resolve(null), 4000);
+  });
+}
+
 export function preserveSkyViewState(): void {
   if (!aladinInstance) {
     return;

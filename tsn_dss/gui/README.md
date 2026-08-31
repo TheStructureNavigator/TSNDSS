@@ -25,6 +25,7 @@ It currently exposes API behavior around:
 - project sky target updates
 - telescope state, planned pointing, simulator control, and adapter selection
 - mosaic CRUD and panel generation/selection
+- mosaic plan intent fields (`observation_type`, `filter`) surfaced to the frontend and Conditions context
 
 ## Why This Folder Exists
 

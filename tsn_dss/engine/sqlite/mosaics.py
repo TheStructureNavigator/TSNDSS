@@ -37,6 +37,8 @@ class MosaicRepository:
                         project_slug = ?,
                         name = ?,
                         target_name = ?,
+                        observation_type = ?,
+                        filter = ?,
                         imaging_profile_id = ?,
                         imaging_profile_label = ?,
                         fov_width_deg = ?,
@@ -56,6 +58,8 @@ class MosaicRepository:
                         plan.project_slug,
                         plan.name,
                         plan.target_name,
+                        plan.observation_type,
+                        plan.filter,
                         plan.imaging_profile_id,
                         plan.imaging_profile_label,
                         plan.fov_width_deg,
@@ -79,6 +83,8 @@ class MosaicRepository:
                         project_slug,
                         name,
                         target_name,
+                        observation_type,
+                        filter,
                         imaging_profile_id,
                         imaging_profile_label,
                         fov_width_deg,
@@ -91,13 +97,15 @@ class MosaicRepository:
                         overlap_percent,
                         status,
                         selected_panel_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     (
                         plan.id,
                         plan.project_slug,
                         plan.name,
                         plan.target_name,
+                        plan.observation_type,
+                        plan.filter,
                         plan.imaging_profile_id,
                         plan.imaging_profile_label,
                         plan.fov_width_deg,
@@ -126,6 +134,8 @@ class MosaicRepository:
                 project_slug,
                 name,
                 target_name,
+                observation_type,
+                filter,
                 imaging_profile_id,
                 imaging_profile_label,
                 fov_width_deg,
@@ -158,6 +168,8 @@ class MosaicRepository:
                     project_slug,
                     name,
                     target_name,
+                    observation_type,
+                    filter,
                     imaging_profile_id,
                     imaging_profile_label,
                     fov_width_deg,
@@ -182,6 +194,8 @@ class MosaicRepository:
                     project_slug,
                     name,
                     target_name,
+                    observation_type,
+                    filter,
                     imaging_profile_id,
                     imaging_profile_label,
                     fov_width_deg,
@@ -389,6 +403,8 @@ def ensure_mosaic_schema(connection: sqlite3.Connection) -> None:
             project_slug TEXT NOT NULL,
             name TEXT NOT NULL,
             target_name TEXT,
+            observation_type TEXT,
+            filter TEXT,
             imaging_profile_id TEXT NOT NULL,
             imaging_profile_label TEXT NOT NULL,
             fov_width_deg REAL NOT NULL CHECK (fov_width_deg > 0),
@@ -447,6 +463,8 @@ def ensure_mosaic_schema(connection: sqlite3.Connection) -> None:
         ON mosaic_panels (mosaic_plan_id, status);
         """
     )
+    _ensure_optional_column(connection, "mosaic_plans", "observation_type", "TEXT")
+    _ensure_optional_column(connection, "mosaic_plans", "filter", "TEXT")
 
 
 def _validate_mosaic_plan(plan: MosaicPlan) -> None:
@@ -570,6 +588,8 @@ def _row_to_mosaic_plan(row: sqlite3.Row, panels: list[MosaicPanel]) -> MosaicPl
         project_slug=row["project_slug"],
         name=row["name"],
         target_name=row["target_name"],
+        observation_type=row["observation_type"],
+        filter=row["filter"],
         imaging_profile_id=row["imaging_profile_id"],
         imaging_profile_label=row["imaging_profile_label"],
         fov_width_deg=row["fov_width_deg"],
@@ -602,4 +622,21 @@ def _row_to_mosaic_panel(row: sqlite3.Row) -> MosaicPanel:
         status=row["status"],
         target_integration_seconds=row["target_integration_seconds"],
         acquired_integration_seconds=row["acquired_integration_seconds"],
+    )
+
+
+def _ensure_optional_column(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_definition: str,
+) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name});").fetchall()
+    }
+    if column_name in columns:
+        return
+    connection.execute(
+        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition};"
     )

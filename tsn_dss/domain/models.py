@@ -248,5 +248,7 @@ class MosaicPlan:
     overlap_percent: float = 10.0
     status: str = "draft"
     target_name: str | None = None
+    observation_type: str | None = None
+    filter: str | None = None
     selected_panel_id: str | None = None
     panels: list[MosaicPanel] = field(default_factory=list)
