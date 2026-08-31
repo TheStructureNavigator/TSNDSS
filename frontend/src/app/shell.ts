@@ -1,5 +1,11 @@
 import iconUrl from '../assets/tsn_dss_icon.png';
 import {
+  assessObservingWindowConditions,
+  type ConditionAssessmentFactor,
+  type ObservationIntentContext,
+  type ObservingWindowConditionPoint,
+} from './conditions_assessment';
+import {
   type AstronomicalConditionsSnapshot,
   type CaptureDetails,
   type CaptureFileEntry,
@@ -1404,7 +1410,7 @@ function renderConditionsTimeline(
         </span>
       </div>
       ${renderObservingWindowObservationContext(state, astronomy)}
-      ${renderObservingWindowConditions(observingWindowPoints)}
+      ${renderObservingWindowConditions(observingWindowPoints, getObservationIntentContext(state))}
       <div class="conditions-timeline__factors">
         <span class="conditions-timeline__factors-label">Limiting factors</span>
         ${rejectionSummary || '<span class="conditions-timeline__factors-empty">None inside the visible range.</span>'}
@@ -2806,17 +2812,16 @@ function formatObservingWindowRange(start: string | null | undefined, end: strin
 }
 
 function renderObservingWindowConditions(
-  points: Array<{
-    moonIlluminationPct: number | null;
-    moonAltitudeDeg: number | null;
-    moonTargetSeparationDeg: number | null;
-    dewRisk: string | null;
-    windSpeedKmh: number | null;
-    windGustsKmh: number | null;
-  }>,
+  points: ObservingWindowConditionPoint[],
+  context: ObservationIntentContext,
 ): string {
   if (!points.length) {
-    return '';
+    return `
+      <div class="conditions-timeline__conditions">
+        <span class="conditions-timeline__summary-label">Observing conditions</span>
+        <p class="muted">No observing window is currently available, so there is nothing to assess yet.</p>
+      </div>
+    `;
   }
 
   const moonAltitudes = points
@@ -2832,9 +2837,19 @@ function renderObservingWindowConditions(
         .filter((value): value is string => Boolean(value)),
     ),
   );
+  const assessment = assessObservingWindowConditions(points, context);
 
   return `
     <div class="conditions-timeline__conditions">
+      <div class="conditions-overall">
+        <div class="conditions-overall__header">
+          <span class="conditions-timeline__summary-label">Overall assessment</span>
+          <span class="conditions-overall__status conditions-overall__status--${assessment.overall.status.toLowerCase()}">
+            ${escapeHtml(assessment.overall.status)}
+          </span>
+        </div>
+        <p class="conditions-overall__reason">${escapeHtml(assessment.overall.reason)}</p>
+      </div>
       <span class="conditions-timeline__summary-label">Observing conditions</span>
       <div class="conditions-grid conditions-grid--window">
         ${renderConditionCard('Moon illumination', formatValueRange(points.map((point) => point.moonIlluminationPct), (value) => `${value.toFixed(0)}%`))}
@@ -2843,6 +2858,16 @@ function renderObservingWindowConditions(
         ${renderConditionCard('Dew risk', dewRisks.length ? dewRisks.join(' → ') : '—')}
         ${renderConditionCard('Wind', formatValueRange(points.map((point) => point.windSpeedKmh), (value) => `${value.toFixed(1)} km/h`))}
         ${renderConditionCard('Gusts', formatValueRange(points.map((point) => point.windGustsKmh), (value) => `${value.toFixed(1)} km/h`))}
+      </div>
+      <div class="conditions-assessment">
+        <div class="conditions-assessment__header">
+          <span class="conditions-timeline__summary-label">Condition assessment</span>
+          <span class="conditions-assessment__profile">${escapeHtml(assessment.profileLabel)}</span>
+        </div>
+        <p class="conditions-assessment__note">${escapeHtml(assessment.contextNote)}</p>
+        <div class="conditions-assessment__grid">
+          ${assessment.factors.map((factor) => renderConditionAssessmentCard(factor)).join('')}
+        </div>
       </div>
     </div>
   `;
@@ -2874,6 +2899,34 @@ function renderObservingWindowObservationContext(
         ${renderConditionCard('Observation type', observationType ?? 'Not available in current model')}
         ${renderConditionCard('Filter', filterName ?? 'Not available in current model')}
       </div>
+    </div>
+  `;
+}
+
+function getObservationIntentContext(state: AppState): ObservationIntentContext {
+  const selectedMosaic =
+    (state.selectedMosaicId
+      ? state.mosaics.find((mosaic) => mosaic.id === state.selectedMosaicId)
+      : null)
+    ?? state.mosaics[0]
+    ?? null;
+
+  return {
+    observationType: selectedMosaic?.observation_type ?? null,
+    filterName: selectedMosaic?.filter ?? null,
+  };
+}
+
+function renderConditionAssessmentCard(factor: ConditionAssessmentFactor): string {
+  return `
+    <div class="conditions-assessment-card">
+      <div class="conditions-assessment-card__header">
+        <span class="conditions-assessment-card__label">${escapeHtml(factor.label)}</span>
+        <span class="conditions-assessment-card__status conditions-assessment-card__status--${factor.status}">
+          ${escapeHtml(factor.status)}
+        </span>
+      </div>
+      <p class="conditions-assessment-card__reason">${escapeHtml(factor.reason)}</p>
     </div>
   `;
 }

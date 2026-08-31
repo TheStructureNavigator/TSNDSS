@@ -1,6 +1,16 @@
 {
-  "current_version": "0.1.5",
+  "current_version": "0.1.6",
   "releases": [
+    {
+      "version": "0.1.6",
+      "date": "2026-08-31",
+      "changelog": [
+        "Extended MosaicPlan with optional observation_type and filter fields so observing intent can be stored at the plan level without breaking existing mosaics.",
+        "Added MosaicPlan create, read, and update support for the new intent fields across SQLite persistence, the local API, and the Sky mosaic editor UI.",
+        "Expanded Conditions with context-aware observing-condition assessment driven by Moon, dew, wind, and gusts inside the current observing window.",
+        "Added an overall GOOD / MODERATE / POOR assessment beside the observing window while keeping the detailed factor-by-factor assessment as an explainability layer."
+      ]
+    },
     {
       "version": "0.1.5",
       "date": "2026-08-30",
