@@ -39,6 +39,7 @@ import {
   type ProjectSummary,
 } from './app/api';
 import {
+  type LightPollutionLayerState,
   mountObservationCenterMap,
   preserveObservationCenterMapState,
 } from './app/observation_center_map';
@@ -84,6 +85,8 @@ const state: AppState = {
   health: null,
   sites: [],
   activeSiteId: null,
+  lightPollutionOverlayEnabled: false,
+  lightPollutionOverlayOpacity: 0.55,
   conditionsForecastDays: DEFAULT_CONDITIONS_FORECAST_DAYS,
   siteForecast: null,
   astronomicalConditions: null,
@@ -219,6 +222,7 @@ function render(): void {
   bindInlineProjectSkyTarget();
   bindSkyFollowToggle();
   bindConditionsControls();
+  bindLightPollutionControls();
   bindTelescopeAdapterForm();
   bindSiteEditorForm();
   bindSiteActions();
@@ -759,6 +763,26 @@ function bindConditionsControls(): void {
       state.selectedObservingWindowIndex = nextIndex;
       render();
     });
+  });
+}
+
+function bindLightPollutionControls(): void {
+  const toggle = rootElement.querySelector<HTMLInputElement>('[data-light-pollution-toggle]');
+  const opacityInput = rootElement.querySelector<HTMLInputElement>('[data-light-pollution-opacity]');
+  const opacityValue = rootElement.querySelector<HTMLElement>('[data-light-pollution-opacity-value]');
+
+  toggle?.addEventListener('change', () => {
+    state.lightPollutionOverlayEnabled = toggle.checked;
+    render();
+  });
+
+  opacityInput?.addEventListener('input', () => {
+    const nextOpacity = normalizeLightPollutionOpacity(opacityInput.value);
+    state.lightPollutionOverlayOpacity = nextOpacity;
+    if (opacityValue) {
+      opacityValue.textContent = `${Math.round(nextOpacity * 100)}%`;
+    }
+    void refreshObservationCenterMapLive();
   });
 }
 
@@ -1952,6 +1976,10 @@ async function refreshSkyViewLive(): Promise<void> {
 }
 
 async function refreshObservationCenterMapLive(): Promise<void> {
+  const lightPollutionLayer: LightPollutionLayerState = {
+    enabled: state.lightPollutionOverlayEnabled,
+    opacity: state.lightPollutionOverlayOpacity,
+  };
   await mountObservationCenterMap(
     'observation-center-map',
     state.sites,
@@ -1959,7 +1987,16 @@ async function refreshObservationCenterMapLive(): Promise<void> {
     (siteId) => {
       void handleSetActiveSiteById(siteId);
     },
+    lightPollutionLayer,
   );
+}
+
+function normalizeLightPollutionOpacity(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0.55;
+  }
+  return Math.max(0, Math.min(1, parsed));
 }
 
 async function loadActiveSiteForecast() {

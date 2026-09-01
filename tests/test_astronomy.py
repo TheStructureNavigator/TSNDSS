@@ -39,8 +39,11 @@ class AstronomicalConditionsServiceTests(unittest.TestCase):
         self.assertEqual(snapshot.provider, "tsn-dss-astronomy")
         self.assertEqual(len(snapshot.hourly), 4)
         self.assertIsNotNone(snapshot.current.sun_altitude_deg)
+        self.assertIsNotNone(snapshot.current.moon_azimuth_deg)
         self.assertIsNotNone(snapshot.current.moon_illumination_pct)
         self.assertIsNone(snapshot.current.target)
+        self.assertIn("moon_azimuth_deg", snapshot.hourly[0].to_dict())
+        self.assertIsNotNone(snapshot.hourly[0].moon_azimuth_deg)
 
     def test_fetch_conditions_for_target_returns_alt_az_airmass_and_windows(self) -> None:
         snapshot = self.service.fetch_conditions(

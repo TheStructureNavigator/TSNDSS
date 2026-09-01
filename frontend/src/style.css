@@ -910,6 +910,20 @@ pre {
   line-height: 1.3;
 }
 
+.conditions-grid--target-visibility {
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+}
+
+.conditions-grid--target-visibility .conditions-card {
+  min-height: 58px;
+  padding: 0.5rem 0.56rem;
+}
+
+.conditions-grid--target-visibility .conditions-card__value {
+  font-size: 0.8rem;
+}
+
 .conditions-timeline {
   display: flex;
   flex-direction: column;
@@ -1232,7 +1246,7 @@ pre {
 
 .conditions-target-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 1fr);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: 1rem;
   align-items: stretch;
 }
@@ -1265,7 +1279,7 @@ pre {
 
 .horizon-compass__svg {
   width: 100%;
-  max-width: 380px;
+  max-width: 520px;
   aspect-ratio: 1;
   align-self: center;
 }
@@ -1307,6 +1321,15 @@ pre {
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--color-accent) 34%, transparent));
 }
 
+.horizon-compass__moon-trajectory {
+  fill: none;
+  stroke: color-mix(in srgb, #bda4ff 42%, transparent);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 3 4;
+}
+
 .horizon-compass__crosshair,
 .horizon-compass__tick {
   stroke: color-mix(in srgb, var(--color-text-soft) 24%, transparent);
@@ -1315,6 +1338,22 @@ pre {
 
 .horizon-compass__hour-point {
   fill: color-mix(in srgb, var(--color-text-soft) 70%, transparent);
+}
+
+.horizon-compass__hour-point--below {
+  fill: color-mix(in srgb, var(--color-text-soft) 26%, transparent);
+  stroke: color-mix(in srgb, var(--color-text-soft) 20%, transparent);
+  stroke-width: 0.8;
+}
+
+.horizon-compass__moon-point {
+  fill: color-mix(in srgb, #bda4ff 58%, transparent);
+}
+
+.horizon-compass__moon-point--below {
+  fill: color-mix(in srgb, #bda4ff 24%, transparent);
+  stroke: color-mix(in srgb, #bda4ff 18%, transparent);
+  stroke-width: 0.7;
 }
 
 .horizon-compass__window-point {
@@ -1390,6 +1429,7 @@ pre {
 }
 
 .horizon-compass__altitude-badge,
+.horizon-compass__moon-badge,
 .horizon-compass__window-badge {
   display: inline-flex;
   align-items: center;
@@ -1399,6 +1439,12 @@ pre {
   background: color-mix(in srgb, var(--color-surface-panel-strong) 84%, transparent);
   color: var(--color-text-soft);
   font-size: 0.73rem;
+}
+
+.horizon-compass__moon-badge {
+  border-color: color-mix(in srgb, #bda4ff 34%, var(--color-border));
+  color: color-mix(in srgb, #d7caff 76%, var(--color-text-muted));
+  background: color-mix(in srgb, #bda4ff 8%, var(--color-surface-panel-strong));
 }
 
 .horizon-compass__window-badge {
@@ -2582,6 +2628,57 @@ pre {
   color: var(--color-accent);
 }
 
+.site-map-header {
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.site-map-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.55rem 0.7rem;
+  margin-left: auto;
+  color: var(--color-text-soft);
+}
+
+.site-map-controls__toggle,
+.site-map-controls__opacity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 30px;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-panel-strong) 84%, transparent);
+  font-size: 0.73rem;
+}
+
+.site-map-controls__toggle input {
+  margin: 0;
+}
+
+.site-map-controls__opacity input[type="range"] {
+  width: 96px;
+  accent-color: var(--color-accent);
+}
+
+.site-map-controls__opacity input[type="range"]:disabled {
+  opacity: 0.45;
+}
+
+.site-map-controls__provider {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.observation-map-light-pollution-layer {
+  mix-blend-mode: screen;
+}
+
 .observation-site-marker {
   display: grid;
   place-items: center;
@@ -2605,6 +2702,157 @@ pre {
   box-shadow:
     0 0 0 6px color-mix(in srgb, var(--color-accent) 22%, transparent),
     0 0 22px color-mix(in srgb, var(--color-accent) 38%, transparent);
+}
+
+.candidate-site-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.candidate-site-marker__ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, #f8d36b 88%, white 12%);
+  background: color-mix(in srgb, #f8d36b 12%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, #f8d36b 18%, transparent),
+    0 0 18px color-mix(in srgb, #f8d36b 34%, transparent);
+  transform: rotate(45deg);
+}
+
+.candidate-site-marker__cross {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+}
+
+.candidate-site-marker__cross::before,
+.candidate-site-marker__cross::after {
+  position: absolute;
+  content: '';
+  background: color-mix(in srgb, #f8d36b 78%, white 22%);
+}
+
+.candidate-site-marker__cross::before {
+  top: 5px;
+  left: 0;
+  width: 12px;
+  height: 2px;
+}
+
+.candidate-site-marker__cross::after {
+  top: 0;
+  left: 5px;
+  width: 2px;
+  height: 12px;
+}
+
+.candidate-site-popup__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  min-width: 220px;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.candidate-site-popup__content strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
+.candidate-site-popup__coordinate {
+  color: var(--color-text-soft);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.candidate-site-popup__section-title {
+  margin-top: 0.32rem;
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.candidate-site-popup__data {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+  margin: 0;
+}
+
+.candidate-site-popup__data div {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) minmax(0, 1.15fr);
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
+.candidate-site-popup__data dt {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.candidate-site-popup__data dd {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.candidate-site-popup__data dd small {
+  margin-left: 0.12rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.candidate-site-popup__content small {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.candidate-site-popup__loading {
+  color: var(--color-accent);
+  font-size: 0.72rem;
+}
+
+.candidate-site-popup__button,
+.candidate-site-control__button {
+  min-height: 28px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-panel-strong) 88%, transparent);
+  color: var(--color-text-soft);
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.candidate-site-popup__button {
+  margin-top: 0.2rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.candidate-site-popup__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.candidate-site-control__button {
+  min-width: 118px;
+  padding: 0.25rem 0.45rem;
+  cursor: pointer;
+}
+
+.candidate-site-control__button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .aladin-placeholder {

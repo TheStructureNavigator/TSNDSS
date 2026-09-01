@@ -53,6 +53,8 @@ export type AppState = {
   health: ApiHealth | null;
   sites: Site[];
   activeSiteId: string | null;
+  lightPollutionOverlayEnabled: boolean;
+  lightPollutionOverlayOpacity: number;
   conditionsForecastDays: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
@@ -113,6 +115,7 @@ type ConditionsTimelinePoint = {
   targetAltitudeDeg: number | null;
   targetAzimuthDeg: number | null;
   moonAltitudeDeg: number | null;
+  moonAzimuthDeg: number | null;
   cloudCoverPct: number | null;
   moonIlluminationPct: number | null;
   moonTargetSeparationDeg: number | null;
@@ -781,7 +784,7 @@ function renderObservationCenterView(state: AppState): string {
       <div class="project-detail-stack">
         ${state.observationCenterTab === 'conditions'
           ? renderObservationConditionsPanel(state, activeSite)
-          : renderObservationSitesPanel(activeSite)}
+          : renderObservationSitesPanel(state, activeSite)}
       </div>
     </section>
   `;
@@ -796,7 +799,7 @@ function renderObservationCenterTab(
   return `<button class="tab-strip__button${activeClass}" type="button" data-observation-center-tab="${tab}">${label}</button>`;
 }
 
-function renderObservationSitesPanel(activeSite: Site | null): string {
+function renderObservationSitesPanel(state: AppState, activeSite: Site | null): string {
   return `
     <article class="panel telescope-panel site-details-panel">
       <section class="site-details-layout">
@@ -825,8 +828,32 @@ function renderObservationSitesPanel(activeSite: Site | null): string {
         </div>
 
         <div class="site-details-map">
-          <div class="panel__header panel__header--nested">
+          <div class="panel__header panel__header--nested site-map-header">
             <h3>Site map</h3>
+            <div class="site-map-controls" aria-label="Map overlays">
+              <label class="site-map-controls__toggle">
+                <input
+                  type="checkbox"
+                  data-light-pollution-toggle
+                  ${state.lightPollutionOverlayEnabled ? 'checked' : ''}
+                />
+                <span>Light Pollution</span>
+              </label>
+              <label class="site-map-controls__opacity">
+                <span>Opacity</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="${state.lightPollutionOverlayOpacity}"
+                  data-light-pollution-opacity
+                  ${state.lightPollutionOverlayEnabled ? '' : 'disabled'}
+                />
+                <span data-light-pollution-opacity-value>${Math.round(state.lightPollutionOverlayOpacity * 100)}%</span>
+              </label>
+              <span class="site-map-controls__provider">ArtificialSkyBrightness</span>
+            </div>
           </div>
           <div id="observation-center-map" class="observation-map-container"></div>
         </div>
@@ -968,6 +995,7 @@ function renderAstronomicalTargetSummary(
   const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
   const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, selectedObservingWindowIndex);
   const observingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
+  const compassPoints = getHorizonCompassTimelinePoints(points, observingWindow);
 
   return `
     <section class="conditions-section">
@@ -975,7 +1003,7 @@ function renderAstronomicalTargetSummary(
         <h3>Target visibility</h3>
       </div>
       <div class="conditions-target-layout">
-        <div class="conditions-grid">
+        <div class="conditions-grid conditions-grid--target-visibility">
           ${renderConditionCard('Target', target.target_name ?? 'Target')}
           ${renderConditionCard('Source', target.source_kind ?? 'target')}
           ${renderConditionCard('Alt / az', `${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`)}
@@ -986,10 +1014,40 @@ function renderAstronomicalTargetSummary(
           ${renderConditionCard(`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold))}
           ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}
         </div>
-        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, points, observingWindow)}
+        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow)}
       </div>
     </section>
   `;
+}
+
+function getHorizonCompassTimelinePoints(
+  points: ConditionsTimelinePoint[],
+  observingWindow: ObservingWindowRange | null,
+): ConditionsTimelinePoint[] {
+  if (!observingWindow) {
+    return points.slice(0, 24);
+  }
+
+  const windowStartPoint = points[observingWindow.startIndex] ?? null;
+  if (windowStartPoint?.timeMs == null || !Number.isFinite(windowStartPoint.timeMs)) {
+    return points.slice(Math.max(0, observingWindow.startIndex - 12), observingWindow.endIndex + 13);
+  }
+
+  const windowStart = new Date(windowStartPoint.timeMs);
+  const dayStart = new Date(windowStart);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEndMs = dayStart.getTime() + 24 * 60 * 60 * 1000;
+  const dayStartMs = dayStart.getTime();
+  const sameDayPoints = points.filter((point) => (
+    point.timeMs != null
+    && Number.isFinite(point.timeMs)
+    && point.timeMs >= dayStartMs
+    && point.timeMs < dayEndMs
+  ));
+
+  return sameDayPoints.length > 0
+    ? sameDayPoints
+    : points.slice(Math.max(0, observingWindow.startIndex - 12), observingWindow.endIndex + 13);
 }
 
 function buildConditionsTimelinePoints(
@@ -1008,6 +1066,7 @@ function buildConditionsTimelinePoints(
       targetAltitudeDeg: astronomyHour?.target_altitude_deg ?? null,
       targetAzimuthDeg: astronomyHour?.target_azimuth_deg ?? null,
       moonAltitudeDeg: astronomyHour?.moon_altitude_deg ?? null,
+      moonAzimuthDeg: astronomyHour?.moon_azimuth_deg ?? null,
       cloudCoverPct: weatherHour?.cloud_cover_pct ?? null,
       moonIlluminationPct: astronomyHour?.moon_illumination_pct ?? null,
       moonTargetSeparationDeg: astronomyHour?.moon_target_separation_deg ?? null,
@@ -3092,11 +3151,11 @@ function renderHorizonCompass(
   const radius = 82;
   const currentProjectedPoint = altitude == null
     ? projectHorizonCompassPoint(normalizedAzimuth, 0, cx, cy, radius)
-    : projectHorizonCompassPoint(normalizedAzimuth, altitude, cx, cy, radius);
+    : projectHorizonCompassPoint(normalizedAzimuth, altitude, cx, cy, radius, { includeBelowHorizon: true });
   const markerX = currentProjectedPoint.x;
   const markerY = currentProjectedPoint.y;
   const directionLabel = formatCompassDirection(normalizedAzimuth);
-  const description = `${directionLabel} · ${normalizedAzimuth.toFixed(0)}° azimuth · ${altitude == null ? 'altitude unavailable' : `${altitude.toFixed(0)}° above horizon`}`;
+  const description = `${directionLabel} · ${normalizedAzimuth.toFixed(0)}° azimuth · ${formatAltitudeAboveBelow(altitude)}`;
   const cardinalPoints = [
     { label: 'N', azimuth: 0 },
     { label: 'NE', azimuth: 45 },
@@ -3114,24 +3173,42 @@ function renderHorizonCompass(
       && Number.isFinite(point.targetAzimuthDeg)
       && point.targetAltitudeDeg != null
       && Number.isFinite(point.targetAltitudeDeg)
-      && point.targetAltitudeDeg >= 0
     ))
     .map((point) => {
-      const projected = projectHorizonCompassPoint(point.targetAzimuthDeg as number, point.targetAltitudeDeg as number, cx, cy, radius);
+      const projected = projectHorizonCompassPoint(point.targetAzimuthDeg as number, point.targetAltitudeDeg as number, cx, cy, radius, { includeBelowHorizon: true });
       return {
         ...point,
         ...projected,
       };
     });
-  const trajectoryPath = buildCompassPath(trajectoryPoints);
+  const targetAboveHorizonPoints = trajectoryPoints.filter((point) => (point.targetAltitudeDeg ?? -90) >= 0);
+  const targetBelowHorizonPoints = trajectoryPoints.filter((point) => (point.targetAltitudeDeg ?? 0) < 0);
+  const moonTrajectoryPoints = timelinePoints
+    .filter((point) => (
+      point.moonAzimuthDeg != null
+      && Number.isFinite(point.moonAzimuthDeg)
+      && point.moonAltitudeDeg != null
+      && Number.isFinite(point.moonAltitudeDeg)
+    ))
+    .map((point) => {
+      const projected = projectHorizonCompassPoint(point.moonAzimuthDeg as number, point.moonAltitudeDeg as number, cx, cy, radius, { includeBelowHorizon: true });
+      return {
+        ...point,
+        ...projected,
+      };
+    });
+  const moonAboveHorizonPoints = moonTrajectoryPoints.filter((point) => (point.moonAltitudeDeg ?? -90) >= 0);
+  const moonBelowHorizonPoints = moonTrajectoryPoints.filter((point) => (point.moonAltitudeDeg ?? 0) < 0);
+  const trajectoryPath = buildCompassPath(targetAboveHorizonPoints);
+  const moonTrajectoryPath = buildCompassPath(moonAboveHorizonPoints);
   const observingWindowPath = buildCompassPath(
-    trajectoryPoints.filter((point) => (
+    targetAboveHorizonPoints.filter((point) => (
       observingWindow != null
       && point.index >= observingWindow.startIndex
       && point.index <= observingWindow.endIndex
     )),
   );
-  const observingWindowPoints = trajectoryPoints.filter((point) => (
+  const observingWindowPoints = targetAboveHorizonPoints.filter((point) => (
     observingWindow != null
     && point.index >= observingWindow.startIndex
     && point.index <= observingWindow.endIndex
@@ -3156,7 +3233,18 @@ function renderHorizonCompass(
         ${cardinalPoints.map((point) => renderHorizonCompassTick(point.azimuth, cx, cy, radius)).join('')}
         <line class="horizon-compass__crosshair" x1="${cx}" y1="${(cy - radius).toFixed(2)}" x2="${cx}" y2="${(cy + radius).toFixed(2)}" />
         <line class="horizon-compass__crosshair" x1="${(cx - radius).toFixed(2)}" y1="${cy}" x2="${(cx + radius).toFixed(2)}" y2="${cy}" />
+        ${targetBelowHorizonPoints.map((point) => `
+          <circle class="horizon-compass__hour-point horizon-compass__hour-point--below" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.7">
+            <title>${escapeHtml(`Target below horizon · ${formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg)}`)}</title>
+          </circle>
+        `).join('')}
+        ${moonBelowHorizonPoints.map((point) => `
+          <circle class="horizon-compass__moon-point horizon-compass__moon-point--below" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2">
+            <title>${escapeHtml(`Moon below horizon · ${formatHorizonCompassPointTitle(point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
+          </circle>
+        `).join('')}
         ${trajectoryPath ? `<path class="horizon-compass__trajectory" d="${trajectoryPath}" />` : ''}
+        ${moonTrajectoryPath ? `<path class="horizon-compass__moon-trajectory" d="${moonTrajectoryPath}" />` : ''}
         ${observingWindowPath ? `<path class="horizon-compass__trajectory horizon-compass__trajectory--window" d="${observingWindowPath}" />` : ''}
         ${observingWindowPoints.length > 0 && observingWindowPath.length === 0
           ? observingWindowPoints.map((point) => `
@@ -3167,9 +3255,14 @@ function renderHorizonCompass(
           <circle class="horizon-compass__window-start" cx="${observingWindowPoints[0]!.x.toFixed(2)}" cy="${observingWindowPoints[0]!.y.toFixed(2)}" r="4.2" />
           <circle class="horizon-compass__window-end" cx="${observingWindowPoints[observingWindowPoints.length - 1]!.x.toFixed(2)}" cy="${observingWindowPoints[observingWindowPoints.length - 1]!.y.toFixed(2)}" r="4.2" />
         ` : ''}
-        ${trajectoryPoints.map((point) => `
+        ${targetAboveHorizonPoints.map((point) => `
           <circle class="horizon-compass__hour-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3">
             <title>${escapeHtml(formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg))}</title>
+          </circle>
+        `).join('')}
+        ${moonAboveHorizonPoints.map((point) => `
+          <circle class="horizon-compass__moon-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.15">
+            <title>${escapeHtml(`Moon · ${formatHorizonCompassPointTitle(point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
           </circle>
         `).join('')}
         <circle class="horizon-compass__current-glow" cx="${markerX.toFixed(2)}" cy="${markerY.toFixed(2)}" r="10" />
@@ -3190,6 +3283,7 @@ function renderHorizonCompass(
       </svg>
       <div class="horizon-compass__footer">
         <span class="horizon-compass__altitude-badge">${escapeHtml(altitude == null ? 'Alt —' : `Alt ${altitude.toFixed(0)}°`)}</span>
+        ${moonTrajectoryPoints.length ? '<span class="horizon-compass__moon-badge">Moon path</span>' : ''}
         ${observingWindow ? '<span class="horizon-compass__window-badge">Bright path = observing window</span>' : ''}
       </div>
     </div>
@@ -3229,9 +3323,10 @@ function projectHorizonCompassPoint(
   cx: number,
   cy: number,
   radius: number,
+  options?: { includeBelowHorizon?: boolean },
 ): { x: number; y: number } {
   const normalizedAzimuth = normalizeAzimuth(azimuthDeg);
-  const distance = projectHorizonCompassRadius(altitudeDeg, radius);
+  const distance = projectHorizonCompassRadius(altitudeDeg, radius, options);
   const angleRad = ((normalizedAzimuth - 90) * Math.PI) / 180;
   return {
     x: cx + Math.cos(angleRad) * distance,
@@ -3239,8 +3334,13 @@ function projectHorizonCompassPoint(
   };
 }
 
-function projectHorizonCompassRadius(altitudeDeg: number, radius: number): number {
-  const normalizedAltitude = Math.max(0, Math.min(90, altitudeDeg));
+function projectHorizonCompassRadius(
+  altitudeDeg: number,
+  radius: number,
+  options?: { includeBelowHorizon?: boolean },
+): number {
+  const minimumAltitude = options?.includeBelowHorizon ? -18 : 0;
+  const normalizedAltitude = Math.max(minimumAltitude, Math.min(90, altitudeDeg));
   return radius * (1 - normalizedAltitude / 90);
 }
 
@@ -3277,6 +3377,16 @@ function formatHorizonCompassPointTitle(
     ? 'Az —'
     : `Az ${normalizeAzimuth(azimuthDeg).toFixed(0)}°`;
   return `${timeLabel} · ${altitudeLabel} · ${azimuthLabel}`;
+}
+
+function formatAltitudeAboveBelow(altitudeDeg: number | null): string {
+  if (altitudeDeg == null || !Number.isFinite(altitudeDeg)) {
+    return 'altitude unavailable';
+  }
+  if (altitudeDeg < 0) {
+    return `${Math.abs(altitudeDeg).toFixed(0)}° below horizon`;
+  }
+  return `${altitudeDeg.toFixed(0)}° above horizon`;
 }
 
 function formatValueRange(

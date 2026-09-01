@@ -92,6 +92,27 @@ export type SiteForecastSnapshot = {
   hourly: SiteForecastHour[];
 };
 
+export type LightPollutionMeasurementSnapshot = {
+  artificial_brightness_mcd_m2: number;
+  natural_sky_ratio: number;
+  estimated_total_brightness_mcd_m2: number;
+  estimated_sqm_mag_arcsec2: number;
+  estimated_bortle_class: number;
+};
+
+export type LightPollutionPointSnapshot = {
+  status: string;
+  provider_name: string;
+  dataset_name: string;
+  source: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  source_value: number | null;
+  source_unit: string | null;
+  measurement: LightPollutionMeasurementSnapshot | null;
+  message: string;
+};
+
 export type AstronomicalTargetContext = {
   target_name: string | null;
   ra_deg: number;
@@ -154,6 +175,7 @@ export type AstronomicalConditionsHour = {
   sky_state: string;
   sun_altitude_deg: number | null;
   moon_altitude_deg: number | null;
+  moon_azimuth_deg: number | null;
   moon_illumination_pct: number | null;
   target_altitude_deg: number | null;
   target_azimuth_deg: number | null;
@@ -383,6 +405,15 @@ export async function fetchSiteForecast(siteId?: string | null, forecastDays = 1
   const suffix = queryString ? `?${queryString}` : '';
   const payload = await getJson<{ forecast: SiteForecastSnapshot }>(`/api/site-forecast${suffix}`);
   return payload.forecast;
+}
+
+export async function fetchLightPollutionPoint(latitudeDeg: number, longitudeDeg: number): Promise<LightPollutionPointSnapshot> {
+  const query = new URLSearchParams({
+    lat: String(latitudeDeg),
+    lon: String(longitudeDeg),
+  });
+  const payload = await getJson<{ light_pollution: LightPollutionPointSnapshot }>(`/api/light-pollution?${query.toString()}`);
+  return payload.light_pollution;
 }
 
 export async function fetchAstronomicalConditions(input?: {

@@ -5,3 +5,6 @@ __pycache__/
 *.generated.db
 siril*
 projects
+data/light_pollution/*.tif
+data/light_pollution/*.tiff
+data/light_pollution/*.tpk

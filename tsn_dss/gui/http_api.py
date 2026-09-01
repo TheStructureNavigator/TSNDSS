@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
 
 from ..domain.models import MosaicPanel, MosaicPlan, Site
 from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
+from ..engine.light_pollution import LocalRasterLightPollutionProvider
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
@@ -45,6 +46,7 @@ class ApiContext:
     telescope_service: TelescopeStateService
     weather_client: OpenMeteoForecastClient
     astronomy_service: AstronomicalConditionsService
+    light_pollution_provider: LocalRasterLightPollutionProvider
 
     @property
     def storage(self) -> ProjectStorage:
@@ -67,6 +69,8 @@ def create_http_server(
     database_path: str | Path | None = None,
     weather_client: OpenMeteoForecastClient | None = None,
     astronomy_service: AstronomicalConditionsService | None = None,
+    light_pollution_raster_path: str | Path | None = None,
+    light_pollution_provider: LocalRasterLightPollutionProvider | None = None,
 ) -> ThreadingHTTPServer:
     """Create a local threaded API server wired to the project workspace and SQLite db."""
     resolved_projects_root = Path(projects_root)
@@ -83,6 +87,10 @@ def create_http_server(
         telescope_service=TelescopeStateService(),
         weather_client=weather_client or OpenMeteoForecastClient(),
         astronomy_service=astronomy_service or AstronomicalConditionsService(),
+        light_pollution_provider=light_pollution_provider
+        or LocalRasterLightPollutionProvider(
+            light_pollution_raster_path or os.environ.get("TSN_DSS_LIGHT_POLLUTION_RASTER")
+        ),
     )
     handler_class = _build_handler(context)
     return ThreadingHTTPServer((host, port), handler_class)
@@ -94,9 +102,16 @@ def run_server(
     port: int = 8765,
     projects_root: str | Path = "projects",
     database_path: str | Path | None = None,
+    light_pollution_raster_path: str | Path | None = None,
 ) -> None:
     """Run the local TSN DSS HTTP API until interrupted."""
-    server = create_http_server(host=host, port=port, projects_root=projects_root, database_path=database_path)
+    server = create_http_server(
+        host=host,
+        port=port,
+        projects_root=projects_root,
+        database_path=database_path,
+        light_pollution_raster_path=light_pollution_raster_path,
+    )
     print(
         f"TSN DSS API listening on http://{host}:{port} "
         f"(projects_root={Path(projects_root).resolve()})"
@@ -134,6 +149,30 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     HTTPStatus.OK,
                     _read_core_content(context.core_content_path),
                 )
+                return
+
+            if path == "/api/light-pollution":
+                try:
+                    latitude_deg = _coerce_required_float(self._get_query_param("lat"))
+                    longitude_deg = _coerce_required_float(self._get_query_param("lon"))
+                    light_pollution = context.light_pollution_provider.lookup(
+                        latitude_deg=latitude_deg,
+                        longitude_deg=longitude_deg,
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_light_pollution_request", "message": str(error)},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "light_pollution_provider_unavailable", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(HTTPStatus.OK, {"light_pollution": light_pollution.to_dict()})
                 return
 
             if path == "/api/sites":
@@ -1775,9 +1814,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--projects-root", default="projects")
     parser.add_argument("--database-path", default=None)
+    parser.add_argument(
+        "--light-pollution-raster",
+        default=None,
+        help="Optional local New World Atlas/Falchi 2016 GeoTIFF used for light pollution point lookup.",
+    )
     args = parser.parse_args(argv)
 
-    run_server(host=args.host, port=args.port, projects_root=args.projects_root, database_path=args.database_path)
+    run_server(
+        host=args.host,
+        port=args.port,
+        projects_root=args.projects_root,
+        database_path=args.database_path,
+        light_pollution_raster_path=args.light_pollution_raster,
+    )
     return 0
 
 

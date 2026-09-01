@@ -13,6 +13,7 @@ Current foundation already covers the main v0.1 domain flow:
 - `tsn_dss/engine/projects.py` — project, capture, and run folder layout
 - `tsn_dss/engine/project_processing.py` — TSN-managed Siril run workflow
 - `tsn_dss/engine/telescope.py` — telescope state service, simulator, adapter registry, Seestar adapter skeleton
+- `tsn_dss/engine/light_pollution.py` — local raster point lookup and light-pollution conversions
 - `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
 - `frontend/` — Vite + TypeScript web GUI
 - `docs/app/` — external app-facing content such as version, changelog, and TODO data
@@ -30,6 +31,7 @@ Current foundation already covers the main v0.1 domain flow:
 - project-local capture import and run workspace creation
 - headless Siril execution through the official CLI/script workflow
 - preview export and run artifact tracking
+- light-pollution map overlay plus optional local New World Atlas/Falchi 2016 point lookup
 - local HTTP API for projects, captures, runs, mosaics, and telescope state
 - web GUI for:
   - project creation and deletion
@@ -105,6 +107,25 @@ set "TSN_DSS_SIRIL_EXECUTABLE=C:\PATH\TO\siril-cli.exe"
 ```
 
 That value is then used as the default executable in the GUI run form.
+
+## Light Pollution Raster
+
+The Site map uses the public ArcGIS `ArtificialSkyBrightness` layer only as a visual overlay.
+Point data for a clicked Candidate Site is read independently from a local New World Atlas / Falchi 2016 GeoTIFF.
+
+TSN DSS does not download this large raster automatically. Configure it with either:
+
+```bash
+set TSN_DSS_LIGHT_POLLUTION_RASTER=C:\PATH\TO\NewWorldAtlas.tif
+```
+
+or:
+
+```bash
+py -m tsn_dss.gui.http_api --projects-root projects --light-pollution-raster C:\PATH\TO\NewWorldAtlas.tif
+```
+
+If the raster is not configured or missing, Candidate Site shows `Light pollution dataset unavailable` and the visual overlay still works.
 
 ## Main Reference Files
 

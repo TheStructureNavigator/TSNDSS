@@ -214,6 +214,21 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(payload["current_version"], payload["releases"][0]["version"])
         self.assertIn("todo", payload)
 
+    def test_light_pollution_endpoint_reports_missing_local_dataset(self) -> None:
+        payload = self._read_json("/api/light-pollution?lat=50.0&lon=18.0")
+
+        light_pollution = payload["light_pollution"]
+        self.assertEqual(light_pollution["status"], "dataset unavailable")
+        self.assertEqual(light_pollution["dataset_name"], "New World Atlas")
+        self.assertEqual(light_pollution["source"], "Falchi et al. 2016")
+        self.assertIsNone(light_pollution["measurement"])
+
+    def test_light_pollution_endpoint_rejects_invalid_coordinates(self) -> None:
+        with self.assertRaises(HTTPError) as context:
+            self._read_json("/api/light-pollution?lat=95.0&lon=18.0")
+
+        self.assertEqual(context.exception.code, 400)
+
     def test_sites_endpoint_supports_crud_and_active_site(self) -> None:
         created = self._send_json(
             "/api/sites",
@@ -326,6 +341,7 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(conditions["target"]["source_kind"], "manual")
         self.assertEqual(conditions["current"]["target"]["target_name"], "M31")
         self.assertEqual(len(conditions["hourly"]), 3)
+        self.assertIn("moon_azimuth_deg", conditions["hourly"][0])
 
     def test_astronomical_conditions_endpoint_rejects_missing_coordinates(self) -> None:
         created = self._send_json(

@@ -115,6 +115,7 @@ class AstronomicalConditionsHour:
     sky_state: str
     sun_altitude_deg: float | None
     moon_altitude_deg: float | None
+    moon_azimuth_deg: float | None
     moon_illumination_pct: float | None
     target_altitude_deg: float | None
     target_azimuth_deg: float | None
@@ -129,6 +130,7 @@ class AstronomicalConditionsHour:
             "sky_state": self.sky_state,
             "sun_altitude_deg": self.sun_altitude_deg,
             "moon_altitude_deg": self.moon_altitude_deg,
+            "moon_azimuth_deg": self.moon_azimuth_deg,
             "moon_illumination_pct": self.moon_illumination_pct,
             "target_altitude_deg": self.target_altitude_deg,
             "target_azimuth_deg": self.target_azimuth_deg,
@@ -378,6 +380,7 @@ def _compute_hour(
         sky_state=classify_sky_state(sun_altitude_deg),
         sun_altitude_deg=sun_altitude_deg,
         moon_altitude_deg=_coerce_optional_float(moon_altaz.alt.deg),
+        moon_azimuth_deg=_coerce_optional_float(moon_altaz.az.deg),
         moon_illumination_pct=_fraction_to_pct(_compute_moon_illumination_fraction(moment)),
         target_altitude_deg=target_altitude_deg,
         target_azimuth_deg=target_azimuth_deg,

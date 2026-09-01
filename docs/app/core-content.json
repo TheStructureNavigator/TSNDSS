@@ -1,6 +1,28 @@
 {
-  "current_version": "0.1.8",
+  "current_version": "0.1.10",
   "releases": [
+    {
+      "version": "0.1.10",
+      "date": "2026-09-01",
+      "changelog": [
+        "Added LP-4 local raster point lookup for Candidate Site light-pollution data using a configurable New World Atlas / Falchi 2016 GeoTIFF.",
+        "Added a backend /api/light-pollution endpoint that validates WGS84 coordinates, reads a single raster cell, handles missing datasets, nodata, and out-of-bounds points, and returns normalized TSN DSS data.",
+        "Separated the visual ArcGIS ArtificialSkyBrightness overlay from the local raster point-data provider so map rendering and point values can evolve independently.",
+        "Reused TSN DSS light-pollution conversions for artificial brightness, artificial/natural ratio, estimated total brightness, estimated SQM, and estimated Bortle class.",
+        "Updated Candidate Site popups to display New World Atlas/Falchi source metadata and a clear dataset-unavailable state when the local raster is not configured."
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-09-01",
+      "changelog": [
+        "Extended the Horizon Compass with a Moon trajectory using hourly Moon Alt/Az data from Astronomical Conditions.",
+        "Added smaller Moon points and subtle below-horizon points for both the target and Moon so hidden portions of each path remain visible without dominating the compass.",
+        "Reworked Target visibility into a narrower one-column metric panel so the Horizon Compass can use more horizontal space.",
+        "Limited compass trajectory rendering to the day containing the selected observing window, while keeping the observing window highlighted as the brighter path.",
+        "Kept a 24-hour compass fallback when no observing window is available."
+      ]
+    },
     {
       "version": "0.1.8",
       "date": "2026-09-01",
