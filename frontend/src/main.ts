@@ -76,7 +76,7 @@ let telescopePollTimer: number | null = null;
 let toastTimer: number | null = null;
 const TOAST_DURATION_MS = 3200;
 const THEME_STORAGE_KEY = 'tsn_dss_theme';
-const DEFAULT_CONDITIONS_FORECAST_HOURS = 24;
+const DEFAULT_CONDITIONS_FORECAST_DAYS = 1;
 
 // One shared application state keeps this no-framework UI predictable.
 const state: AppState = {
@@ -84,7 +84,7 @@ const state: AppState = {
   health: null,
   sites: [],
   activeSiteId: null,
-  conditionsForecastHours: DEFAULT_CONDITIONS_FORECAST_HOURS,
+  conditionsForecastDays: DEFAULT_CONDITIONS_FORECAST_DAYS,
   siteForecast: null,
   astronomicalConditions: null,
   projects: [],
@@ -117,6 +117,8 @@ const state: AppState = {
   createProjectModalOpen: false,
   createRunModalOpen: false,
   createImportCaptureModalOpen: false,
+  siteEditorModalOpen: false,
+  siteEditorSiteId: null,
 };
 
 void bootstrap();
@@ -218,7 +220,6 @@ function render(): void {
   bindSkyFollowToggle();
   bindConditionsControls();
   bindTelescopeAdapterForm();
-  bindActiveSiteForm();
   bindSiteEditorForm();
   bindSiteActions();
   hydrateSkySimulatorPanel();
@@ -556,7 +557,6 @@ function bindForms(): void {
   const startRunForm = rootElement.querySelector<HTMLFormElement>('[data-form="start-run"]');
   const skySimulatorForm = rootElement.querySelector<HTMLFormElement>('[data-form="sky-simulator"]');
   const telescopeAdapterForm = rootElement.querySelector<HTMLFormElement>('[data-form="telescope-adapter"]');
-  const activeSiteForm = rootElement.querySelector<HTMLFormElement>('[data-form="active-site"]');
   const siteEditorForm = rootElement.querySelector<HTMLFormElement>('[data-form="site-editor"]');
   const createMosaicForm = rootElement.querySelector<HTMLFormElement>('[data-form="create-mosaic"]');
   const updateMosaicPlanForm = rootElement.querySelector<HTMLFormElement>('[data-form="update-mosaic-plan"]');
@@ -587,11 +587,6 @@ function bindForms(): void {
     void handleTelescopeAdapterSwitch(telescopeAdapterForm);
   });
 
-  activeSiteForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void handleActiveSiteChange(activeSiteForm);
-  });
-
   siteEditorForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void handleSiteEditorSubmit(siteEditorForm);
@@ -613,39 +608,27 @@ function bindForms(): void {
   });
 }
 
-function bindActiveSiteForm(): void {
-  const form = rootElement.querySelector<HTMLFormElement>('[data-form="active-site"]');
-  if (!form) {
-    return;
-  }
-
-  const select = form.elements.namedItem('site_id');
-  if (select instanceof HTMLSelectElement) {
-    select.value = state.activeSiteId ?? '';
-  }
-}
-
 function bindSiteEditorForm(): void {
-  const clearButton = rootElement.querySelector<HTMLButtonElement>('[data-clear-site-editor]');
-  clearButton?.addEventListener('click', () => {
-    const form = rootElement.querySelector<HTMLFormElement>('[data-form="site-editor"]');
-    if (!form) {
-      return;
-    }
+  const openButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-open-site-editor-modal]');
+  openButtons.forEach((openButton) => openButton.addEventListener('click', () => {
+    state.observationCenterTab = 'sites';
+    state.siteEditorSiteId = openButton.dataset.openSiteEditorModal || null;
+    state.siteEditorModalOpen = true;
+    render();
+  }));
 
-    setFormFieldValue(form, 'site_id', '');
-    setFormFieldValue(form, 'name', '');
-    setFormFieldValue(form, 'latitude_deg', '');
-    setFormFieldValue(form, 'longitude_deg', '');
-    setFormFieldValue(form, 'elevation_m', '');
-    setFormFieldValue(form, 'sqm_mag_arcsec2', '');
-    setFormFieldValue(form, 'bortle_class', '');
-    setFormFieldValue(form, 'notes', '');
-
-    const southHorizonField = form.elements.namedItem('south_horizon_open');
-    if (southHorizonField instanceof HTMLInputElement) {
-      southHorizonField.checked = false;
-    }
+  const closeButtons = rootElement.querySelectorAll<HTMLElement>('[data-close-site-editor-modal]');
+  closeButtons.forEach((element) => {
+    element.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const modalCard = rootElement.querySelector<HTMLElement>('[data-site-editor-modal-card]');
+      if (modalCard && target && modalCard.contains(target) && !target.hasAttribute('data-close-site-editor-modal')) {
+        return;
+      }
+      state.siteEditorModalOpen = false;
+      state.siteEditorSiteId = null;
+      render();
+    });
   });
 }
 
@@ -746,19 +729,19 @@ function bindSkyFollowToggle(): void {
 }
 
 function bindConditionsControls(): void {
-  const hoursInput = rootElement.querySelector<HTMLInputElement>('[data-conditions-hours-range]');
-  const hoursValue = rootElement.querySelector<HTMLElement>('[data-conditions-hours-value]');
-  if (hoursInput && hoursValue) {
-    hoursInput.addEventListener('input', () => {
-      hoursValue.textContent = `${hoursInput.value}h`;
+  const daysInput = rootElement.querySelector<HTMLInputElement>('[data-conditions-days-range]');
+  const daysValue = rootElement.querySelector<HTMLElement>('[data-conditions-days-value]');
+  if (daysInput && daysValue) {
+    daysInput.addEventListener('input', () => {
+      daysValue.textContent = `${daysInput.value}d`;
     });
-    hoursInput.addEventListener('change', async () => {
-      const nextHours = Number.parseInt(hoursInput.value, 10);
-      if (!Number.isFinite(nextHours) || nextHours <= 0 || nextHours === state.conditionsForecastHours) {
-        hoursValue.textContent = `${state.conditionsForecastHours}h`;
+    daysInput.addEventListener('change', async () => {
+      const nextDays = Number.parseInt(daysInput.value, 10);
+      if (!Number.isFinite(nextDays) || nextDays <= 0 || nextDays === state.conditionsForecastDays) {
+        daysValue.textContent = `${state.conditionsForecastDays}d`;
         return;
       }
-      state.conditionsForecastHours = nextHours;
+      state.conditionsForecastDays = nextDays;
       state.selectedObservingWindowIndex = null;
       state.siteForecast = await loadActiveSiteForecast();
       state.astronomicalConditions = await loadActiveAstronomicalConditions();
@@ -1266,25 +1249,6 @@ async function handleSlewToPlannedPointing(): Promise<void> {
   }
 }
 
-async function handleActiveSiteChange(form: HTMLFormElement): Promise<void> {
-  const formData = new FormData(form);
-  const siteId = normalizeOptionalText(formData.get('site_id')) ?? null;
-
-  setBusy(true);
-  try {
-    const payload = await setActiveSite(siteId);
-    state.activeSiteId = payload.active_site_id;
-    state.telescopeSnapshot = payload.snapshot;
-    state.siteForecast = await loadActiveSiteForecast();
-    state.astronomicalConditions = await loadActiveAstronomicalConditions();
-    setMessage(siteId ? `Active site set: ${payload.snapshot.active_site?.name ?? siteId}` : 'Active site cleared.');
-  } catch (error) {
-    setError(getErrorMessage(error));
-  } finally {
-    setBusy(false);
-  }
-}
-
 async function handleSetActiveSiteById(siteId: string): Promise<void> {
   setBusy(true);
   try {
@@ -1334,6 +1298,8 @@ async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
     state.telescopeSnapshot = activePayload.snapshot;
     state.siteForecast = await loadActiveSiteForecast();
     state.astronomicalConditions = await loadActiveAstronomicalConditions();
+    state.siteEditorModalOpen = false;
+    state.siteEditorSiteId = null;
     setMessage(siteId ? `Site updated: ${savedSite.name}` : `Site created: ${savedSite.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
@@ -2002,7 +1968,7 @@ async function loadActiveSiteForecast() {
   }
 
   try {
-    return await fetchSiteForecast(state.activeSiteId, state.conditionsForecastHours);
+    return await fetchSiteForecast(state.activeSiteId, state.conditionsForecastDays);
   } catch {
     return null;
   }
@@ -2029,6 +1995,7 @@ async function loadActiveAstronomicalConditions() {
     ?? selectedMosaic?.panels[0]
     ?? null;
   const plannedPointing = state.telescopeSnapshot?.planned_pointing ?? null;
+  const forecastHours = state.conditionsForecastDays * 24;
 
   try {
     if (selectedPanel) {
@@ -2036,7 +2003,7 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         mosaic_panel_id: selectedPanel.id,
         min_target_altitude_deg: 30,
-        forecast_hours: state.conditionsForecastHours,
+        forecast_hours: forecastHours,
       });
     }
 
@@ -2045,7 +2012,7 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         use_planned_pointing: true,
         min_target_altitude_deg: 30,
-        forecast_hours: state.conditionsForecastHours,
+        forecast_hours: forecastHours,
       });
     }
 
@@ -2060,7 +2027,7 @@ async function loadActiveAstronomicalConditions() {
           source_kind: 'project_sky_target',
           source_id: state.selectedProject.slug,
           min_target_altitude_deg: 30,
-          forecast_hours: state.conditionsForecastHours,
+          forecast_hours: forecastHours,
         });
       }
 
@@ -2068,14 +2035,14 @@ async function loadActiveAstronomicalConditions() {
         site_id: state.activeSiteId,
         target_name: state.selectedProject.sky_target,
         min_target_altitude_deg: 30,
-        forecast_hours: state.conditionsForecastHours,
+        forecast_hours: forecastHours,
       });
     }
 
     return await fetchAstronomicalConditions({
       site_id: state.activeSiteId,
       min_target_altitude_deg: 30,
-      forecast_hours: state.conditionsForecastHours,
+      forecast_hours: forecastHours,
     });
   } catch {
     return null;

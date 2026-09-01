@@ -132,14 +132,14 @@ class OpenMeteoForecastClient:
     base_url = "https://api.open-meteo.com/v1/forecast"
     provider_name = "open-meteo"
 
-    def fetch_site_forecast(self, site: Site, *, forecast_hours: int = 24) -> SiteForecastSnapshot:
+    def fetch_site_forecast(self, site: Site, *, forecast_days: int = 1) -> SiteForecastSnapshot:
         if site.latitude_deg is None or site.longitude_deg is None:
             raise ValueError("Site must define latitude and longitude before forecast can be requested.")
 
         params = {
             "latitude": site.latitude_deg,
             "longitude": site.longitude_deg,
-            "forecast_hours": max(1, int(forecast_hours)),
+            "forecast_days": max(1, min(16, int(forecast_days))),
             "timezone": "auto",
             "temperature_unit": "celsius",
             "wind_speed_unit": "kmh",

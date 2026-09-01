@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from tsn_dss.domain.models import Site
@@ -72,10 +73,13 @@ class WeatherClientTests(unittest.TestCase):
             },
         }
 
-        with patch("tsn_dss.engine.weather.urlopen", return_value=_FakeResponse(payload)):
-            snapshot = OpenMeteoForecastClient().fetch_site_forecast(site)
+        with patch("tsn_dss.engine.weather.urlopen", return_value=_FakeResponse(payload)) as mocked_urlopen:
+            snapshot = OpenMeteoForecastClient().fetch_site_forecast(site, forecast_days=16)
 
         self.assertEqual(snapshot.provider, "open-meteo")
+        requested_query = parse_qs(urlsplit(mocked_urlopen.call_args.args[0]).query)
+        self.assertEqual(requested_query["forecast_days"], ["16"])
+        self.assertNotIn("forecast_hours", requested_query)
         self.assertEqual(snapshot.site_id, site.id)
         self.assertAlmostEqual(snapshot.current.dew_margin_c or 0.0, 2.3, places=3)
         self.assertEqual(snapshot.current.dew_risk, "moderate")

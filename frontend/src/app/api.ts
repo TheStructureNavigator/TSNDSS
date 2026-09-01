@@ -371,13 +371,13 @@ export async function fetchSites(): Promise<{
   return getJson<{ active_site_id: string | null; sites: Site[] }>('/api/sites');
 }
 
-export async function fetchSiteForecast(siteId?: string | null, forecastHours = 24): Promise<SiteForecastSnapshot> {
+export async function fetchSiteForecast(siteId?: string | null, forecastDays = 1): Promise<SiteForecastSnapshot> {
   const query = new URLSearchParams();
   if (siteId) {
     query.set('site_id', siteId);
   }
-  if (forecastHours > 0) {
-    query.set('forecast_hours', String(forecastHours));
+  if (forecastDays > 0) {
+    query.set('forecast_days', String(forecastDays));
   }
   const queryString = query.toString();
   const suffix = queryString ? `?${queryString}` : '';

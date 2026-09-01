@@ -1,6 +1,18 @@
 {
-  "current_version": "0.1.7",
+  "current_version": "0.1.8",
   "releases": [
+    {
+      "version": "0.1.8",
+      "date": "2026-09-01",
+      "changelog": [
+        "Changed the Conditions range control from hours to days and wired Open-Meteo requests to use forecast_days up to the 16-day API range.",
+        "Kept astronomical Conditions timeline requests hour-based internally by deriving forecast_hours from the selected number of forecast days.",
+        "Reworked Observation Center site selection into a top horizontal site bar with Create site aligned on the right.",
+        "Simplified Conditions so it uses the active site from Observation Center and can use the full workspace width without an extra site selector.",
+        "Rebuilt Sites into a cleaner details-and-map layout with site data on the left, the map on the right, and Create/Edit site handled through modal dialogs.",
+        "Fixed modal layering above the Leaflet map and cleaned redundant site/map header metadata from the Sites view."
+      ]
+    },
     {
       "version": "0.1.7",
       "date": "2026-08-31",
@@ -89,8 +101,7 @@
     }
   ],
   "todo": [
-    "Introduce observation sites with persistent coordinates and site metadata.",
-    "Add light-pollution metadata and sky-quality information to observation sites.",
+    "Refine observation-site metadata for light pollution, sky quality, and horizon constraints.",
     "Connect project targets and mosaic panels with observing conditions and visibility windows.",
     "Expand the Seestar adapter from the current skeleton toward real device discovery, state synchronization, and telescope control.",
     "Add observation-session tracking to connect planned targets, acquired data, site conditions, and resulting datasets.",

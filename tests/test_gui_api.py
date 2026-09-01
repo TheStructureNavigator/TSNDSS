@@ -18,7 +18,11 @@ from tsn_dss.gui.http_api import create_http_server
 
 
 class FakeWeatherClient:
-    def fetch_site_forecast(self, site, *, forecast_hours=24):
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    def fetch_site_forecast(self, site, *, forecast_days=1):
+        self.requests.append({"site_id": site.id, "forecast_days": forecast_days})
         return type(
             "ForecastPayload",
             (),
@@ -179,11 +183,12 @@ class GuiApiServerTests(unittest.TestCase):
         self._copy_capture_tree(self.source_capture, layout.captures_dir / "OrionNebula")
         (layout.runs_dir / "processing_m42_v001").mkdir(parents=True, exist_ok=True)
 
+        self.weather_client = FakeWeatherClient()
         self.server = create_http_server(
             host="127.0.0.1",
             port=0,
             projects_root=self.projects_root,
-            weather_client=FakeWeatherClient(),
+            weather_client=self.weather_client,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -205,8 +210,8 @@ class GuiApiServerTests(unittest.TestCase):
     def test_core_content_endpoint_returns_versioned_frontend_content(self) -> None:
         payload = self._read_json("/api/core-content")
 
-        self.assertEqual(payload["current_version"], "0.1.5")
         self.assertGreaterEqual(len(payload["releases"]), 1)
+        self.assertEqual(payload["current_version"], payload["releases"][0]["version"])
         self.assertIn("todo", payload)
 
     def test_sites_endpoint_supports_crud_and_active_site(self) -> None:
@@ -262,9 +267,10 @@ class GuiApiServerTests(unittest.TestCase):
         )
         site_id = created["site"]["id"]
 
-        payload = self._read_json(f"/api/site-forecast?site_id={site_id}")
+        payload = self._read_json(f"/api/site-forecast?site_id={site_id}&forecast_days=16")
 
         forecast = payload["forecast"]
+        self.assertEqual(self.weather_client.requests[-1]["forecast_days"], 16)
         self.assertEqual(forecast["site_id"], site_id)
         self.assertEqual(forecast["provider"], "open-meteo")
         self.assertEqual(forecast["current"]["cloud_cover_pct"], 22.0)

@@ -16,6 +16,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 from typing import Any
 
+DEFAULT_FORECAST_DAYS = 1
+MAX_FORECAST_DAYS = 16
+
 try:
     from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover - exercised only when optional dependency is missing
@@ -174,9 +177,13 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 try:
+                    forecast_days = _coerce_forecast_days(
+                        self._get_query_param("forecast_days"),
+                        forecast_hours=self._get_query_param("forecast_hours"),
+                    )
                     forecast = context.weather_client.fetch_site_forecast(
                         site,
-                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=24) or 24,
+                        forecast_days=forecast_days,
                     )
                 except ValueError as error:
                     self._write_json(
@@ -228,6 +235,14 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 try:
+                    forecast_days = _coerce_forecast_days(
+                        self._get_query_param("forecast_days"),
+                        forecast_hours=self._get_query_param("forecast_hours"),
+                    )
+                    forecast_hours = _coerce_forecast_hours(
+                        self._get_query_param("forecast_hours"),
+                        forecast_days=forecast_days,
+                    )
                     conditions = context.astronomy_service.fetch_conditions(
                         site,
                         reference_time_utc=self._get_query_param("time_utc"),
@@ -237,7 +252,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                             fallback=30.0,
                         )
                         or 30.0,
-                        forecast_hours=_coerce_optional_query_int(self._get_query_param("forecast_hours"), fallback=24) or 24,
+                        forecast_hours=forecast_hours,
                     )
                 except ValueError as error:
                     self._write_json(
@@ -1461,6 +1476,23 @@ def _coerce_optional_query_int(value: str | None, *, fallback: int | None = None
     if value is None or value == "":
         return fallback
     return int(value)
+
+
+def _coerce_forecast_days(value: str | None, *, forecast_hours: str | None = None) -> int:
+    if value is not None and value != "":
+        return max(1, min(MAX_FORECAST_DAYS, int(value)))
+
+    if forecast_hours is not None and forecast_hours != "":
+        hours = max(1, int(forecast_hours))
+        return max(1, min(MAX_FORECAST_DAYS, (hours + 23) // 24))
+
+    return DEFAULT_FORECAST_DAYS
+
+
+def _coerce_forecast_hours(value: str | None, *, forecast_days: int) -> int:
+    if value is not None and value != "":
+        return max(1, int(value))
+    return max(1, min(MAX_FORECAST_DAYS, int(forecast_days))) * 24
 
 
 def _coerce_query_bool(value: str | None) -> bool:

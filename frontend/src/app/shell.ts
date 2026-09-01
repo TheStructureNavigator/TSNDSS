@@ -53,7 +53,7 @@ export type AppState = {
   health: ApiHealth | null;
   sites: Site[];
   activeSiteId: string | null;
-  conditionsForecastHours: number;
+  conditionsForecastDays: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
   projects: ProjectSummary[];
@@ -86,6 +86,8 @@ export type AppState = {
   createProjectModalOpen: boolean;
   createRunModalOpen: boolean;
   createImportCaptureModalOpen: boolean;
+  siteEditorModalOpen: boolean;
+  siteEditorSiteId: string | null;
 };
 
 export type ProjectDetailTab = 'gallery' | 'import' | 'settings';
@@ -94,9 +96,9 @@ export type SkyDetailTab = 'telescope' | 'mosaic';
 export type ObservationCenterTab = 'sites' | 'conditions';
 
 const OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT = 35;
-const CONDITIONS_FORECAST_HOURS_MIN = 12;
-const CONDITIONS_FORECAST_HOURS_MAX = 72;
-const CONDITIONS_FORECAST_HOURS_STEP = 6;
+const CONDITIONS_FORECAST_DAYS_MIN = 1;
+const CONDITIONS_FORECAST_DAYS_MAX = 16;
+const CONDITIONS_FORECAST_DAYS_STEP = 1;
 const NIGHT_TIMELINE_REJECTION_REASONS = [
   'Not astronomical night',
   'Target below 30°',
@@ -205,6 +207,7 @@ export function renderAppShell(state: AppState): string {
       ${state.createProjectModalOpen ? renderCreateProjectModal(state.busy) : ''}
       ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject, state.selectedProcessingCapture) : ''}
       ${state.createImportCaptureModalOpen ? renderImportCaptureModal(state, primaryProject, state.selectedProjectCapture) : ''}
+      ${state.siteEditorModalOpen ? renderSiteEditorModal(state, state.sites.find((site) => site.id === state.siteEditorSiteId) ?? null) : ''}
       ${renderToast(state)}
     </div>
   `;
@@ -761,9 +764,13 @@ function renderObservationCenterView(state: AppState): string {
   const activeSite = state.telescopeSnapshot?.active_site ?? null;
 
   return `
-    <section class="projects-workspace">
-      <div class="projects-toolbar">
-        <span class="projects-toolbar__label">Observation Center</span>
+    <section class="observation-center-workspace projects-workspace">
+      <div class="projects-toolbar observation-center-sites-toolbar">
+        <span class="projects-toolbar__label">Sites:</span>
+        ${renderObservationSiteTabs(state.sites, state.activeSiteId)}
+        <button class="action-button projects-toolbar__create" type="button" data-open-site-editor-modal>
+          Create site
+        </button>
       </div>
 
       <nav class="tab-strip project-detail-tabs" aria-label="Observation Center">
@@ -771,30 +778,11 @@ function renderObservationCenterView(state: AppState): string {
         ${renderObservationCenterTab('conditions', 'Conditions', state.observationCenterTab)}
       </nav>
 
-      <section class="project-gallery-layout">
-        <aside class="project-gallery-sidebar">
-          <div class="project-gallery-sidebar__action">
-            <button class="action-button" type="button" data-clear-site-editor>
-              Create site
-            </button>
-          </div>
-
-          <section class="project-gallery-group">
-            <div class="panel__header panel__header--nested">
-              <h3>Sites</h3>
-            </div>
-            ${renderObservationSiteTabs(state.sites, state.activeSiteId)}
-          </section>
-        </aside>
-
-        <section class="project-gallery-main">
-          <div class="project-detail-stack">
-            ${state.observationCenterTab === 'conditions'
-              ? renderObservationConditionsPanel(state, activeSite)
-              : renderObservationSitesPanel(state, activeSite)}
-          </div>
-        </section>
-      </section>
+      <div class="project-detail-stack">
+        ${state.observationCenterTab === 'conditions'
+          ? renderObservationConditionsPanel(state, activeSite)
+          : renderObservationSitesPanel(activeSite)}
+      </div>
     </section>
   `;
 }
@@ -808,101 +796,51 @@ function renderObservationCenterTab(
   return `<button class="tab-strip__button${activeClass}" type="button" data-observation-center-tab="${tab}">${label}</button>`;
 }
 
-function renderObservationSitesPanel(state: AppState, activeSite: Site | null): string {
+function renderObservationSitesPanel(activeSite: Site | null): string {
   return `
-    <article class="panel telescope-panel">
-      <div class="panel__header">
-        <h3>Observation site</h3>
-        <span>${escapeHtml(activeSite?.name ?? 'new')}</span>
-      </div>
-      <form class="telescope-adapter-form" data-form="active-site">
-        <label class="field">
-          <span>Active site</span>
-          <select name="site_id">
-            <option value="" ${state.activeSiteId ? '' : 'selected'}>No active site</option>
-            ${state.sites.map((site) => `
-              <option value="${escapeHtml(site.id)}" ${site.id === state.activeSiteId ? 'selected' : ''}>
-                ${escapeHtml(site.name)}
-              </option>
-            `).join('')}
-          </select>
-        </label>
-        <button class="action-button telescope-panel__submit" type="submit">
-          Apply site
-        </button>
-      </form>
+    <article class="panel telescope-panel site-details-panel">
+      <section class="site-details-layout">
+        <div class="site-details-sidebar">
+          <div class="panel__header panel__header--nested">
+            <h3>Site details</h3>
+          </div>
+          <div class="site-detail-list">
+            ${renderSiteDetailRow('Site name', activeSite?.name ?? 'No active site')}
+            ${renderSiteDetailRow('Latitude', formatAngleValue(activeSite?.latitude_deg))}
+            ${renderSiteDetailRow('Longitude', formatAngleValue(activeSite?.longitude_deg))}
+            ${renderSiteDetailRow('Elevation', formatMeters(activeSite?.elevation_m))}
+            ${renderSiteDetailRow('SQM', activeSite?.sqm_mag_arcsec2 == null ? '—' : activeSite.sqm_mag_arcsec2.toFixed(2))}
+            ${renderSiteDetailRow('Bortle', activeSite?.bortle_class == null ? '—' : String(activeSite.bortle_class))}
+            ${renderSiteDetailRow('Sky quality', formatSiteQuality(activeSite))}
+            ${renderSiteDetailRow('South horizon', activeSite?.south_horizon_open ? 'open' : 'not marked open')}
+            ${activeSite?.notes ? renderSiteDetailRow('Notes', activeSite.notes) : ''}
+          </div>
 
-      <div class="project-summary-strip project-summary-strip--sky">
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Latitude</span>
-          <span class="project-summary-strip__value">${formatAngleValue(activeSite?.latitude_deg)}</span>
+          <div class="site-details-actions">
+            <button class="action-button" type="button" data-open-site-editor-modal="${escapeHtml(activeSite?.id ?? '')}" ${activeSite ? '' : 'disabled'}>
+              Edit active site
+            </button>
+            ${activeSite ? `<button class="action-button action-button--danger" type="button" data-delete-site-id="${escapeHtml(activeSite.id)}">Delete site</button>` : ''}
+          </div>
         </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Longitude</span>
-          <span class="project-summary-strip__value">${formatAngleValue(activeSite?.longitude_deg)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Elevation</span>
-          <span class="project-summary-strip__value">${formatMeters(activeSite?.elevation_m)}</span>
-        </div>
-        <div class="project-summary-strip__item">
-          <span class="project-summary-strip__label">Sky quality</span>
-          <span class="project-summary-strip__value">${formatSiteQuality(activeSite)}</span>
-        </div>
-      </div>
 
-      <form class="sky-simulator-form" data-form="site-editor">
-        <input name="site_id" type="hidden" value="${escapeHtml(activeSite?.id ?? '')}" />
-        <label class="field">
-          <span>Site name</span>
-          <input name="name" type="text" value="${escapeHtml(activeSite?.name ?? '')}" placeholder="Backyard / Bieszczady / Remote site" required />
-        </label>
-        <label class="field">
-          <span>Latitude (deg)</span>
-          <input name="latitude_deg" type="text" value="${activeSite?.latitude_deg ?? ''}" placeholder="50.1234" />
-        </label>
-        <label class="field">
-          <span>Longitude (deg)</span>
-          <input name="longitude_deg" type="text" value="${activeSite?.longitude_deg ?? ''}" placeholder="19.1234" />
-        </label>
-        <label class="field">
-          <span>Elevation (m)</span>
-          <input name="elevation_m" type="text" value="${activeSite?.elevation_m ?? ''}" placeholder="optional" />
-        </label>
-        <label class="field">
-          <span>SQM</span>
-          <input name="sqm_mag_arcsec2" type="text" value="${activeSite?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
-        </label>
-        <label class="field">
-          <span>Bortle</span>
-          <input name="bortle_class" type="text" value="${activeSite?.bortle_class ?? ''}" placeholder="1-9" />
-        </label>
-        <label class="checkbox-field">
-          <input name="south_horizon_open" type="checkbox" ${activeSite?.south_horizon_open ? 'checked' : ''} />
-          <span>South horizon open</span>
-        </label>
-        <label class="field field--full">
-          <span>Notes</span>
-          <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(activeSite?.notes ?? '')}</textarea>
-        </label>
-        <div class="telescope-panel__action-row">
-          <button class="action-button telescope-panel__submit" type="submit">${activeSite ? 'Update site' : 'Create site'}</button>
-          ${activeSite ? `<button class="action-button action-button--secondary" type="button" data-clear-site-editor>New site</button>` : ''}
-          ${activeSite ? `<button class="action-button action-button--danger" type="button" data-delete-site-id="${escapeHtml(activeSite.id)}">Delete site</button>` : ''}
+        <div class="site-details-map">
+          <div class="panel__header panel__header--nested">
+            <h3>Site map</h3>
+          </div>
+          <div id="observation-center-map" class="observation-map-container"></div>
         </div>
-      </form>
+      </section>
     </article>
+  `;
+}
 
-    <article class="panel sky-panel sky-panel--full">
-      <div class="panel__header">
-        <h3>Site map</h3>
-        <span>${state.sites.filter((site) => site.latitude_deg != null && site.longitude_deg != null).length} mapped</span>
-      </div>
-      <div id="observation-center-map" class="observation-map-container"></div>
-      <p class="muted">
-        Saved sites are shown on the map. The active site is highlighted, and clicking a marker selects it in Observation Center.
-      </p>
-    </article>
+function renderSiteDetailRow(label: string, value: string): string {
+  return `
+    <div class="site-detail-row">
+      <span class="site-detail-row__label">${escapeHtml(label)}</span>
+      <span class="site-detail-row__value">${escapeHtml(value)}</span>
+    </div>
   `;
 }
 
@@ -989,21 +927,21 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
     <article class="panel">
       <div class="panel__header panel__header--conditions">
         <div>
-          <h3>Next ${state.conditionsForecastHours} hours</h3>
+          <h3>Next ${state.conditionsForecastDays} ${state.conditionsForecastDays === 1 ? 'day' : 'days'}</h3>
           <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
         </div>
-        <label class="conditions-hours-control" aria-label="Conditions forecast hours">
+        <label class="conditions-hours-control" aria-label="Conditions forecast days">
           <span class="conditions-hours-control__label">Range</span>
           <div class="conditions-hours-control__input">
             <input
               type="range"
-              min="${CONDITIONS_FORECAST_HOURS_MIN}"
-              max="${CONDITIONS_FORECAST_HOURS_MAX}"
-              step="${CONDITIONS_FORECAST_HOURS_STEP}"
-              value="${state.conditionsForecastHours}"
-              data-conditions-hours-range
+              min="${CONDITIONS_FORECAST_DAYS_MIN}"
+              max="${CONDITIONS_FORECAST_DAYS_MAX}"
+              step="${CONDITIONS_FORECAST_DAYS_STEP}"
+              value="${state.conditionsForecastDays}"
+              data-conditions-days-range
             />
-            <span class="conditions-hours-control__value" data-conditions-hours-value>${state.conditionsForecastHours}h</span>
+            <span class="conditions-hours-control__value" data-conditions-days-value>${state.conditionsForecastDays}d</span>
           </div>
         </label>
       </div>
@@ -1638,11 +1576,11 @@ function renderConditionsHourlyTable(
 
 function renderObservationSiteTabs(sites: Site[], activeSiteId: string | null): string {
   if (!sites.length) {
-    return '<p class="muted">No observation sites yet.</p>';
+    return '<span class="muted observation-center-sites-empty">No sites yet</span>';
   }
 
   return `
-    <div class="run-tab-list">
+    <div class="run-tab-list observation-center-site-tabs">
       ${sites
         .map((site) => {
           const selectedClass = site.id === activeSiteId ? ' run-tab-button--active' : '';
@@ -2594,6 +2532,60 @@ function renderImportCaptureModal(state: AppState, project: ProjectSummary | nul
             <span>Move instead of copy</span>
           </label>
           <button class="action-button" type="submit" ${state.busy || project === null ? 'disabled' : ''}>Import capture</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderSiteEditorModal(state: AppState, site: Site | null): string {
+  const isEditing = site !== null;
+  return `
+    <div class="modal-backdrop" data-close-site-editor-modal>
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-label="${isEditing ? 'Edit site' : 'Create site'}" data-site-editor-modal-card>
+        <div class="panel__header">
+          <h3>${isEditing ? 'Edit site' : 'Create site'}</h3>
+          <button class="action-button action-button--secondary" type="button" data-close-site-editor-modal ${state.busy ? 'disabled' : ''}>
+            Close
+          </button>
+        </div>
+        <form class="form-stack site-editor-form" data-form="site-editor">
+          <input name="site_id" type="hidden" value="${escapeHtml(site?.id ?? '')}" />
+          <label class="field field--full">
+            <span>Site name</span>
+            <input name="name" type="text" value="${escapeHtml(site?.name ?? '')}" placeholder="Backyard / SiteNo1 / Ridge coordinates" required autofocus />
+          </label>
+          <label class="field">
+            <span>Latitude (deg)</span>
+            <input name="latitude_deg" type="text" value="${site?.latitude_deg ?? ''}" placeholder="50.1234" />
+          </label>
+          <label class="field">
+            <span>Longitude (deg)</span>
+            <input name="longitude_deg" type="text" value="${site?.longitude_deg ?? ''}" placeholder="19.1234" />
+          </label>
+          <label class="field">
+            <span>Elevation (m)</span>
+            <input name="elevation_m" type="text" value="${site?.elevation_m ?? ''}" placeholder="optional" />
+          </label>
+          <label class="field">
+            <span>SQM</span>
+            <input name="sqm_mag_arcsec2" type="text" value="${site?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
+          </label>
+          <label class="field">
+            <span>Bortle</span>
+            <input name="bortle_class" type="text" value="${site?.bortle_class ?? ''}" placeholder="1-9" />
+          </label>
+          <label class="checkbox-field site-editor-form__checkbox">
+            <input name="south_horizon_open" type="checkbox" ${site?.south_horizon_open ? 'checked' : ''} />
+            <span>South horizon open</span>
+          </label>
+          <label class="field field--full">
+            <span>Notes</span>
+            <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(site?.notes ?? '')}</textarea>
+          </label>
+          <button class="action-button field--full" type="submit" ${state.busy ? 'disabled' : ''}>
+            ${isEditing ? 'Save site' : 'Create site'}
+          </button>
         </form>
       </div>
     </div>

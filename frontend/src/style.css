@@ -528,6 +528,92 @@ pre {
   gap: 0.8rem;
 }
 
+.observation-center-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.observation-center-sites-toolbar {
+  align-items: center;
+}
+
+.observation-center-site-tabs {
+  min-width: 0;
+}
+
+.observation-center-sites-empty {
+  flex: 1 1 auto;
+}
+
+.site-details-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: stretch;
+}
+
+.site-details-sidebar,
+.site-details-map {
+  min-width: 0;
+}
+
+.site-details-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.site-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.site-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.58rem 0.65rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-panel);
+}
+
+.site-detail-row__label {
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.site-detail-row__value {
+  color: var(--color-text-soft);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.site-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.site-details-actions .action-button {
+  flex: 1 1 0;
+}
+
+.site-editor-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.site-editor-form__checkbox {
+  align-self: end;
+  min-height: 42px;
+}
+
 .sky-workspace {
   display: flex;
   flex-direction: column;
@@ -1896,13 +1982,27 @@ pre {
 }
 
 .field input[type="text"],
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   padding: 0.6rem 0.7rem;
   border: 1px solid var(--color-border-strong);
   border-radius: 2px;
   background: var(--color-surface-panel-strong);
   color: var(--color-text);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.field--full {
+  grid-column: 1 / -1;
+}
+
+.modal-card--wide {
+  width: min(100%, 720px);
 }
 
 .sky-simulator-form {
@@ -1968,10 +2068,12 @@ pre {
   place-items: center;
   padding: 1rem;
   background: var(--color-backdrop);
-  z-index: 100;
+  z-index: 5000;
 }
 
 .modal-card {
+  position: relative;
+  z-index: 5001;
   width: min(100%, 420px);
   padding: 0.9rem;
   border: 1px solid var(--color-border);
@@ -2444,6 +2546,8 @@ pre {
 }
 
 .observation-map-container {
+  position: relative;
+  z-index: 0;
   width: 100%;
   min-height: 620px;
   border: 1px solid var(--color-border);
@@ -2452,6 +2556,7 @@ pre {
 }
 
 .observation-map-container .leaflet-container {
+  z-index: 0;
   width: 100%;
   height: 100%;
   min-height: 620px;
@@ -2755,6 +2860,8 @@ pre {
   .core-content-layout,
   .edited-image-grid,
   .project-gallery-layout,
+  .site-details-layout,
+  .site-editor-form,
   .project-summary-strip,
   .processing-layout,
   .run-overview-layout,
