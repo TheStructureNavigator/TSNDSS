@@ -30,6 +30,7 @@ import {
   setActiveTelescopeAdapter,
   slewToPlannedTelescopePointing,
   startProjectRun,
+  type LocalHorizonPoint,
   type MosaicPlan,
   updateMosaicPanel,
   updateMosaicPlan,
@@ -39,11 +40,13 @@ import {
   updateSite,
   type ProjectSummary,
 } from './app/api';
+import { getCurrentDeviceLocationMessage, getCurrentDevicePosition } from './app/current_device_position';
 import {
   type CandidateSiteCreateRequest,
   type LightPollutionLayerState,
   mountObservationCenterMap,
   preserveObservationCenterMapState,
+  showCurrentDevicePosition,
 } from './app/observation_center_map';
 import { mountSkyView, preserveSkyViewState, resolveSkyTargetCoordinates } from './app/sky';
 import { siteLightPollutionPayloadFromApiSnapshot } from './app/site_light_pollution';
@@ -91,6 +94,8 @@ const state: AppState = {
   lightPollutionOverlayEnabled: false,
   lightPollutionOverlayOpacity: 0.55,
   lpUpdatingSiteId: null,
+  currentDeviceLocating: false,
+  currentDeviceLocationStatus: null,
   conditionsForecastDays: DEFAULT_CONDITIONS_FORECAST_DAYS,
   siteForecast: null,
   astronomicalConditions: null,
@@ -127,6 +132,8 @@ const state: AppState = {
   siteEditorModalOpen: false,
   siteEditorSiteId: null,
   siteEditorCandidateDraft: null,
+  horizonProfileEditorModalOpen: false,
+  horizonProfileEditorSiteId: null,
 };
 
 window.addEventListener('tsn-dss:create-site-from-candidate', (event) => {
@@ -237,8 +244,10 @@ function render(): void {
   bindSkyFollowToggle();
   bindConditionsControls();
   bindLightPollutionControls();
+  bindCurrentDeviceControls();
   bindTelescopeAdapterForm();
   bindSiteEditorForm();
+  bindHorizonProfileEditor();
   bindSiteActions();
   hydrateSkySimulatorPanel();
   if (state.currentView === 'observationcenter') {
@@ -652,6 +661,75 @@ function bindSiteEditorForm(): void {
   });
 }
 
+function bindHorizonProfileEditor(): void {
+  const closeButtons = rootElement.querySelectorAll<HTMLElement>('[data-close-horizon-profile-editor]');
+  closeButtons.forEach((element) => {
+    element.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const modalCard = rootElement.querySelector<HTMLElement>('[data-horizon-profile-editor-modal-card]');
+      if (modalCard && target && modalCard.contains(target) && !target.hasAttribute('data-close-horizon-profile-editor')) {
+        return;
+      }
+      state.horizonProfileEditorModalOpen = false;
+      state.horizonProfileEditorSiteId = null;
+      render();
+    });
+  });
+
+  const addRowButton = rootElement.querySelector<HTMLButtonElement>('[data-add-horizon-profile-row]');
+  addRowButton?.addEventListener('click', () => {
+    appendHorizonProfileEditorRow('', '');
+  });
+
+  const addTemplateButton = rootElement.querySelector<HTMLButtonElement>('[data-add-horizon-profile-template]');
+  addTemplateButton?.addEventListener('click', () => {
+    const rowsContainer = rootElement.querySelector<HTMLElement>('[data-horizon-profile-rows]');
+    if (!rowsContainer) {
+      return;
+    }
+    rowsContainer.innerHTML = [0, 45, 90, 135, 180, 225, 270, 315]
+      .map((azimuth) => horizonProfileEditorRowHtml(String(azimuth), '0'))
+      .join('');
+    bindHorizonProfileRowDeleteButtons();
+  });
+
+  const form = rootElement.querySelector<HTMLFormElement>('[data-form="horizon-profile-editor"]');
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void handleHorizonProfileSubmit(form);
+  });
+
+  bindHorizonProfileRowDeleteButtons();
+}
+
+function bindHorizonProfileRowDeleteButtons(): void {
+  const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-horizon-profile-row]');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      button.closest('[data-horizon-profile-row]')?.remove();
+    });
+  });
+}
+
+function appendHorizonProfileEditorRow(azimuthDeg: string, minAltitudeDeg: string): void {
+  const rowsContainer = rootElement.querySelector<HTMLElement>('[data-horizon-profile-rows]');
+  if (!rowsContainer) {
+    return;
+  }
+  rowsContainer.insertAdjacentHTML('beforeend', horizonProfileEditorRowHtml(azimuthDeg, minAltitudeDeg));
+  bindHorizonProfileRowDeleteButtons();
+}
+
+function horizonProfileEditorRowHtml(azimuthDeg: string, minAltitudeDeg: string): string {
+  return `
+    <div class="horizon-profile-table__row" data-horizon-profile-row>
+      <input name="azimuth_deg" type="number" min="0" max="359.999" step="0.1" value="${escapeHtml(azimuthDeg)}" placeholder="0" />
+      <input name="min_altitude_deg" type="number" min="0" max="90" step="0.1" value="${escapeHtml(minAltitudeDeg)}" placeholder="0" />
+      <button class="action-button action-button--danger" type="button" data-delete-horizon-profile-row>Remove</button>
+    </div>
+  `;
+}
+
 function bindSiteActions(): void {
   const buttons = rootElement.querySelectorAll<HTMLButtonElement>('[data-delete-site-id]');
   buttons.forEach((button) => {
@@ -672,6 +750,30 @@ function bindSiteActions(): void {
         return;
       }
       void handleUpdateSiteLightPollution(siteId);
+    });
+  });
+
+  const openHorizonButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-open-horizon-profile-editor]');
+  openHorizonButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const siteId = button.dataset.openHorizonProfileEditor ?? '';
+      if (!siteId) {
+        return;
+      }
+      state.horizonProfileEditorSiteId = siteId;
+      state.horizonProfileEditorModalOpen = true;
+      render();
+    });
+  });
+
+  const clearHorizonButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-clear-horizon-profile]');
+  clearHorizonButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const siteId = button.dataset.clearHorizonProfile ?? '';
+      if (!siteId) {
+        return;
+      }
+      void handleClearHorizonProfile(siteId);
     });
   });
 }
@@ -811,6 +913,34 @@ function bindLightPollutionControls(): void {
     }
     void refreshObservationCenterMapLive();
   });
+}
+
+function bindCurrentDeviceControls(): void {
+  const button = rootElement.querySelector<HTMLButtonElement>('[data-current-device-position]');
+  button?.addEventListener('click', () => {
+    void handleLocateCurrentDevice();
+  });
+}
+
+async function handleLocateCurrentDevice(): Promise<void> {
+  if (state.currentDeviceLocating) {
+    return;
+  }
+
+  state.currentDeviceLocating = true;
+  state.currentDeviceLocationStatus = 'Locating device...';
+  render();
+
+  try {
+    const position = await getCurrentDevicePosition();
+    showCurrentDevicePosition(position);
+    state.currentDeviceLocationStatus = 'Current device position shown on map.';
+  } catch (error) {
+    state.currentDeviceLocationStatus = getCurrentDeviceLocationMessage(error);
+  } finally {
+    state.currentDeviceLocating = false;
+    render();
+  }
 }
 
 function bindTelescopeAdapterForm(): void {
@@ -1364,6 +1494,95 @@ async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
     state.siteEditorSiteId = null;
     state.siteEditorCandidateDraft = null;
     setMessage(siteId ? `Site updated: ${savedSite.name}` : `Site created: ${savedSite.name}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleHorizonProfileSubmit(form: HTMLFormElement): Promise<void> {
+  const formData = new FormData(form);
+  const siteId = normalizeOptionalText(formData.get('site_id'));
+  if (!siteId) {
+    setError('Select a site before editing horizon profile.');
+    return;
+  }
+
+  const profile = collectHorizonProfileEditorRows();
+  if (profile === null) {
+    return;
+  }
+
+  setBusy(true);
+  try {
+    const updatedSite = await updateSite(siteId, { horizon_profile: profile });
+    state.sites = state.sites.map((entry) => (entry.id === updatedSite.id ? updatedSite : entry));
+    if (state.telescopeSnapshot?.active_site?.id === updatedSite.id) {
+      state.telescopeSnapshot = {
+        ...state.telescopeSnapshot,
+        active_site: updatedSite,
+      };
+    }
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
+    state.horizonProfileEditorModalOpen = false;
+    state.horizonProfileEditorSiteId = null;
+    setMessage(`Local horizon profile saved: ${updatedSite.name}`);
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+function collectHorizonProfileEditorRows(): LocalHorizonPoint[] | null {
+  const rows = rootElement.querySelectorAll<HTMLElement>('[data-horizon-profile-row]');
+  const points: LocalHorizonPoint[] = [];
+  for (const row of rows) {
+    const azimuthInput = row.querySelector<HTMLInputElement>('input[name="azimuth_deg"]');
+    const altitudeInput = row.querySelector<HTMLInputElement>('input[name="min_altitude_deg"]');
+    const azimuthText = azimuthInput?.value.trim() ?? '';
+    const altitudeText = altitudeInput?.value.trim() ?? '';
+    if (!azimuthText && !altitudeText) {
+      continue;
+    }
+    const azimuth = Number(azimuthText);
+    const altitude = Number(altitudeText);
+    if (!Number.isFinite(azimuth) || !Number.isFinite(altitude)) {
+      setError('Horizon profile points require numeric azimuth and altitude values.');
+      return null;
+    }
+    points.push({
+      azimuth_deg: azimuth,
+      min_altitude_deg: altitude,
+    });
+  }
+  return points;
+}
+
+async function handleClearHorizonProfile(siteId: string): Promise<void> {
+  const site = state.sites.find((entry) => entry.id === siteId) ?? null;
+  if (!site) {
+    setError('Site is no longer available.');
+    return;
+  }
+  const confirmed = window.confirm(`Clear local horizon profile for "${site.name}"?`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(true);
+  try {
+    const updatedSite = await updateSite(siteId, { horizon_profile: [] });
+    state.sites = state.sites.map((entry) => (entry.id === updatedSite.id ? updatedSite : entry));
+    if (state.telescopeSnapshot?.active_site?.id === updatedSite.id) {
+      state.telescopeSnapshot = {
+        ...state.telescopeSnapshot,
+        active_site: updatedSite,
+      };
+    }
+    state.astronomicalConditions = await loadActiveAstronomicalConditions();
+    setMessage(`Local horizon profile cleared: ${updatedSite.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
   } finally {

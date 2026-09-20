@@ -599,6 +599,11 @@ pre {
   font-size: 0.72rem;
 }
 
+.site-detail-section__action--inline {
+  align-self: flex-start;
+  margin-top: 0.1rem;
+}
+
 .site-detail-row {
   display: flex;
   flex-direction: column;
@@ -641,6 +646,43 @@ pre {
 .site-editor-form__checkbox {
   align-self: end;
   min-height: 42px;
+}
+
+.horizon-profile-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.horizon-profile-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.horizon-profile-table__header,
+.horizon-profile-table__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.horizon-profile-table__header {
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.horizon-profile-table__row {
+  padding: 0.45rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-panel);
+}
+
+.horizon-profile-table__row input {
+  min-width: 0;
 }
 
 .sky-workspace {
@@ -1359,6 +1401,22 @@ pre {
   stroke-dasharray: 3 4;
 }
 
+.horizon-compass__local-horizon {
+  fill: none;
+  stroke: color-mix(in srgb, #ff9b7e 72%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 5 3;
+  filter: drop-shadow(0 0 5px rgba(255, 155, 126, 0.18));
+}
+
+.horizon-compass__local-horizon-point {
+  fill: color-mix(in srgb, #ff9b7e 72%, transparent);
+  stroke: color-mix(in srgb, var(--color-surface-panel-strong) 74%, black 26%);
+  stroke-width: 0.8;
+}
+
 .horizon-compass__crosshair,
 .horizon-compass__tick {
   stroke: color-mix(in srgb, var(--color-text-soft) 24%, transparent);
@@ -1459,6 +1517,7 @@ pre {
 
 .horizon-compass__altitude-badge,
 .horizon-compass__moon-badge,
+.horizon-compass__local-horizon-badge,
 .horizon-compass__window-badge {
   display: inline-flex;
   align-items: center;
@@ -1474,6 +1533,12 @@ pre {
   border-color: color-mix(in srgb, #bda4ff 34%, var(--color-border));
   color: color-mix(in srgb, #d7caff 76%, var(--color-text-muted));
   background: color-mix(in srgb, #bda4ff 8%, var(--color-surface-panel-strong));
+}
+
+.horizon-compass__local-horizon-badge {
+  border-color: color-mix(in srgb, #ff9b7e 38%, var(--color-border));
+  color: color-mix(in srgb, #ffcab8 78%, var(--color-text-muted));
+  background: color-mix(in srgb, #ff9b7e 8%, var(--color-surface-panel-strong));
 }
 
 .horizon-compass__window-badge {
@@ -2672,6 +2737,33 @@ pre {
   color: var(--color-text-soft);
 }
 
+.site-map-controls__button {
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-panel-strong) 84%, transparent);
+  color: var(--color-text-soft);
+  font: inherit;
+  font-size: 0.73rem;
+  cursor: pointer;
+}
+
+.site-map-controls__button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.site-map-controls__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.site-map-status {
+  margin: -0.15rem 0 0.15rem;
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+}
+
 .site-map-controls__toggle,
 .site-map-controls__opacity {
   display: inline-flex;
@@ -2776,6 +2868,50 @@ pre {
   left: 5px;
   width: 2px;
   height: 12px;
+}
+
+.current-device-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.current-device-marker__pulse {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, #8dd4ff 76%, white 24%);
+  border-radius: 999px;
+  background: color-mix(in srgb, #8dd4ff 14%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, #8dd4ff 34%, transparent);
+}
+
+.current-device-marker__dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #e8f6ff;
+  border-radius: 999px;
+  background: #4dbbff;
+}
+
+.current-device-popup__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 210px;
+  color: var(--color-text);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.current-device-popup__content strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
+.current-device-accuracy-circle {
+  pointer-events: none;
 }
 
 .candidate-site-popup__content {

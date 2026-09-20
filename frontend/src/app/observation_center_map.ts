@@ -1,6 +1,7 @@
 import 'leaflet/dist/leaflet.css';
-import type { Control, DivIcon, LayerGroup, LeafletMouseEvent, Map as LeafletMap, Marker, TileLayer } from 'leaflet';
+import type { Circle, Control, DivIcon, LayerGroup, LeafletMouseEvent, Map as LeafletMap, Marker, TileLayer } from 'leaflet';
 import type { Site } from './api';
+import { formatAccuracy, type CurrentDevicePosition } from './current_device_position';
 import {
   ARTIFICIAL_SKY_BRIGHTNESS_LAYER,
   localRasterLightPollutionPointProvider,
@@ -25,6 +26,9 @@ let leafletLayerGroup: LayerGroup | null = null;
 let leafletLightPollutionLayer: TileLayer | null = null;
 let leafletCandidateMarker: Marker | null = null;
 let leafletCandidateClearControl: Control | null = null;
+let leafletCurrentDeviceMarker: Marker | null = null;
+let leafletCurrentDeviceAccuracyCircle: Circle | null = null;
+let currentDevicePosition: CurrentDevicePosition | null = null;
 let candidateRequestId = 0;
 let preservedCenter: [number, number] | null = null;
 let preservedZoom: number | null = null;
@@ -85,6 +89,9 @@ export async function mountObservationCenterMap(
     leafletLightPollutionLayer = null;
     leafletCandidateMarker = null;
     leafletCandidateClearControl = null;
+    leafletCurrentDeviceMarker = null;
+    leafletCurrentDeviceAccuracyCircle = null;
+    currentDevicePosition = null;
     candidateRequestId += 1;
   }
 
@@ -121,6 +128,56 @@ export async function mountObservationCenterMap(
   currentSitesKey = nextSitesKey;
 }
 
+export function showCurrentDevicePosition(position: CurrentDevicePosition): void {
+  if (!leafletApi || !leafletMap) {
+    currentDevicePosition = position;
+    return;
+  }
+
+  currentDevicePosition = position;
+  const latlng: [number, number] = [position.latitudeDeg, position.longitudeDeg];
+  if (!leafletCurrentDeviceMarker) {
+    leafletCurrentDeviceMarker = leafletApi.marker(latlng, {
+      icon: createCurrentDeviceIcon(leafletApi),
+      keyboard: true,
+      title: 'Current device',
+    }).addTo(leafletMap);
+  } else {
+    leafletCurrentDeviceMarker.setLatLng(latlng);
+  }
+
+  leafletCurrentDeviceMarker
+    .bindPopup(renderCurrentDevicePopup(position), {
+      className: 'current-device-popup',
+      maxWidth: 280,
+    });
+  leafletCurrentDeviceMarker.on('popupopen', bindCurrentDeviceInspectButton);
+
+  if (position.accuracyM != null && Number.isFinite(position.accuracyM)) {
+    if (!leafletCurrentDeviceAccuracyCircle) {
+      leafletCurrentDeviceAccuracyCircle = leafletApi.circle(latlng, {
+        radius: position.accuracyM,
+        className: 'current-device-accuracy-circle',
+        color: '#8dd4ff',
+        fillColor: '#8dd4ff',
+        fillOpacity: 0.08,
+        opacity: 0.28,
+        weight: 1,
+        interactive: false,
+      }).addTo(leafletMap);
+    } else {
+      leafletCurrentDeviceAccuracyCircle.setLatLng(latlng);
+      leafletCurrentDeviceAccuracyCircle.setRadius(position.accuracyM);
+    }
+  } else if (leafletCurrentDeviceAccuracyCircle) {
+    leafletMap.removeLayer(leafletCurrentDeviceAccuracyCircle);
+    leafletCurrentDeviceAccuracyCircle = null;
+  }
+
+  leafletMap.setView(latlng, Math.max(leafletMap.getZoom(), 14), { animate: true });
+  leafletCurrentDeviceMarker.openPopup();
+}
+
 async function handleCandidateMapClick(event: LeafletMouseEvent): Promise<void> {
   if (!leafletApi || !leafletMap) {
     return;
@@ -128,6 +185,21 @@ async function handleCandidateMapClick(event: LeafletMouseEvent): Promise<void> 
 
   const latitudeDeg = event.latlng.lat;
   const longitudeDeg = event.latlng.lng;
+  const requestId = candidateRequestId + 1;
+  candidateRequestId = requestId;
+  setCandidateSiteMarker(latitudeDeg, longitudeDeg, getLoadingLightPollutionResult());
+  const pointValue = await localRasterLightPollutionPointProvider.queryPoint(latitudeDeg, longitudeDeg);
+  if (requestId !== candidateRequestId) {
+    return;
+  }
+  setCandidateSiteMarker(latitudeDeg, longitudeDeg, pointValue);
+}
+
+async function inspectLocationAsCandidate(latitudeDeg: number, longitudeDeg: number): Promise<void> {
+  if (!leafletApi || !leafletMap) {
+    return;
+  }
+
   const requestId = candidateRequestId + 1;
   candidateRequestId = requestId;
   setCandidateSiteMarker(latitudeDeg, longitudeDeg, getLoadingLightPollutionResult());
@@ -326,6 +398,42 @@ function bindCandidateCreateButton(
   }, { once: true });
 }
 
+function renderCurrentDevicePopup(position: CurrentDevicePosition): string {
+  return `
+    <section class="current-device-popup__content">
+      <strong>Current device</strong>
+      <span class="candidate-site-popup__coordinate">Lat ${position.latitudeDeg.toFixed(6)}°</span>
+      <span class="candidate-site-popup__coordinate">Lon ${position.longitudeDeg.toFixed(6)}°</span>
+      <span>${escapeHtml(formatAccuracy(position.accuracyM))}</span>
+      <span>Position timestamp: ${escapeHtml(formatDeviceTimestamp(position.timestampMs))}</span>
+      <button class="candidate-site-popup__button" type="button" data-inspect-current-device>
+        Inspect this location
+      </button>
+      <small>Creates a Candidate Site here and runs the existing Light Pollution lookup.</small>
+    </section>
+  `;
+}
+
+function bindCurrentDeviceInspectButton(): void {
+  const popupElement = leafletCurrentDeviceMarker?.getPopup()?.getElement();
+  const button = popupElement?.querySelector<HTMLButtonElement>('[data-inspect-current-device]');
+  if (!button || !currentDevicePosition) {
+    return;
+  }
+  const position = currentDevicePosition;
+  button.addEventListener('click', () => {
+    void inspectLocationAsCandidate(position.latitudeDeg, position.longitudeDeg);
+  }, { once: true });
+}
+
+function formatDeviceTimestamp(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) {
+    return 'unavailable';
+  }
+  return date.toLocaleString();
+}
+
 function getLoadingLightPollutionResult(): LightPollutionPointResult {
   return {
     status: 'loading',
@@ -433,6 +541,16 @@ function createCandidateSiteIcon(L: typeof import('leaflet')): DivIcon {
   return L.divIcon({
     className: 'candidate-site-marker',
     html: '<span class="candidate-site-marker__ring"></span><span class="candidate-site-marker__cross"></span>',
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
+  });
+}
+
+function createCurrentDeviceIcon(L: typeof import('leaflet')): DivIcon {
+  return L.divIcon({
+    className: 'current-device-marker',
+    html: '<span class="current-device-marker__pulse"></span><span class="current-device-marker__dot"></span>',
     iconSize: [24, 24],
     iconAnchor: [12, 12],
     popupAnchor: [0, -12],

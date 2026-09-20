@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tsn_dss.domain.models import AcquisitionPlan, AcquisitionSequence, Equipment, Site, Target
+from tsn_dss.domain.models import AcquisitionPlan, AcquisitionSequence, Equipment, LocalHorizonPoint, Site, Target
 from tsn_dss.engine.sqlite.db import initialize_database
 from tsn_dss.engine.sqlite.planning import PlanningRepository, ValidationError
 
@@ -146,6 +146,74 @@ class PlanningRepositoryTests(unittest.TestCase):
         listed = self.repository.list_sites()
 
         self.assertEqual([site.id for site in listed], ["site:alpha", "site:zeta"])
+
+    def test_site_without_horizon_profile_loads_empty_profile(self) -> None:
+        created = self.repository.create_site(Site(id="site:no-profile", name="No Profile"))
+
+        self.assertEqual(created.horizon_profile, [])
+        self.assertEqual(self.repository.get_site("site:no-profile").horizon_profile, [])
+
+    def test_site_horizon_profile_is_saved_loaded_sorted_updated_and_cleared(self) -> None:
+        created = self.repository.create_site(
+            Site(
+                id="site:horizon",
+                name="Horizon Site",
+                horizon_profile=[
+                    LocalHorizonPoint(azimuth_deg=180, min_altitude_deg=40),
+                    LocalHorizonPoint(azimuth_deg=0, min_altitude_deg=12),
+                    LocalHorizonPoint(azimuth_deg=90, min_altitude_deg=25),
+                ],
+            )
+        )
+
+        self.assertEqual([point.azimuth_deg for point in created.horizon_profile], [0, 90, 180])
+        self.assertEqual([point.min_altitude_deg for point in created.horizon_profile], [12, 25, 40])
+
+        updated = self.repository.update_site(
+            Site(
+                id="site:horizon",
+                name="Horizon Site Updated",
+                horizon_profile=[
+                    LocalHorizonPoint(azimuth_deg=315, min_altitude_deg=12),
+                    LocalHorizonPoint(azimuth_deg=45, min_altitude_deg=18),
+                ],
+            )
+        )
+
+        self.assertEqual([point.azimuth_deg for point in updated.horizon_profile], [45, 315])
+
+        cleared = self.repository.update_site(
+            Site(
+                id="site:horizon",
+                name="Horizon Site Updated",
+                horizon_profile=[],
+            )
+        )
+
+        self.assertEqual(cleared.horizon_profile, [])
+
+    def test_invalid_horizon_profile_points_are_rejected(self) -> None:
+        invalid_profiles = [
+            [LocalHorizonPoint(azimuth_deg=-1, min_altitude_deg=10)],
+            [LocalHorizonPoint(azimuth_deg=360, min_altitude_deg=10)],
+            [LocalHorizonPoint(azimuth_deg=90, min_altitude_deg=-1)],
+            [LocalHorizonPoint(azimuth_deg=90, min_altitude_deg=91)],
+            [
+                LocalHorizonPoint(azimuth_deg=90, min_altitude_deg=10),
+                LocalHorizonPoint(azimuth_deg=90, min_altitude_deg=20),
+            ],
+        ]
+
+        for profile in invalid_profiles:
+            with self.subTest(profile=profile):
+                with self.assertRaises(ValidationError):
+                    self.repository.create_site(
+                        Site(
+                            id=f"site:bad-{len(profile)}-{profile[0].azimuth_deg}",
+                            name="Bad Horizon Site",
+                            horizon_profile=profile,
+                        )
+                    )
 
     def test_equipment_crud_round_trip_with_json_properties(self) -> None:
         created = self.repository.create_equipment(

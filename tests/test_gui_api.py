@@ -249,6 +249,10 @@ class GuiApiServerTests(unittest.TestCase):
                 "lp_source_unit": "mcd/m²",
                 "lp_data_kind": "modeled",
                 "lp_updated_at": "2026-09-20T19:00:00Z",
+                "horizon_profile": [
+                    {"azimuth_deg": 180, "min_altitude_deg": 40},
+                    {"azimuth_deg": 0, "min_altitude_deg": 12},
+                ],
             },
         )
         site_id = created["site"]["id"]
@@ -256,6 +260,13 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(created["site"]["lp_dataset_name"], "New World Atlas")
         self.assertEqual(created["site"]["lp_estimated_bortle_class"], 4)
         self.assertEqual(created["site"]["lp_updated_at"], "2026-09-20T19:00:00Z")
+        self.assertEqual(
+            created["site"]["horizon_profile"],
+            [
+                {"azimuth_deg": 0.0, "min_altitude_deg": 12.0},
+                {"azimuth_deg": 180.0, "min_altitude_deg": 40.0},
+            ],
+        )
 
         listed = self._read_json("/api/sites")
         self.assertEqual(len(listed["sites"]), 1)
@@ -276,6 +287,32 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(updated["site"]["name"], "Bieszczady Remote")
         self.assertEqual(updated["site"]["sqm_mag_arcsec2"], 21.7)
         self.assertEqual(updated["site"]["lp_source"], "Falchi et al. 2016")
+        self.assertEqual(len(updated["site"]["horizon_profile"]), 2)
+
+        horizon_updated = self._send_json(
+            f"/api/sites/{site_id}",
+            {
+                "horizon_profile": [
+                    {"azimuth_deg": 90, "min_altitude_deg": 25},
+                    {"azimuth_deg": 45, "min_altitude_deg": 18},
+                ],
+            },
+        )
+        self.assertEqual(
+            horizon_updated["site"]["horizon_profile"],
+            [
+                {"azimuth_deg": 45.0, "min_altitude_deg": 18.0},
+                {"azimuth_deg": 90.0, "min_altitude_deg": 25.0},
+            ],
+        )
+
+        horizon_cleared = self._send_json(
+            f"/api/sites/{site_id}",
+            {
+                "horizon_profile": [],
+            },
+        )
+        self.assertEqual(horizon_cleared["site"]["horizon_profile"], [])
 
         lp_updated = self._send_json(
             f"/api/sites/{site_id}",

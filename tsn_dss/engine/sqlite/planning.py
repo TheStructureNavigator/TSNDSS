@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from ...domain.models import AcquisitionPlan, AcquisitionSequence, Equipment, Site, Target
+from ...domain.local_horizon import normalize_local_horizon_profile
+from ...domain.models import AcquisitionPlan, AcquisitionSequence, Equipment, LocalHorizonPoint, Site, Target
 from .db import transaction
 
 ALLOWED_EQUIPMENT_TYPES = {
@@ -255,6 +256,7 @@ class PlanningRepository:
                     site.notes,
                 ),
             )
+            _replace_site_horizon_profile(self.connection, site.id, site.horizon_profile)
         return self.get_site(site.id)
 
     def get_site(self, site_id: str) -> Site | None:
@@ -286,7 +288,11 @@ class PlanningRepository:
             """,
             (site_id,),
         ).fetchone()
-        return _row_to_site(row) if row else None
+        if not row:
+            return None
+        site = _row_to_site(row)
+        site.horizon_profile = _load_site_horizon_profile(self.connection, site.id)
+        return site
 
     def list_sites(self) -> list[Site]:
         rows = self.connection.execute(
@@ -316,7 +322,10 @@ class PlanningRepository:
             ORDER BY name, id;
             """
         ).fetchall()
-        return [_row_to_site(row) for row in rows]
+        sites = [_row_to_site(row) for row in rows]
+        for site in sites:
+            site.horizon_profile = _load_site_horizon_profile(self.connection, site.id)
+        return sites
 
     def update_site(self, site: Site) -> Site:
         _validate_site(site)
@@ -372,6 +381,7 @@ class PlanningRepository:
             )
             if cursor.rowcount == 0:
                 raise KeyError(f"Site not found: {site.id}")
+            _replace_site_horizon_profile(self.connection, site.id, site.horizon_profile)
         return self.get_site(site.id)
 
     def delete_site(self, site_id: str) -> None:
@@ -665,6 +675,51 @@ def _validate_site(site: Site) -> None:
         raise ValidationError("Site lp_estimated_bortle_class must be in [1, 9].")
     if site.lp_data_kind is not None and site.lp_data_kind not in {"modeled", "estimated"}:
         raise ValidationError("Site lp_data_kind must be 'modeled' or 'estimated'.")
+    try:
+        normalize_local_horizon_profile(site.horizon_profile)
+    except ValueError as error:
+        raise ValidationError(str(error)) from error
+
+
+def _load_site_horizon_profile(connection: sqlite3.Connection, site_id: str) -> list[LocalHorizonPoint]:
+    rows = connection.execute(
+        """
+        SELECT azimuth_deg, min_altitude_deg
+        FROM site_horizon_profile_points
+        WHERE site_id = ?
+        ORDER BY azimuth_deg;
+        """,
+        (site_id,),
+    ).fetchall()
+    return [
+        LocalHorizonPoint(
+            azimuth_deg=row["azimuth_deg"],
+            min_altitude_deg=row["min_altitude_deg"],
+        )
+        for row in rows
+    ]
+
+
+def _replace_site_horizon_profile(
+    connection: sqlite3.Connection,
+    site_id: str,
+    points: list[LocalHorizonPoint],
+) -> None:
+    normalized_points = normalize_local_horizon_profile(points)
+    connection.execute("DELETE FROM site_horizon_profile_points WHERE site_id = ?;", (site_id,))
+    connection.executemany(
+        """
+        INSERT INTO site_horizon_profile_points (
+            site_id,
+            azimuth_deg,
+            min_altitude_deg
+        ) VALUES (?, ?, ?);
+        """,
+        [
+            (site_id, point.azimuth_deg, point.min_altitude_deg)
+            for point in normalized_points
+        ],
+    )
 
 
 def _validate_equipment(equipment: Equipment) -> None:

@@ -13,6 +13,7 @@ import {
   getCaptureFileUrl,
   getCaptureThumbnailUrl,
   getApiBaseUrl,
+  type LocalHorizonPoint,
   type MosaicPanel,
   type MosaicPlan,
   getProjectRunArtifactUrl,
@@ -27,6 +28,7 @@ import {
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
+import { normalizeLocalHorizonProfile } from './local_horizon';
 import type { LightPollutionPointResult } from './light_pollution';
 import { buildCandidateSiteDefaultName, siteLightPollutionPayloadFromCandidate } from './site_light_pollution';
 
@@ -58,6 +60,8 @@ export type AppState = {
   lightPollutionOverlayEnabled: boolean;
   lightPollutionOverlayOpacity: number;
   lpUpdatingSiteId: string | null;
+  currentDeviceLocating: boolean;
+  currentDeviceLocationStatus: string | null;
   conditionsForecastDays: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
@@ -94,6 +98,8 @@ export type AppState = {
   siteEditorModalOpen: boolean;
   siteEditorSiteId: string | null;
   siteEditorCandidateDraft: SiteEditorCandidateDraft | null;
+  horizonProfileEditorModalOpen: boolean;
+  horizonProfileEditorSiteId: string | null;
 };
 
 export type SiteEditorCandidateDraft = {
@@ -221,6 +227,7 @@ export function renderAppShell(state: AppState): string {
       ${state.createRunModalOpen ? renderCreateRunModal(state, primaryProject, state.selectedProcessingCapture) : ''}
       ${state.createImportCaptureModalOpen ? renderImportCaptureModal(state, primaryProject, state.selectedProjectCapture) : ''}
       ${state.siteEditorModalOpen ? renderSiteEditorModal(state, state.sites.find((site) => site.id === state.siteEditorSiteId) ?? null) : ''}
+      ${state.horizonProfileEditorModalOpen ? renderHorizonProfileEditorModal(state, state.sites.find((site) => site.id === state.horizonProfileEditorSiteId) ?? null) : ''}
       ${renderToast(state)}
     </div>
   `;
@@ -834,6 +841,7 @@ function renderObservationSitesPanel(state: AppState, activeSite: Site | null): 
             </div>
           </section>
           ${renderSiteLightPollutionDetails(activeSite, state)}
+          ${renderSiteLocalHorizonDetails(activeSite, state)}
 
           <div class="site-details-actions">
             <button class="action-button" type="button" data-open-site-editor-modal="${escapeHtml(activeSite?.id ?? '')}" ${activeSite ? '' : 'disabled'}>
@@ -847,6 +855,14 @@ function renderObservationSitesPanel(state: AppState, activeSite: Site | null): 
           <div class="panel__header panel__header--nested site-map-header">
             <h3>Site map</h3>
             <div class="site-map-controls" aria-label="Map overlays">
+              <button
+                class="site-map-controls__button"
+                type="button"
+                data-current-device-position
+                ${state.currentDeviceLocating ? 'disabled' : ''}
+              >
+                ${state.currentDeviceLocating ? 'Locating device…' : 'Current position'}
+              </button>
               <label class="site-map-controls__toggle">
                 <input
                   type="checkbox"
@@ -871,10 +887,49 @@ function renderObservationSitesPanel(state: AppState, activeSite: Site | null): 
               <span class="site-map-controls__provider">ArtificialSkyBrightness</span>
             </div>
           </div>
+          ${state.currentDeviceLocationStatus ? `<p class="site-map-status">${escapeHtml(state.currentDeviceLocationStatus)}</p>` : ''}
           <div id="observation-center-map" class="observation-map-container"></div>
         </div>
       </section>
     </article>
+  `;
+}
+
+function renderSiteLocalHorizonDetails(site: Site | null, state: AppState): string {
+  const profile = site?.horizon_profile ?? [];
+  const normalizedProfile = profile.length ? normalizeLocalHorizonProfile(profile) : [];
+  const minObstruction = normalizedProfile.length
+    ? Math.min(...normalizedProfile.map((point) => point.min_altitude_deg))
+    : null;
+  const maxObstruction = normalizedProfile.length
+    ? Math.max(...normalizedProfile.map((point) => point.min_altitude_deg))
+    : null;
+
+  return `
+    <section class="site-detail-section">
+      <div class="site-detail-section__header">
+        <span class="site-detail-section__title">Local Horizon</span>
+        ${site ? `
+          <button class="action-button action-button--secondary site-detail-section__action" type="button" data-open-horizon-profile-editor="${escapeHtml(site.id)}" ${state.busy ? 'disabled' : ''}>
+            Edit horizon profile
+          </button>
+        ` : ''}
+      </div>
+      <div class="site-detail-list">
+        ${normalizedProfile.length
+          ? `
+            ${renderSiteDetailRow('Profile', `${normalizedProfile.length} points`)}
+            ${renderSiteDetailRow('Min obstruction', `${minObstruction?.toFixed(0)}°`)}
+            ${renderSiteDetailRow('Max obstruction', `${maxObstruction?.toFixed(0)}°`)}
+          `
+          : renderSiteDetailRow('Profile', site ? 'No local horizon profile' : '—')}
+      </div>
+      ${site && normalizedProfile.length ? `
+        <button class="action-button action-button--danger site-detail-section__action site-detail-section__action--inline" type="button" data-clear-horizon-profile="${escapeHtml(site.id)}" ${state.busy ? 'disabled' : ''}>
+          Clear profile
+        </button>
+      ` : ''}
+    </section>
   `;
 }
 
@@ -1007,6 +1062,7 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
           astronomy,
           astronomy?.min_target_altitude_deg ?? 30,
           state.selectedObservingWindowIndex,
+          activeSite.horizon_profile,
         )}
         ${renderConditionSection(
           'Weather',
@@ -1059,6 +1115,7 @@ function renderAstronomicalTargetSummary(
   astronomy: AstronomicalConditionsSnapshot | null,
   minTargetAltitudeDeg: number,
   selectedObservingWindowIndex: number | null,
+  localHorizonProfile: LocalHorizonPoint[],
 ): string {
   if (!target) {
     return renderConditionSection('Target visibility', [
@@ -1089,7 +1146,7 @@ function renderAstronomicalTargetSummary(
           ${renderConditionCard(`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold))}
           ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}
         </div>
-        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow)}
+        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow, localHorizonProfile)}
       </div>
     </section>
   `;
@@ -2773,6 +2830,59 @@ function renderSiteEditorModal(state: AppState, site: Site | null): string {
   `;
 }
 
+function renderHorizonProfileEditorModal(state: AppState, site: Site | null): string {
+  const points = normalizeLocalHorizonProfile(site?.horizon_profile ?? []);
+  const rows = points.length
+    ? points.map((point) => renderHorizonProfileEditorRow(point.azimuth_deg, point.min_altitude_deg)).join('')
+    : renderHorizonProfileEditorRow('', '');
+
+  return `
+    <div class="modal-backdrop" data-close-horizon-profile-editor>
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-label="Edit horizon profile" data-horizon-profile-editor-modal-card>
+        <div class="panel__header">
+          <h3>Local horizon profile</h3>
+          <button class="action-button action-button--secondary" type="button" data-close-horizon-profile-editor ${state.busy ? 'disabled' : ''}>
+            Close
+          </button>
+        </div>
+        <form class="form-stack horizon-profile-editor" data-form="horizon-profile-editor">
+          <input name="site_id" type="hidden" value="${escapeHtml(site?.id ?? '')}" />
+          <p class="muted field--full">
+            Geometric horizon is 0°. Local horizon describes fixed obstructions for this Site: trees, buildings, hills or similar.
+          </p>
+          <div class="horizon-profile-editor__actions field--full">
+            <button class="action-button action-button--secondary" type="button" data-add-horizon-profile-row>Add point</button>
+            <button class="action-button action-button--secondary" type="button" data-add-horizon-profile-template>Add 8-direction template</button>
+          </div>
+          <div class="horizon-profile-table field--full">
+            <div class="horizon-profile-table__header">
+              <span>Azimuth</span>
+              <span>Minimum altitude</span>
+              <span></span>
+            </div>
+            <div data-horizon-profile-rows>
+              ${rows}
+            </div>
+          </div>
+          <button class="action-button field--full" type="submit" ${state.busy || !site ? 'disabled' : ''}>
+            Save horizon profile
+          </button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderHorizonProfileEditorRow(azimuthDeg: number | string, minAltitudeDeg: number | string): string {
+  return `
+    <div class="horizon-profile-table__row" data-horizon-profile-row>
+      <input name="azimuth_deg" type="number" min="0" max="359.999" step="0.1" value="${escapeHtml(String(azimuthDeg))}" placeholder="0" />
+      <input name="min_altitude_deg" type="number" min="0" max="90" step="0.1" value="${escapeHtml(String(minAltitudeDeg))}" placeholder="0" />
+      <button class="action-button action-button--danger" type="button" data-delete-horizon-profile-row>Remove</button>
+    </div>
+  `;
+}
+
 function renderToast(state: AppState): string {
   if (!state.error && !state.message) {
     return '';
@@ -3281,6 +3391,7 @@ function renderHorizonCompass(
   altitudeDeg: number | null | undefined,
   timelinePoints: ConditionsTimelinePoint[],
   observingWindow: ObservingWindowRange | null,
+  localHorizonProfile: LocalHorizonPoint[] = [],
 ): string {
   if (azimuthDeg == null || !Number.isFinite(azimuthDeg)) {
     return `
@@ -3314,6 +3425,13 @@ function renderHorizonCompass(
     { label: 'NW', azimuth: 315 },
   ];
   const altitudeRings = [30, 60, 90];
+  const normalizedLocalHorizon = localHorizonProfile.length ? normalizeLocalHorizonProfile(localHorizonProfile) : [];
+  const localHorizonPoints = normalizedLocalHorizon
+    .map((point) => projectHorizonCompassPoint(point.azimuth_deg, point.min_altitude_deg, cx, cy, radius))
+    .concat(normalizedLocalHorizon.length ? [
+      projectHorizonCompassPoint(normalizedLocalHorizon[0]!.azimuth_deg, normalizedLocalHorizon[0]!.min_altitude_deg, cx, cy, radius),
+    ] : []);
+  const localHorizonPath = buildCompassPath(localHorizonPoints);
   const trajectoryPoints = timelinePoints
     .filter((point) => (
       point.targetAzimuthDeg != null
@@ -3380,6 +3498,10 @@ function renderHorizonCompass(
         ${cardinalPoints.map((point) => renderHorizonCompassTick(point.azimuth, cx, cy, radius)).join('')}
         <line class="horizon-compass__crosshair" x1="${cx}" y1="${(cy - radius).toFixed(2)}" x2="${cx}" y2="${(cy + radius).toFixed(2)}" />
         <line class="horizon-compass__crosshair" x1="${(cx - radius).toFixed(2)}" y1="${cy}" x2="${(cx + radius).toFixed(2)}" y2="${cy}" />
+        ${localHorizonPath ? `<path class="horizon-compass__local-horizon" d="${localHorizonPath}" />` : ''}
+        ${localHorizonPoints.length ? localHorizonPoints.slice(0, -1).map((point) => `
+          <circle class="horizon-compass__local-horizon-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.2" />
+        `).join('') : ''}
         ${targetBelowHorizonPoints.map((point) => `
           <circle class="horizon-compass__hour-point horizon-compass__hour-point--below" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.7">
             <title>${escapeHtml(`Target below horizon · ${formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg)}`)}</title>
@@ -3431,6 +3553,7 @@ function renderHorizonCompass(
       <div class="horizon-compass__footer">
         <span class="horizon-compass__altitude-badge">${escapeHtml(altitude == null ? 'Alt —' : `Alt ${altitude.toFixed(0)}°`)}</span>
         ${moonTrajectoryPoints.length ? '<span class="horizon-compass__moon-badge">Moon path</span>' : ''}
+        ${localHorizonPath ? '<span class="horizon-compass__local-horizon-badge">Local horizon</span>' : ''}
         ${observingWindow ? '<span class="horizon-compass__window-badge">Bright path = observing window</span>' : ''}
       </div>
     </div>

@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     Image = None
     ImageOps = None
 
-from ..domain.models import MosaicPanel, MosaicPlan, Site
+from ..domain.models import LocalHorizonPoint, MosaicPanel, MosaicPlan, Site
 from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
 from ..engine.projects import ProjectStorage
@@ -1331,6 +1331,13 @@ def _site_to_dict(site: Any) -> dict[str, Any]:
         "lp_updated_at": site.lp_updated_at,
         "south_horizon_open": site.south_horizon_open,
         "notes": site.notes,
+        "horizon_profile": [
+            {
+                "azimuth_deg": point.azimuth_deg,
+                "min_altitude_deg": point.min_altitude_deg,
+            }
+            for point in getattr(site, "horizon_profile", [])
+        ],
     }
 
 
@@ -1659,6 +1666,7 @@ def _site_from_payload(payload: dict[str, Any]) -> Any:
         lp_updated_at=_coerce_optional_string(payload.get("lp_updated_at")),
         south_horizon_open=bool(payload.get("south_horizon_open", False)),
         notes=_coerce_optional_string(payload.get("notes")),
+        horizon_profile=_horizon_profile_from_payload(payload.get("horizon_profile")),
     )
 
 
@@ -1684,7 +1692,27 @@ def _merge_site_payload(current: Any, payload: dict[str, Any]) -> Any:
         lp_updated_at=_coerce_optional_string(payload.get("lp_updated_at")) if "lp_updated_at" in payload else current.lp_updated_at,
         south_horizon_open=bool(payload.get("south_horizon_open", current.south_horizon_open)),
         notes=_coerce_optional_string(payload.get("notes")) if "notes" in payload else current.notes,
+        horizon_profile=_horizon_profile_from_payload(payload.get("horizon_profile")) if "horizon_profile" in payload else current.horizon_profile,
     )
+
+
+def _horizon_profile_from_payload(value: Any) -> list[LocalHorizonPoint]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("Field 'horizon_profile' must be a list.")
+
+    points: list[LocalHorizonPoint] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Each horizon profile point must be an object.")
+        points.append(
+            LocalHorizonPoint(
+                azimuth_deg=_coerce_required_float(item.get("azimuth_deg")),
+                min_altitude_deg=_coerce_required_float(item.get("min_altitude_deg")),
+            )
+        )
+    return points
 
 
 def _mosaic_plan_from_payload(payload: dict[str, Any], *, fallback_profile: Any) -> Any:

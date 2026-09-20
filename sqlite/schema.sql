@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS sites (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS site_horizon_profile_points (
+    site_id TEXT NOT NULL,
+    azimuth_deg REAL NOT NULL CHECK (azimuth_deg >= 0 AND azimuth_deg < 360),
+    min_altitude_deg REAL NOT NULL CHECK (min_altitude_deg >= 0 AND min_altitude_deg <= 90),
+    PRIMARY KEY (site_id, azimuth_deg),
+    FOREIGN KEY (site_id) REFERENCES sites(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_site_horizon_profile_site
+ON site_horizon_profile_points (site_id, azimuth_deg);
+
 
 CREATE TABLE IF NOT EXISTS equipment (
     id TEXT PRIMARY KEY,

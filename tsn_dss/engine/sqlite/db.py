@@ -120,6 +120,25 @@ def _ensure_backward_compatible_columns(connection: sqlite3.Connection) -> None:
     for column_name, column_type in additions.items():
         if column_name not in site_columns:
             connection.execute(f"ALTER TABLE sites ADD COLUMN {column_name} {column_type};")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS site_horizon_profile_points (
+            site_id TEXT NOT NULL,
+            azimuth_deg REAL NOT NULL CHECK (azimuth_deg >= 0 AND azimuth_deg < 360),
+            min_altitude_deg REAL NOT NULL CHECK (min_altitude_deg >= 0 AND min_altitude_deg <= 90),
+            PRIMARY KEY (site_id, azimuth_deg),
+            FOREIGN KEY (site_id) REFERENCES sites(id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        );
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_site_horizon_profile_site
+        ON site_horizon_profile_points (site_id, azimuth_deg);
+        """
+    )
     connection.commit()
 
 

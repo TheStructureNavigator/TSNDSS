@@ -43,6 +43,12 @@ export type Site = {
   lp_updated_at: string | null;
   south_horizon_open: boolean;
   notes: string | null;
+  horizon_profile: LocalHorizonPoint[];
+};
+
+export type LocalHorizonPoint = {
+  azimuth_deg: number;
+  min_altitude_deg: number;
 };
 
 export type SiteForecastCurrent = {
@@ -506,6 +512,7 @@ export async function createSite(input: {
   lp_updated_at?: string | null;
   south_horizon_open?: boolean;
   notes?: string | null;
+  horizon_profile?: LocalHorizonPoint[];
 }): Promise<Site> {
   const payload = await sendJson<{ site: Site }>('/api/sites', input);
   return payload.site;
@@ -531,6 +538,7 @@ export async function updateSite(siteId: string, input: {
   lp_updated_at?: string | null;
   south_horizon_open?: boolean;
   notes?: string | null;
+  horizon_profile?: LocalHorizonPoint[];
 }): Promise<Site> {
   const payload = await sendJson<{ site: Site }>(`/api/sites/${encodeURIComponent(siteId)}`, input);
   return payload.site;

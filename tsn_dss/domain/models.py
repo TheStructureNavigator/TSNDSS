@@ -23,6 +23,13 @@ class Target:
 
 
 @dataclass(slots=True)
+class LocalHorizonPoint:
+    """One manually defined local-horizon obstruction sample for a Site."""
+    azimuth_deg: float
+    min_altitude_deg: float
+
+
+@dataclass(slots=True)
 class Site:
     """An observing location with optional environmental metadata."""
     id: str
@@ -45,6 +52,7 @@ class Site:
     lp_updated_at: str | None = None
     south_horizon_open: bool = False
     notes: str | None = None
+    horizon_profile: list[LocalHorizonPoint] = field(default_factory=list)
 
 
 @dataclass(slots=True)
