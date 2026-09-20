@@ -30,6 +30,17 @@ export type Site = {
   elevation_m: number | null;
   sqm_mag_arcsec2: number | null;
   bortle_class: number | null;
+  lp_artificial_brightness_mcd_m2: number | null;
+  lp_natural_sky_ratio: number | null;
+  lp_estimated_total_brightness_mcd_m2: number | null;
+  lp_estimated_sqm_mag_arcsec2: number | null;
+  lp_estimated_bortle_class: number | null;
+  lp_dataset_name: string | null;
+  lp_provider_name: string | null;
+  lp_source: string | null;
+  lp_source_unit: string | null;
+  lp_data_kind: string | null;
+  lp_updated_at: string | null;
   south_horizon_open: boolean;
   notes: string | null;
 };
@@ -482,6 +493,17 @@ export async function createSite(input: {
   elevation_m?: number | null;
   sqm_mag_arcsec2?: number | null;
   bortle_class?: number | null;
+  lp_artificial_brightness_mcd_m2?: number | null;
+  lp_natural_sky_ratio?: number | null;
+  lp_estimated_total_brightness_mcd_m2?: number | null;
+  lp_estimated_sqm_mag_arcsec2?: number | null;
+  lp_estimated_bortle_class?: number | null;
+  lp_dataset_name?: string | null;
+  lp_provider_name?: string | null;
+  lp_source?: string | null;
+  lp_source_unit?: string | null;
+  lp_data_kind?: string | null;
+  lp_updated_at?: string | null;
   south_horizon_open?: boolean;
   notes?: string | null;
 }): Promise<Site> {
@@ -496,6 +518,17 @@ export async function updateSite(siteId: string, input: {
   elevation_m?: number | null;
   sqm_mag_arcsec2?: number | null;
   bortle_class?: number | null;
+  lp_artificial_brightness_mcd_m2?: number | null;
+  lp_natural_sky_ratio?: number | null;
+  lp_estimated_total_brightness_mcd_m2?: number | null;
+  lp_estimated_sqm_mag_arcsec2?: number | null;
+  lp_estimated_bortle_class?: number | null;
+  lp_dataset_name?: string | null;
+  lp_provider_name?: string | null;
+  lp_source?: string | null;
+  lp_source_unit?: string | null;
+  lp_data_kind?: string | null;
+  lp_updated_at?: string | null;
   south_horizon_open?: boolean;
   notes?: string | null;
 }): Promise<Site> {

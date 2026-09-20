@@ -238,10 +238,24 @@ class GuiApiServerTests(unittest.TestCase):
                 "longitude_deg": 22.5,
                 "elevation_m": 640,
                 "bortle_class": 2,
+                "lp_artificial_brightness_mcd_m2": 0.1785,
+                "lp_natural_sky_ratio": 1.04,
+                "lp_estimated_total_brightness_mcd_m2": 0.3497,
+                "lp_estimated_sqm_mag_arcsec2": 21.22,
+                "lp_estimated_bortle_class": 4,
+                "lp_dataset_name": "New World Atlas",
+                "lp_provider_name": "local-raster",
+                "lp_source": "Falchi et al. 2016",
+                "lp_source_unit": "mcd/m²",
+                "lp_data_kind": "modeled",
+                "lp_updated_at": "2026-09-20T19:00:00Z",
             },
         )
         site_id = created["site"]["id"]
         self.assertEqual(created["site"]["name"], "Bieszczady")
+        self.assertEqual(created["site"]["lp_dataset_name"], "New World Atlas")
+        self.assertEqual(created["site"]["lp_estimated_bortle_class"], 4)
+        self.assertEqual(created["site"]["lp_updated_at"], "2026-09-20T19:00:00Z")
 
         listed = self._read_json("/api/sites")
         self.assertEqual(len(listed["sites"]), 1)
@@ -261,6 +275,28 @@ class GuiApiServerTests(unittest.TestCase):
         )
         self.assertEqual(updated["site"]["name"], "Bieszczady Remote")
         self.assertEqual(updated["site"]["sqm_mag_arcsec2"], 21.7)
+        self.assertEqual(updated["site"]["lp_source"], "Falchi et al. 2016")
+
+        lp_updated = self._send_json(
+            f"/api/sites/{site_id}",
+            {
+                "lp_artificial_brightness_mcd_m2": 0.25,
+                "lp_natural_sky_ratio": 1.46,
+                "lp_estimated_total_brightness_mcd_m2": 0.4212,
+                "lp_estimated_sqm_mag_arcsec2": 21.02,
+                "lp_estimated_bortle_class": 4,
+                "lp_dataset_name": "New World Atlas",
+                "lp_provider_name": "local-raster",
+                "lp_source": "Falchi et al. 2016",
+                "lp_source_unit": "mcd/m²",
+                "lp_data_kind": "modeled",
+                "lp_updated_at": "2026-09-20T20:00:00Z",
+            },
+        )
+        self.assertEqual(lp_updated["site"]["sqm_mag_arcsec2"], 21.7)
+        self.assertEqual(lp_updated["site"]["bortle_class"], 2)
+        self.assertEqual(lp_updated["site"]["lp_artificial_brightness_mcd_m2"], 0.25)
+        self.assertEqual(lp_updated["site"]["lp_updated_at"], "2026-09-20T20:00:00Z")
 
         deleted = self._send_delete(f"/api/sites/{site_id}")
         self.assertTrue(deleted["deleted"])

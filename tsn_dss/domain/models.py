@@ -32,6 +32,17 @@ class Site:
     elevation_m: float | None = None
     sqm_mag_arcsec2: float | None = None
     bortle_class: int | None = None
+    lp_artificial_brightness_mcd_m2: float | None = None
+    lp_natural_sky_ratio: float | None = None
+    lp_estimated_total_brightness_mcd_m2: float | None = None
+    lp_estimated_sqm_mag_arcsec2: float | None = None
+    lp_estimated_bortle_class: int | None = None
+    lp_dataset_name: str | None = None
+    lp_provider_name: str | None = None
+    lp_source: str | None = None
+    lp_source_unit: str | None = None
+    lp_data_kind: str | None = None
+    lp_updated_at: str | None = None
     south_horizon_open: bool = False
     notes: str | None = None
 

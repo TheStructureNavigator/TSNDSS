@@ -35,6 +35,32 @@ CREATE TABLE IF NOT EXISTS sites (
     elevation_m REAL,
     sqm_mag_arcsec2 REAL,
     bortle_class INTEGER CHECK (bortle_class IS NULL OR bortle_class BETWEEN 1 AND 9),
+    lp_artificial_brightness_mcd_m2 REAL CHECK (
+        lp_artificial_brightness_mcd_m2 IS NULL OR
+        lp_artificial_brightness_mcd_m2 >= 0
+    ),
+    lp_natural_sky_ratio REAL CHECK (
+        lp_natural_sky_ratio IS NULL OR
+        lp_natural_sky_ratio >= 0
+    ),
+    lp_estimated_total_brightness_mcd_m2 REAL CHECK (
+        lp_estimated_total_brightness_mcd_m2 IS NULL OR
+        lp_estimated_total_brightness_mcd_m2 >= 0
+    ),
+    lp_estimated_sqm_mag_arcsec2 REAL,
+    lp_estimated_bortle_class INTEGER CHECK (
+        lp_estimated_bortle_class IS NULL OR
+        lp_estimated_bortle_class BETWEEN 1 AND 9
+    ),
+    lp_dataset_name TEXT,
+    lp_provider_name TEXT,
+    lp_source TEXT,
+    lp_source_unit TEXT,
+    lp_data_kind TEXT CHECK (
+        lp_data_kind IS NULL OR
+        lp_data_kind IN ('modeled', 'estimated')
+    ),
+    lp_updated_at TEXT,
     south_horizon_open INTEGER NOT NULL DEFAULT 0 CHECK (south_horizon_open IN (0, 1)),
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

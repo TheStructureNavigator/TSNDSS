@@ -27,6 +27,8 @@ import {
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
+import type { LightPollutionPointResult } from './light_pollution';
+import { buildCandidateSiteDefaultName, siteLightPollutionPayloadFromCandidate } from './site_light_pollution';
 
 /**
  * Pure rendering layer for the TSN DSS frontend.
@@ -55,6 +57,7 @@ export type AppState = {
   activeSiteId: string | null;
   lightPollutionOverlayEnabled: boolean;
   lightPollutionOverlayOpacity: number;
+  lpUpdatingSiteId: string | null;
   conditionsForecastDays: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
@@ -90,6 +93,13 @@ export type AppState = {
   createImportCaptureModalOpen: boolean;
   siteEditorModalOpen: boolean;
   siteEditorSiteId: string | null;
+  siteEditorCandidateDraft: SiteEditorCandidateDraft | null;
+};
+
+export type SiteEditorCandidateDraft = {
+  latitudeDeg: number;
+  longitudeDeg: number;
+  lightPollution: LightPollutionPointResult;
 };
 
 export type ProjectDetailTab = 'gallery' | 'import' | 'settings';
@@ -812,12 +822,18 @@ function renderObservationSitesPanel(state: AppState, activeSite: Site | null): 
             ${renderSiteDetailRow('Latitude', formatAngleValue(activeSite?.latitude_deg))}
             ${renderSiteDetailRow('Longitude', formatAngleValue(activeSite?.longitude_deg))}
             ${renderSiteDetailRow('Elevation', formatMeters(activeSite?.elevation_m))}
-            ${renderSiteDetailRow('SQM', activeSite?.sqm_mag_arcsec2 == null ? '—' : activeSite.sqm_mag_arcsec2.toFixed(2))}
-            ${renderSiteDetailRow('Bortle', activeSite?.bortle_class == null ? '—' : String(activeSite.bortle_class))}
-            ${renderSiteDetailRow('Sky quality', formatSiteQuality(activeSite))}
+          </div>
+          <section class="site-detail-section">
+            <span class="site-detail-section__title">Measured / Manual</span>
+            <div class="site-detail-list">
+            ${renderSiteDetailRow('Measured SQM', activeSite?.sqm_mag_arcsec2 == null ? '—' : `${activeSite.sqm_mag_arcsec2.toFixed(2)} mag/arcsec²`)}
+            ${renderSiteDetailRow('Manual Bortle', activeSite?.bortle_class == null ? '—' : `Class ${activeSite.bortle_class}`)}
+            ${renderSiteDetailRow('Manual sky quality', formatSiteQuality(activeSite))}
             ${renderSiteDetailRow('South horizon', activeSite?.south_horizon_open ? 'open' : 'not marked open')}
             ${activeSite?.notes ? renderSiteDetailRow('Notes', activeSite.notes) : ''}
-          </div>
+            </div>
+          </section>
+          ${renderSiteLightPollutionDetails(activeSite, state)}
 
           <div class="site-details-actions">
             <button class="action-button" type="button" data-open-site-editor-modal="${escapeHtml(activeSite?.id ?? '')}" ${activeSite ? '' : 'disabled'}>
@@ -868,6 +884,65 @@ function renderSiteDetailRow(label: string, value: string): string {
       <span class="site-detail-row__label">${escapeHtml(label)}</span>
       <span class="site-detail-row__value">${escapeHtml(value)}</span>
     </div>
+  `;
+}
+
+function renderSiteLightPollutionDetails(site: Site | null, state: AppState): string {
+  const isUpdating = site !== null && state.lpUpdatingSiteId === site.id;
+  const canUpdate = site !== null && site.latitude_deg != null && site.longitude_deg != null && !isUpdating && !state.busy;
+  const updateButton = site
+    ? `
+      <button
+        class="action-button action-button--secondary site-detail-section__action"
+        type="button"
+        data-update-site-light-pollution="${escapeHtml(site.id)}"
+        ${canUpdate ? '' : 'disabled'}
+        title="${site.latitude_deg == null || site.longitude_deg == null ? 'Latitude and longitude are required.' : 'Refresh modeled light pollution data for this site.'}"
+      >
+        ${isUpdating ? 'Updating light pollution…' : 'Update light pollution data'}
+      </button>
+    `
+    : '';
+  const hasModeledData = site != null && (
+    site.lp_artificial_brightness_mcd_m2 != null
+    || site.lp_natural_sky_ratio != null
+    || site.lp_estimated_total_brightness_mcd_m2 != null
+    || site.lp_estimated_sqm_mag_arcsec2 != null
+    || site.lp_estimated_bortle_class != null
+    || site.lp_dataset_name != null
+    || site.lp_source != null
+  );
+
+  if (!hasModeledData) {
+    return `
+      <section class="site-detail-section">
+        <div class="site-detail-section__header">
+          <span class="site-detail-section__title">Modeled / Estimated Light Pollution</span>
+          ${updateButton}
+        </div>
+        ${renderSiteDetailRow('Modeled data', site ? 'No modeled light pollution data saved yet.' : '—')}
+      </section>
+    `;
+  }
+
+  return `
+    <section class="site-detail-section">
+      <div class="site-detail-section__header">
+        <span class="site-detail-section__title">Modeled / Estimated Light Pollution</span>
+        ${updateButton}
+      </div>
+      <div class="site-detail-list">
+        ${renderSiteDetailRow('Estimated SQM', site.lp_estimated_sqm_mag_arcsec2 == null ? '—' : `${site.lp_estimated_sqm_mag_arcsec2.toFixed(2)} mag/arcsec² · estimated`)}
+        ${renderSiteDetailRow('Estimated Bortle', site.lp_estimated_bortle_class == null ? '—' : `Class ${site.lp_estimated_bortle_class} · estimated`)}
+        ${renderSiteDetailRow('Artificial brightness', formatMcdPerSquareMeter(site.lp_artificial_brightness_mcd_m2))}
+        ${renderSiteDetailRow('Artificial / natural ratio', formatEstimatedMultiplier(site.lp_natural_sky_ratio))}
+        ${renderSiteDetailRow('Estimated total brightness', formatEstimatedMcdPerSquareMeter(site.lp_estimated_total_brightness_mcd_m2))}
+        ${renderSiteDetailRow('Dataset', site.lp_dataset_name ?? '—')}
+        ${renderSiteDetailRow('Source', site.lp_source ?? site.lp_provider_name ?? '—')}
+        ${renderSiteDetailRow('Data kind', site.lp_data_kind ?? 'modeled / estimated')}
+        ${renderSiteDetailRow('Updated', formatTimestampDisplay(site.lp_updated_at))}
+      </div>
+    </section>
   `;
 }
 
@@ -2599,6 +2674,29 @@ function renderImportCaptureModal(state: AppState, project: ProjectSummary | nul
 
 function renderSiteEditorModal(state: AppState, site: Site | null): string {
   const isEditing = site !== null;
+  const candidateDraft = isEditing ? null : state.siteEditorCandidateDraft;
+  const candidateLpPayload = candidateDraft
+    ? siteLightPollutionPayloadFromCandidate(candidateDraft.lightPollution, new Date().toISOString())
+    : null;
+  const latitudeValue = site?.latitude_deg ?? candidateDraft?.latitudeDeg ?? '';
+  const longitudeValue = site?.longitude_deg ?? candidateDraft?.longitudeDeg ?? '';
+  const siteNameValue = site?.name ?? (candidateDraft ? buildCandidateSiteDefaultName(candidateDraft.latitudeDeg, candidateDraft.longitudeDeg) : '');
+  const lpArtificialBrightness = site?.lp_artificial_brightness_mcd_m2 ?? candidateLpPayload?.lp_artificial_brightness_mcd_m2 ?? null;
+  const lpNaturalSkyRatio = site?.lp_natural_sky_ratio ?? candidateLpPayload?.lp_natural_sky_ratio ?? null;
+  const lpTotalBrightness = site?.lp_estimated_total_brightness_mcd_m2 ?? candidateLpPayload?.lp_estimated_total_brightness_mcd_m2 ?? null;
+  const lpEstimatedSqm = site?.lp_estimated_sqm_mag_arcsec2 ?? candidateLpPayload?.lp_estimated_sqm_mag_arcsec2 ?? null;
+  const lpEstimatedBortle = site?.lp_estimated_bortle_class ?? candidateLpPayload?.lp_estimated_bortle_class ?? null;
+  const lpDatasetName = site?.lp_dataset_name ?? candidateLpPayload?.lp_dataset_name ?? null;
+  const lpProviderName = site?.lp_provider_name ?? candidateLpPayload?.lp_provider_name ?? null;
+  const lpSource = site?.lp_source ?? candidateLpPayload?.lp_source ?? null;
+  const lpSourceUnit = site?.lp_source_unit ?? candidateLpPayload?.lp_source_unit ?? null;
+  const lpDataKind = site?.lp_data_kind ?? candidateLpPayload?.lp_data_kind ?? null;
+  const lpUpdatedAt = site?.lp_updated_at ?? candidateLpPayload?.lp_updated_at ?? null;
+  const candidateNote = candidateDraft
+    ? candidateLpPayload
+      ? 'Candidate coordinates and modeled light pollution data are prefilled from the map.'
+      : 'Candidate coordinates are prefilled from the map. No modeled light pollution value will be saved for this site.'
+    : null;
   return `
     <div class="modal-backdrop" data-close-site-editor-modal>
       <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-label="${isEditing ? 'Edit site' : 'Create site'}" data-site-editor-modal-card>
@@ -2610,28 +2708,40 @@ function renderSiteEditorModal(state: AppState, site: Site | null): string {
         </div>
         <form class="form-stack site-editor-form" data-form="site-editor">
           <input name="site_id" type="hidden" value="${escapeHtml(site?.id ?? '')}" />
+          <input name="lp_artificial_brightness_mcd_m2" type="hidden" value="${formatHiddenNumber(lpArtificialBrightness)}" />
+          <input name="lp_natural_sky_ratio" type="hidden" value="${formatHiddenNumber(lpNaturalSkyRatio)}" />
+          <input name="lp_estimated_total_brightness_mcd_m2" type="hidden" value="${formatHiddenNumber(lpTotalBrightness)}" />
+          <input name="lp_estimated_sqm_mag_arcsec2" type="hidden" value="${formatHiddenNumber(lpEstimatedSqm)}" />
+          <input name="lp_estimated_bortle_class" type="hidden" value="${formatHiddenNumber(lpEstimatedBortle)}" />
+          <input name="lp_dataset_name" type="hidden" value="${escapeHtml(lpDatasetName ?? '')}" />
+          <input name="lp_provider_name" type="hidden" value="${escapeHtml(lpProviderName ?? '')}" />
+          <input name="lp_source" type="hidden" value="${escapeHtml(lpSource ?? '')}" />
+          <input name="lp_source_unit" type="hidden" value="${escapeHtml(lpSourceUnit ?? '')}" />
+          <input name="lp_data_kind" type="hidden" value="${escapeHtml(lpDataKind ?? '')}" />
+          <input name="lp_updated_at" type="hidden" value="${escapeHtml(lpUpdatedAt ?? '')}" />
+          ${candidateNote ? `<p class="muted field--full">${escapeHtml(candidateNote)}</p>` : ''}
           <label class="field field--full">
             <span>Site name</span>
-            <input name="name" type="text" value="${escapeHtml(site?.name ?? '')}" placeholder="Backyard / SiteNo1 / Ridge coordinates" required autofocus />
+            <input name="name" type="text" value="${escapeHtml(siteNameValue)}" placeholder="Backyard / SiteNo1 / Ridge coordinates" required autofocus />
           </label>
           <label class="field">
             <span>Latitude (deg)</span>
-            <input name="latitude_deg" type="text" value="${site?.latitude_deg ?? ''}" placeholder="50.1234" />
+            <input name="latitude_deg" type="text" value="${latitudeValue}" placeholder="50.1234" />
           </label>
           <label class="field">
             <span>Longitude (deg)</span>
-            <input name="longitude_deg" type="text" value="${site?.longitude_deg ?? ''}" placeholder="19.1234" />
+            <input name="longitude_deg" type="text" value="${longitudeValue}" placeholder="19.1234" />
           </label>
           <label class="field">
             <span>Elevation (m)</span>
             <input name="elevation_m" type="text" value="${site?.elevation_m ?? ''}" placeholder="optional" />
           </label>
           <label class="field">
-            <span>SQM</span>
+            <span>Measured SQM</span>
             <input name="sqm_mag_arcsec2" type="text" value="${site?.sqm_mag_arcsec2 ?? ''}" placeholder="optional" />
           </label>
           <label class="field">
-            <span>Bortle</span>
+            <span>Manual Bortle</span>
             <input name="bortle_class" type="text" value="${site?.bortle_class ?? ''}" placeholder="1-9" />
           </label>
           <label class="checkbox-field site-editor-form__checkbox">
@@ -2642,6 +2752,18 @@ function renderSiteEditorModal(state: AppState, site: Site | null): string {
             <span>Notes</span>
             <textarea name="notes" rows="3" placeholder="Optional site notes">${escapeHtml(site?.notes ?? '')}</textarea>
           </label>
+          ${candidateDraft ? `
+            <div class="site-editor-lp-summary field--full">
+              <span class="site-detail-section__title">Light pollution</span>
+              ${candidateLpPayload ? `
+                <div class="site-detail-list">
+                  ${renderSiteDetailRow('Estimated SQM', lpEstimatedSqm == null ? '—' : `${lpEstimatedSqm.toFixed(2)} mag/arcsec² · estimated`)}
+                  ${renderSiteDetailRow('Estimated Bortle', lpEstimatedBortle == null ? '—' : `Class ${lpEstimatedBortle} · estimated`)}
+                  ${renderSiteDetailRow('Dataset', lpDatasetName ?? '—')}
+                </div>
+              ` : '<p class="muted">Light pollution data unavailable.</p>'}
+            </div>
+          ` : ''}
           <button class="action-button field--full" type="submit" ${state.busy ? 'disabled' : ''}>
             ${isEditing ? 'Save site' : 'Create site'}
           </button>
@@ -2672,7 +2794,9 @@ function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function getHardwareLabel(
@@ -2850,6 +2974,29 @@ function formatSiteQuality(site: Site | null | undefined): string {
     parts.push(`${site.sqm_mag_arcsec2.toFixed(1)} SQM`);
   }
   return parts.join(' · ') || '—';
+}
+
+function formatHiddenNumber(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '' : String(value);
+}
+
+function formatMcdPerSquareMeter(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '—';
+  }
+  return `${value.toFixed(4)} mcd/m²`;
+}
+
+function formatEstimatedMcdPerSquareMeter(value: number | null | undefined): string {
+  const formatted = formatMcdPerSquareMeter(value);
+  return formatted === '—' ? formatted : `${formatted} · estimated`;
+}
+
+function formatEstimatedMultiplier(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '—';
+  }
+  return `${value.toFixed(2)}× · estimated`;
 }
 
 function formatWeatherValue(value: number | null | undefined, suffix: string): string {

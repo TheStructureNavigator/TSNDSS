@@ -12,6 +12,12 @@ export type LightPollutionLayerState = {
   opacity: number;
 };
 
+export type CandidateSiteCreateRequest = {
+  latitudeDeg: number;
+  longitudeDeg: number;
+  lightPollution: LightPollutionPointResult;
+};
+
 let currentContainerId: string | null = null;
 let leafletApi: typeof import('leaflet') | null = null;
 let leafletMap: LeafletMap | null = null;
@@ -158,6 +164,10 @@ function setCandidateSiteMarker(
     })
     .addTo(leafletMap)
     .openPopup();
+  leafletCandidateMarker.on('popupopen', () => {
+    bindCandidateCreateButton(latitudeDeg, longitudeDeg, pointValue);
+  });
+  bindCandidateCreateButton(latitudeDeg, longitudeDeg, pointValue);
   updateCandidateClearControl();
 }
 
@@ -223,40 +233,97 @@ function renderCandidateSitePopup(
   return `
     <section class="candidate-site-popup__content">
       <strong>Candidate Site</strong>
-      <span class="candidate-site-popup__coordinate">${latitudeDeg.toFixed(6)}°</span>
-      <span class="candidate-site-popup__coordinate">${longitudeDeg.toFixed(6)}°</span>
+      <div class="candidate-site-popup__coordinates">
+        <span class="candidate-site-popup__coordinate">Lat ${latitudeDeg.toFixed(6)}°</span>
+        <span class="candidate-site-popup__coordinate">Lon ${longitudeDeg.toFixed(6)}°</span>
+      </div>
       <span class="candidate-site-popup__section-title">Light Pollution</span>
-      <dl class="candidate-site-popup__data">
-        <div>
-          <dt>Artificial brightness</dt>
-          <dd>${measurement ? `${measurement.artificialBrightnessMcdM2.toFixed(4)} mcd/m² <small>source</small>` : escapeHtml(pointValue.message)}</dd>
-        </div>
-        <div>
-          <dt>Natural sky ratio</dt>
-          <dd>${measurement ? `${measurement.naturalSkyRatio.toFixed(2)}× <small>estimated</small>` : '—'}</dd>
-        </div>
-        <div>
-          <dt>Total brightness</dt>
-          <dd>${measurement ? `${measurement.estimatedTotalBrightnessMcdM2.toFixed(4)} mcd/m² <small>estimated</small>` : '—'}</dd>
-        </div>
-        <div>
-          <dt>Estimated SQM</dt>
-          <dd>${measurement ? `${measurement.estimatedSqmMagArcsec2.toFixed(2)} mag/arcsec² <small>estimated</small>` : '—'}</dd>
-        </div>
-        <div>
-          <dt>Estimated Bortle</dt>
-          <dd>${measurement ? `Class ${measurement.estimatedBortleClass} <small>estimated</small>` : '—'}</dd>
-        </div>
-      </dl>
-      <span>Dataset: ${escapeHtml(pointValue.datasetName)}</span>
-      <span>Source: ${escapeHtml(pointValue.source)}</span>
+      ${measurement
+        ? `
+          <div class="candidate-site-popup__primary">
+            <div>
+              <span>Estimated SQM</span>
+              <strong>${measurement.estimatedSqmMagArcsec2.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Estimated Bortle</span>
+              <strong>Class ${measurement.estimatedBortleClass}</strong>
+            </div>
+          </div>
+          <dl class="candidate-site-popup__data">
+            <div>
+              <dt>Artificial brightness</dt>
+              <dd>${measurement.artificialBrightnessMcdM2.toFixed(4)} mcd/m²</dd>
+            </div>
+            <div>
+              <dt>Artificial / natural ratio</dt>
+              <dd>${measurement.naturalSkyRatio.toFixed(2)}× <small>estimated</small></dd>
+            </div>
+            <div>
+              <dt>Estimated total brightness</dt>
+              <dd>${measurement.estimatedTotalBrightnessMcdM2.toFixed(4)} mcd/m² <small>estimated</small></dd>
+            </div>
+            <div>
+              <dt>Dataset</dt>
+              <dd>${escapeHtml(pointValue.datasetName)}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>${escapeHtml(pointValue.source)}</dd>
+            </div>
+          </dl>
+        `
+        : `
+          <p class="candidate-site-popup__unavailable">Light pollution data unavailable for this location.</p>
+          <dl class="candidate-site-popup__data">
+            <div>
+              <dt>Dataset</dt>
+              <dd>${escapeHtml(pointValue.datasetName)}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>${escapeHtml(pointValue.source)}</dd>
+            </div>
+          </dl>
+        `}
       ${isLoading ? '<span class="candidate-site-popup__loading">Loading light pollution data…</span>' : ''}
-      <button class="candidate-site-popup__button" type="button" disabled title="Site creation will be added in next step">
+      <button
+        class="candidate-site-popup__button"
+        type="button"
+        data-create-site-from-candidate
+        ${isLoading ? 'disabled' : ''}
+        title="${isLoading ? 'Light pollution lookup is still loading.' : 'Create a saved observation site from this candidate.'}"
+      >
         Create Site here
       </button>
-      <small>Site creation will be added in next step.</small>
+      <small>${isLoading ? 'Waiting for light pollution lookup…' : 'Opens the normal Site form with this candidate prefilled.'}</small>
     </section>
   `;
+}
+
+function bindCandidateCreateButton(
+  latitudeDeg: number,
+  longitudeDeg: number,
+  pointValue: LightPollutionPointResult,
+): void {
+  if (pointValue.status === 'loading') {
+    return;
+  }
+  const popupElement = leafletCandidateMarker?.getPopup()?.getElement();
+  const button = popupElement?.querySelector<HTMLButtonElement>('[data-create-site-from-candidate]');
+  if (!button) {
+    return;
+  }
+  button.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent<CandidateSiteCreateRequest>('tsn-dss:create-site-from-candidate', {
+      detail: {
+        latitudeDeg,
+        longitudeDeg,
+        lightPollution: pointValue,
+      },
+    }));
+    clearCandidateSiteMarker();
+  }, { once: true });
 }
 
 function getLoadingLightPollutionResult(): LightPollutionPointResult {

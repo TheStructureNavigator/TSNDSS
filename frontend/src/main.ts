@@ -13,6 +13,7 @@ import {
   deleteProjectRun,
   deleteProject,
   fetchHealth,
+  fetchLightPollutionPoint,
   fetchProject,
   fetchProjectRun,
   fetchProjectRuns,
@@ -39,11 +40,13 @@ import {
   type ProjectSummary,
 } from './app/api';
 import {
+  type CandidateSiteCreateRequest,
   type LightPollutionLayerState,
   mountObservationCenterMap,
   preserveObservationCenterMapState,
 } from './app/observation_center_map';
 import { mountSkyView, preserveSkyViewState, resolveSkyTargetCoordinates } from './app/sky';
+import { siteLightPollutionPayloadFromApiSnapshot } from './app/site_light_pollution';
 import {
   renderAppShell,
   type AppState,
@@ -87,6 +90,7 @@ const state: AppState = {
   activeSiteId: null,
   lightPollutionOverlayEnabled: false,
   lightPollutionOverlayOpacity: 0.55,
+  lpUpdatingSiteId: null,
   conditionsForecastDays: DEFAULT_CONDITIONS_FORECAST_DAYS,
   siteForecast: null,
   astronomicalConditions: null,
@@ -122,7 +126,17 @@ const state: AppState = {
   createImportCaptureModalOpen: false,
   siteEditorModalOpen: false,
   siteEditorSiteId: null,
+  siteEditorCandidateDraft: null,
 };
+
+window.addEventListener('tsn-dss:create-site-from-candidate', (event) => {
+  const candidateEvent = event as CustomEvent<CandidateSiteCreateRequest>;
+  state.observationCenterTab = 'sites';
+  state.siteEditorSiteId = null;
+  state.siteEditorCandidateDraft = candidateEvent.detail;
+  state.siteEditorModalOpen = true;
+  render();
+});
 
 void bootstrap();
 
@@ -616,6 +630,7 @@ function bindSiteEditorForm(): void {
   const openButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-open-site-editor-modal]');
   openButtons.forEach((openButton) => openButton.addEventListener('click', () => {
     state.observationCenterTab = 'sites';
+    state.siteEditorCandidateDraft = null;
     state.siteEditorSiteId = openButton.dataset.openSiteEditorModal || null;
     state.siteEditorModalOpen = true;
     render();
@@ -631,6 +646,7 @@ function bindSiteEditorForm(): void {
       }
       state.siteEditorModalOpen = false;
       state.siteEditorSiteId = null;
+      state.siteEditorCandidateDraft = null;
       render();
     });
   });
@@ -645,6 +661,17 @@ function bindSiteActions(): void {
         return;
       }
       void handleDeleteSite(siteId);
+    });
+  });
+
+  const lightPollutionButtons = rootElement.querySelectorAll<HTMLButtonElement>('[data-update-site-light-pollution]');
+  lightPollutionButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const siteId = button.dataset.updateSiteLightPollution ?? '';
+      if (!siteId) {
+        return;
+      }
+      void handleUpdateSiteLightPollution(siteId);
     });
   });
 }
@@ -1299,6 +1326,17 @@ async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
     elevation_m: normalizeNullableNumber(formData.get('elevation_m')),
     sqm_mag_arcsec2: normalizeNullableNumber(formData.get('sqm_mag_arcsec2')),
     bortle_class: normalizeNullableNumber(formData.get('bortle_class')),
+    lp_artificial_brightness_mcd_m2: normalizeNullableNumber(formData.get('lp_artificial_brightness_mcd_m2')),
+    lp_natural_sky_ratio: normalizeNullableNumber(formData.get('lp_natural_sky_ratio')),
+    lp_estimated_total_brightness_mcd_m2: normalizeNullableNumber(formData.get('lp_estimated_total_brightness_mcd_m2')),
+    lp_estimated_sqm_mag_arcsec2: normalizeNullableNumber(formData.get('lp_estimated_sqm_mag_arcsec2')),
+    lp_estimated_bortle_class: normalizeNullableNumber(formData.get('lp_estimated_bortle_class')),
+    lp_dataset_name: normalizeNullableText(formData.get('lp_dataset_name')),
+    lp_provider_name: normalizeNullableText(formData.get('lp_provider_name')),
+    lp_source: normalizeNullableText(formData.get('lp_source')),
+    lp_source_unit: normalizeNullableText(formData.get('lp_source_unit')),
+    lp_data_kind: normalizeNullableText(formData.get('lp_data_kind')),
+    lp_updated_at: normalizeNullableText(formData.get('lp_updated_at')),
     south_horizon_open: formData.get('south_horizon_open') === 'on',
     notes: normalizeNullableText(formData.get('notes')),
   };
@@ -1324,11 +1362,64 @@ async function handleSiteEditorSubmit(form: HTMLFormElement): Promise<void> {
     state.astronomicalConditions = await loadActiveAstronomicalConditions();
     state.siteEditorModalOpen = false;
     state.siteEditorSiteId = null;
+    state.siteEditorCandidateDraft = null;
     setMessage(siteId ? `Site updated: ${savedSite.name}` : `Site created: ${savedSite.name}`);
   } catch (error) {
     setError(getErrorMessage(error));
   } finally {
     setBusy(false);
+  }
+}
+
+async function handleUpdateSiteLightPollution(siteId: string): Promise<void> {
+  const site = state.sites.find((entry) => entry.id === siteId) ?? null;
+  if (!site) {
+    setError('Site is no longer available.');
+    return;
+  }
+
+  if (site.latitude_deg == null || site.longitude_deg == null) {
+    setError('Latitude and longitude are required to update light pollution data.');
+    return;
+  }
+
+  if (state.lpUpdatingSiteId !== null) {
+    return;
+  }
+
+  state.lpUpdatingSiteId = siteId;
+  state.error = null;
+  state.message = null;
+  render();
+
+  try {
+    const snapshot = await fetchLightPollutionPoint(site.latitude_deg, site.longitude_deg);
+    const payload = siteLightPollutionPayloadFromApiSnapshot(snapshot, new Date().toISOString());
+    if (payload === null) {
+      state.message = 'Light pollution data unavailable for this location.';
+      state.error = null;
+      scheduleToastDismiss();
+      return;
+    }
+
+    const updatedSite = await updateSite(siteId, payload);
+    state.sites = state.sites.map((entry) => (entry.id === updatedSite.id ? updatedSite : entry));
+    if (state.telescopeSnapshot?.active_site?.id === updatedSite.id) {
+      state.telescopeSnapshot = {
+        ...state.telescopeSnapshot,
+        active_site: updatedSite,
+      };
+    }
+    state.message = `Light pollution data updated: ${updatedSite.name}`;
+    state.error = null;
+    scheduleToastDismiss();
+  } catch (error) {
+    state.error = getErrorMessage(error);
+    state.message = null;
+    scheduleToastDismiss();
+  } finally {
+    state.lpUpdatingSiteId = null;
+    render();
   }
 }
 

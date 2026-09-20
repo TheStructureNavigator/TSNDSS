@@ -87,10 +87,24 @@ class PlanningRepositoryTests(unittest.TestCase):
                 longitude_deg=19.0,
                 bortle_class=4,
                 south_horizon_open=True,
+                lp_artificial_brightness_mcd_m2=0.1785,
+                lp_natural_sky_ratio=1.04,
+                lp_estimated_total_brightness_mcd_m2=0.3497,
+                lp_estimated_sqm_mag_arcsec2=21.22,
+                lp_estimated_bortle_class=4,
+                lp_dataset_name="New World Atlas",
+                lp_provider_name="local-raster",
+                lp_source="Falchi et al. 2016",
+                lp_source_unit="mcd/m²",
+                lp_data_kind="modeled",
+                lp_updated_at="2026-09-20T19:00:00Z",
             )
         )
 
         self.assertTrue(created.south_horizon_open)
+        self.assertEqual(created.lp_dataset_name, "New World Atlas")
+        self.assertEqual(created.lp_estimated_bortle_class, 4)
+        self.assertEqual(created.lp_updated_at, "2026-09-20T19:00:00Z")
 
         updated = self.repository.update_site(
             Site(
@@ -101,12 +115,26 @@ class PlanningRepositoryTests(unittest.TestCase):
                 sqm_mag_arcsec2=21.1,
                 bortle_class=3,
                 south_horizon_open=False,
+                lp_artificial_brightness_mcd_m2=0.25,
+                lp_natural_sky_ratio=1.46,
+                lp_estimated_total_brightness_mcd_m2=0.4212,
+                lp_estimated_sqm_mag_arcsec2=21.02,
+                lp_estimated_bortle_class=4,
+                lp_dataset_name="New World Atlas",
+                lp_provider_name="local-raster",
+                lp_source="Falchi et al. 2016",
+                lp_source_unit="mcd/m²",
+                lp_data_kind="modeled",
+                lp_updated_at="2026-09-20T20:00:00Z",
                 notes="Backup location",
             )
         )
 
         self.assertEqual(updated.name, "Test Site Updated")
         self.assertFalse(updated.south_horizon_open)
+        self.assertEqual(updated.lp_artificial_brightness_mcd_m2, 0.25)
+        self.assertEqual(updated.lp_estimated_sqm_mag_arcsec2, 21.02)
+        self.assertEqual(updated.lp_updated_at, "2026-09-20T20:00:00Z")
 
         self.repository.delete_site("site:test-01")
         self.assertIsNone(self.repository.get_site("site:test-01"))

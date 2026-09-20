@@ -217,9 +217,20 @@ class PlanningRepository:
                     elevation_m,
                     sqm_mag_arcsec2,
                     bortle_class,
+                    lp_artificial_brightness_mcd_m2,
+                    lp_natural_sky_ratio,
+                    lp_estimated_total_brightness_mcd_m2,
+                    lp_estimated_sqm_mag_arcsec2,
+                    lp_estimated_bortle_class,
+                    lp_dataset_name,
+                    lp_provider_name,
+                    lp_source,
+                    lp_source_unit,
+                    lp_data_kind,
+                    lp_updated_at,
                     south_horizon_open,
                     notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     site.id,
@@ -229,6 +240,17 @@ class PlanningRepository:
                     site.elevation_m,
                     site.sqm_mag_arcsec2,
                     site.bortle_class,
+                    site.lp_artificial_brightness_mcd_m2,
+                    site.lp_natural_sky_ratio,
+                    site.lp_estimated_total_brightness_mcd_m2,
+                    site.lp_estimated_sqm_mag_arcsec2,
+                    site.lp_estimated_bortle_class,
+                    site.lp_dataset_name,
+                    site.lp_provider_name,
+                    site.lp_source,
+                    site.lp_source_unit,
+                    site.lp_data_kind,
+                    site.lp_updated_at,
                     int(site.south_horizon_open),
                     site.notes,
                 ),
@@ -246,6 +268,17 @@ class PlanningRepository:
                 elevation_m,
                 sqm_mag_arcsec2,
                 bortle_class,
+                lp_artificial_brightness_mcd_m2,
+                lp_natural_sky_ratio,
+                lp_estimated_total_brightness_mcd_m2,
+                lp_estimated_sqm_mag_arcsec2,
+                lp_estimated_bortle_class,
+                lp_dataset_name,
+                lp_provider_name,
+                lp_source,
+                lp_source_unit,
+                lp_data_kind,
+                lp_updated_at,
                 south_horizon_open,
                 notes
             FROM sites
@@ -266,6 +299,17 @@ class PlanningRepository:
                 elevation_m,
                 sqm_mag_arcsec2,
                 bortle_class,
+                lp_artificial_brightness_mcd_m2,
+                lp_natural_sky_ratio,
+                lp_estimated_total_brightness_mcd_m2,
+                lp_estimated_sqm_mag_arcsec2,
+                lp_estimated_bortle_class,
+                lp_dataset_name,
+                lp_provider_name,
+                lp_source,
+                lp_source_unit,
+                lp_data_kind,
+                lp_updated_at,
                 south_horizon_open,
                 notes
             FROM sites
@@ -287,6 +331,17 @@ class PlanningRepository:
                     elevation_m = ?,
                     sqm_mag_arcsec2 = ?,
                     bortle_class = ?,
+                    lp_artificial_brightness_mcd_m2 = ?,
+                    lp_natural_sky_ratio = ?,
+                    lp_estimated_total_brightness_mcd_m2 = ?,
+                    lp_estimated_sqm_mag_arcsec2 = ?,
+                    lp_estimated_bortle_class = ?,
+                    lp_dataset_name = ?,
+                    lp_provider_name = ?,
+                    lp_source = ?,
+                    lp_source_unit = ?,
+                    lp_data_kind = ?,
+                    lp_updated_at = ?,
                     south_horizon_open = ?,
                     notes = ?,
                     updated_at = CURRENT_TIMESTAMP
@@ -299,6 +354,17 @@ class PlanningRepository:
                     site.elevation_m,
                     site.sqm_mag_arcsec2,
                     site.bortle_class,
+                    site.lp_artificial_brightness_mcd_m2,
+                    site.lp_natural_sky_ratio,
+                    site.lp_estimated_total_brightness_mcd_m2,
+                    site.lp_estimated_sqm_mag_arcsec2,
+                    site.lp_estimated_bortle_class,
+                    site.lp_dataset_name,
+                    site.lp_provider_name,
+                    site.lp_source,
+                    site.lp_source_unit,
+                    site.lp_data_kind,
+                    site.lp_updated_at,
                     int(site.south_horizon_open),
                     site.notes,
                     site.id,
@@ -589,6 +655,16 @@ def _validate_site(site: Site) -> None:
         raise ValidationError("Site longitude_deg must be in [-180, 180].")
     if site.bortle_class is not None and not 1 <= site.bortle_class <= 9:
         raise ValidationError("Site bortle_class must be in [1, 9].")
+    if site.lp_artificial_brightness_mcd_m2 is not None and site.lp_artificial_brightness_mcd_m2 < 0:
+        raise ValidationError("Site lp_artificial_brightness_mcd_m2 must be >= 0.")
+    if site.lp_natural_sky_ratio is not None and site.lp_natural_sky_ratio < 0:
+        raise ValidationError("Site lp_natural_sky_ratio must be >= 0.")
+    if site.lp_estimated_total_brightness_mcd_m2 is not None and site.lp_estimated_total_brightness_mcd_m2 < 0:
+        raise ValidationError("Site lp_estimated_total_brightness_mcd_m2 must be >= 0.")
+    if site.lp_estimated_bortle_class is not None and not 1 <= site.lp_estimated_bortle_class <= 9:
+        raise ValidationError("Site lp_estimated_bortle_class must be in [1, 9].")
+    if site.lp_data_kind is not None and site.lp_data_kind not in {"modeled", "estimated"}:
+        raise ValidationError("Site lp_data_kind must be 'modeled' or 'estimated'.")
 
 
 def _validate_equipment(equipment: Equipment) -> None:
@@ -657,6 +733,17 @@ def _row_to_site(row: sqlite3.Row) -> Site:
         elevation_m=row["elevation_m"],
         sqm_mag_arcsec2=row["sqm_mag_arcsec2"],
         bortle_class=row["bortle_class"],
+        lp_artificial_brightness_mcd_m2=row["lp_artificial_brightness_mcd_m2"],
+        lp_natural_sky_ratio=row["lp_natural_sky_ratio"],
+        lp_estimated_total_brightness_mcd_m2=row["lp_estimated_total_brightness_mcd_m2"],
+        lp_estimated_sqm_mag_arcsec2=row["lp_estimated_sqm_mag_arcsec2"],
+        lp_estimated_bortle_class=row["lp_estimated_bortle_class"],
+        lp_dataset_name=row["lp_dataset_name"],
+        lp_provider_name=row["lp_provider_name"],
+        lp_source=row["lp_source"],
+        lp_source_unit=row["lp_source_unit"],
+        lp_data_kind=row["lp_data_kind"],
+        lp_updated_at=row["lp_updated_at"],
         south_horizon_open=bool(row["south_horizon_open"]),
         notes=row["notes"],
     )

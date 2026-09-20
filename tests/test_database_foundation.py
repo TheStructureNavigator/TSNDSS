@@ -56,6 +56,42 @@ class DatabaseFoundationTests(unittest.TestCase):
         finally:
             reopened.close()
 
+    def test_reopen_existing_database_adds_light_pollution_site_columns(self) -> None:
+        legacy = connect_database(self.db_path)
+        try:
+            legacy.executescript(
+                """
+                PRAGMA user_version = 1;
+                CREATE TABLE sites (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    latitude_deg REAL,
+                    longitude_deg REAL,
+                    elevation_m REAL,
+                    sqm_mag_arcsec2 REAL,
+                    bortle_class INTEGER,
+                    south_horizon_open INTEGER NOT NULL DEFAULT 0,
+                    notes TEXT
+                );
+                """
+            )
+        finally:
+            legacy.close()
+
+        reopened = initialize_database(self.db_path)
+        try:
+            columns = {
+                row["name"]
+                for row in reopened.execute("PRAGMA table_info(sites);").fetchall()
+            }
+        finally:
+            reopened.close()
+
+        self.assertIn("lp_artificial_brightness_mcd_m2", columns)
+        self.assertIn("lp_estimated_sqm_mag_arcsec2", columns)
+        self.assertIn("lp_data_kind", columns)
+        self.assertIn("lp_updated_at", columns)
+
     def test_connection_enforces_foreign_keys(self) -> None:
         connection = initialize_database(self.db_path)
         try:

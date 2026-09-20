@@ -35,6 +35,7 @@ def initialize_database(
     connection = connect_database(db_path)
     try:
         if _has_user_schema(connection):
+            _ensure_backward_compatible_columns(connection)
             _assert_expected_version(connection)
             return connection
 
@@ -98,3 +99,29 @@ def _assert_expected_version(connection: sqlite3.Connection) -> None:
         raise SchemaVersionError(
             f"Unsupported TSN DSS schema version: expected {EXPECTED_USER_VERSION}, got {version}."
         )
+
+
+def _ensure_backward_compatible_columns(connection: sqlite3.Connection) -> None:
+    """Apply additive v0.1 columns needed by newer app builds against existing local databases."""
+    site_columns = _table_columns(connection, "sites")
+    additions = {
+        "lp_artificial_brightness_mcd_m2": "REAL",
+        "lp_natural_sky_ratio": "REAL",
+        "lp_estimated_total_brightness_mcd_m2": "REAL",
+        "lp_estimated_sqm_mag_arcsec2": "REAL",
+        "lp_estimated_bortle_class": "INTEGER",
+        "lp_dataset_name": "TEXT",
+        "lp_provider_name": "TEXT",
+        "lp_source": "TEXT",
+        "lp_source_unit": "TEXT",
+        "lp_data_kind": "TEXT",
+        "lp_updated_at": "TEXT",
+    }
+    for column_name, column_type in additions.items():
+        if column_name not in site_columns:
+            connection.execute(f"ALTER TABLE sites ADD COLUMN {column_name} {column_type};")
+    connection.commit()
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table_name});").fetchall()}
