@@ -30,6 +30,13 @@ import {
 } from './api';
 import { normalizeLocalHorizonProfile } from './local_horizon';
 import type { LightPollutionPointResult } from './light_pollution';
+import {
+  analyzeLocalHorizonVisibility,
+  getLocalHorizonObservingWindows,
+  isBlockedByLocalHorizon,
+  isLocalHorizonObservingWindowPoint,
+  type LocalHorizonAnalysis,
+} from './local_horizon_conditions';
 import { buildCandidateSiteDefaultName, siteLightPollutionPayloadFromCandidate } from './site_light_pollution';
 
 /**
@@ -121,6 +128,7 @@ const NIGHT_TIMELINE_REJECTION_REASONS = [
   'Not astronomical night',
   'Target below 30°',
   'Cloud cover above threshold',
+  'Blocked by local horizon',
 ] as const;
 
 type ConditionsTimelinePoint = {
@@ -1124,10 +1132,14 @@ function renderAstronomicalTargetSummary(
   }
 
   const points = buildConditionsTimelinePoints(forecast, astronomy);
-  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg, localHorizonProfile);
   const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, selectedObservingWindowIndex);
   const observingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
   const compassPoints = getHorizonCompassTimelinePoints(points, observingWindow);
+  const currentLocalHorizon = analyzeLocalHorizonVisibility(localHorizonProfile, {
+    targetAltitudeDeg: target.altitude_deg,
+    targetAzimuthDeg: target.azimuth_deg,
+  });
 
   return `
     <section class="conditions-section">
@@ -1145,8 +1157,11 @@ function renderAstronomicalTargetSummary(
           ${renderConditionCard('Above horizon', formatObservationFlag(target.above_horizon))}
           ${renderConditionCard(`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold))}
           ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}
+          ${renderConditionCard('Local horizon', formatLocalHorizonAltitude(currentLocalHorizon))}
+          ${renderConditionCard('Clearance', formatLocalHorizonClearance(currentLocalHorizon))}
+          ${renderConditionCard('Local visibility', formatLocalHorizonVisibility(currentLocalHorizon))}
         </div>
-        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow, localHorizonProfile)}
+        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow, localHorizonProfile, currentLocalHorizon)}
       </div>
     </section>
   `;
@@ -1209,59 +1224,30 @@ function buildConditionsTimelinePoints(
   });
 }
 
-function isObservingWindowPoint(point: ConditionsTimelinePoint, minTargetAltitudeDeg: number): boolean {
-  return point.skyState === 'astronomical_night'
-    && point.targetAltitudeDeg != null
-    && Number.isFinite(point.targetAltitudeDeg)
-    && point.targetAltitudeDeg >= minTargetAltitudeDeg
-    && point.cloudCoverPct != null
-    && Number.isFinite(point.cloudCoverPct)
-    && point.cloudCoverPct <= OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT;
+function isObservingWindowPoint(
+  point: ConditionsTimelinePoint,
+  minTargetAltitudeDeg: number,
+  localHorizonProfile: LocalHorizonPoint[] = [],
+): boolean {
+  return isLocalHorizonObservingWindowPoint(
+    point,
+    minTargetAltitudeDeg,
+    OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT,
+    localHorizonProfile,
+  );
 }
 
 function getObservingWindows(
   points: ConditionsTimelinePoint[],
   minTargetAltitudeDeg: number,
+  localHorizonProfile: LocalHorizonPoint[] = [],
 ): ObservingWindowRange[] {
-  const observingFlags = points.map((point) => isObservingWindowPoint(point, minTargetAltitudeDeg));
-  let activeWindowStartIndex: number | null = null;
-  const observingWindows: ObservingWindowRange[] = [];
-
-  for (let index = 0; index < observingFlags.length; index += 1) {
-    const isActive = observingFlags[index];
-    if (isActive && activeWindowStartIndex == null) {
-      activeWindowStartIndex = index;
-      continue;
-    }
-    if (!isActive && activeWindowStartIndex != null) {
-      const startPoint = points[activeWindowStartIndex];
-      const endPoint = points[index] ?? points[index - 1];
-      if (startPoint?.timeMs != null && endPoint?.timeMs != null) {
-        observingWindows.push({
-          startIndex: activeWindowStartIndex,
-          endIndex: index - 1,
-          startMs: startPoint.timeMs,
-          endMs: endPoint.timeMs,
-        });
-      }
-      activeWindowStartIndex = null;
-    }
-  }
-
-  if (activeWindowStartIndex != null) {
-    const startPoint = points[activeWindowStartIndex];
-    const lastPoint = points[points.length - 1];
-    if (startPoint?.timeMs != null && lastPoint?.timeMs != null) {
-      observingWindows.push({
-        startIndex: activeWindowStartIndex,
-        endIndex: points.length - 1,
-        startMs: startPoint.timeMs,
-        endMs: lastPoint.timeMs,
-      });
-    }
-  }
-
-  return observingWindows;
+  return getLocalHorizonObservingWindows(
+    points,
+    minTargetAltitudeDeg,
+    OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT,
+    localHorizonProfile,
+  );
 }
 
 function getActiveObservingWindowIndex(
@@ -1288,6 +1274,7 @@ function getConditionsTableRowClass(
   point: ConditionsTimelinePoint | null,
   observingWindow: ObservingWindowRange | null,
   minTargetAltitudeDeg: number,
+  localHorizonProfile: LocalHorizonPoint[] = [],
 ): string {
   const classes = ['weather-table__row'];
   if (!point) {
@@ -1318,7 +1305,7 @@ function getConditionsTableRowClass(
       break;
     case 'astronomical_night':
       classes.push('weather-table__row--night');
-      if (!isObservingWindowPoint(point, minTargetAltitudeDeg)) {
+      if (!isObservingWindowPoint(point, minTargetAltitudeDeg, localHorizonProfile)) {
         classes.push('weather-table__row--limited');
       }
       break;
@@ -1342,6 +1329,8 @@ function renderConditionsTimeline(
 
   const currentAstronomy = astronomy?.current ?? null;
   const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
+  const activeSite = state.sites.find((site) => site.id === state.activeSiteId) ?? null;
+  const localHorizonProfile = activeSite?.horizon_profile ?? [];
 
   const validTimes = points
     .map((point) => point.timeMs)
@@ -1406,7 +1395,7 @@ function renderConditionsTimeline(
     }
   };
 
-  const observingFlags = points.map((point) => isObservingWindowPoint(point, minTargetAltitudeDeg));
+  const observingFlags = points.map((point) => isObservingWindowPoint(point, minTargetAltitudeDeg, localHorizonProfile));
 
   const rejectionReasonByPoint = points.map((point) => {
     const reasons: string[] = [];
@@ -1427,10 +1416,16 @@ function renderConditionsTimeline(
     ) {
       reasons.push('Cloud cover above threshold');
     }
+    if (isBlockedByLocalHorizon(localHorizonProfile, {
+      targetAltitudeDeg: point.targetAltitudeDeg,
+      targetAzimuthDeg: point.targetAzimuthDeg,
+    })) {
+      reasons.push('Blocked by local horizon');
+    }
     return reasons;
   });
 
-  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg, localHorizonProfile);
   const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, state.selectedObservingWindowIndex);
   const observingWindow = observingWindowIndex != null
     ? observingWindows[observingWindowIndex] ?? null
@@ -1438,6 +1433,14 @@ function renderConditionsTimeline(
   const observingWindowPoints = observingWindow
     ? points.slice(observingWindow.startIndex, observingWindow.endIndex + 1)
     : [];
+  const potentialWindowsWithoutLocalHorizon = localHorizonProfile.length
+    ? getObservingWindows(points, minTargetAltitudeDeg, [])
+    : [];
+  const noWindowLocalHorizonReason = localHorizonProfile.length > 0
+    && observingWindows.length === 0
+    && potentialWindowsWithoutLocalHorizon.length > 0
+    ? 'Target is blocked by the local horizon during the usable period.'
+    : null;
 
   const buildLinePath = (
     selector: (point: typeof points[number]) => number | null,
@@ -1685,12 +1688,12 @@ function renderConditionsTimeline(
           )}
         </strong>
         <span class="conditions-timeline__summary-hint">
-          target ≥ ${minTargetAltitudeDeg.toFixed(0)}° · clouds ≤ ${OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT}%
+          target ≥ ${minTargetAltitudeDeg.toFixed(0)}° · clouds ≤ ${OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT}%${localHorizonProfile.length ? ' · clear of local horizon' : ''}
         </span>
       </div>
       ${observingWindowButtons}
       ${renderObservingWindowObservationContext(state, astronomy)}
-      ${renderObservingWindowConditions(observingWindowPoints, getObservationIntentContext(state))}
+      ${renderObservingWindowConditions(observingWindowPoints, getObservationIntentContext(state), noWindowLocalHorizonReason)}
       <div class="conditions-timeline__factors">
         <span class="conditions-timeline__factors-label">Limiting factors</span>
         ${rejectionSummary || '<span class="conditions-timeline__factors-empty">None inside the visible range.</span>'}
@@ -1711,7 +1714,9 @@ function renderConditionsHourlyTable(
   }
 
   const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
-  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg);
+  const activeSite = state.sites.find((site) => site.id === state.activeSiteId) ?? null;
+  const localHorizonProfile = activeSite?.horizon_profile ?? [];
+  const observingWindows = getObservingWindows(points, minTargetAltitudeDeg, localHorizonProfile);
   const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, state.selectedObservingWindowIndex);
   const activeObservingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
 
@@ -1731,6 +1736,8 @@ function renderConditionsHourlyTable(
             <th>High</th>
             <th>Wind</th>
             <th>Target alt</th>
+            <th>Local horizon</th>
+            <th>Clearance</th>
             <th>Airmass</th>
             <th>Moon sep</th>
           </tr>
@@ -1740,7 +1747,11 @@ function renderConditionsHourlyTable(
             const weatherHour = forecast?.hourly[index] ?? null;
             const astronomyHour = astronomy?.hourly[index] ?? null;
             const point = points[index] ?? null;
-            const rowClass = getConditionsTableRowClass(point, activeObservingWindow, minTargetAltitudeDeg);
+            const rowClass = getConditionsTableRowClass(point, activeObservingWindow, minTargetAltitudeDeg, localHorizonProfile);
+            const localHorizon = analyzeLocalHorizonVisibility(localHorizonProfile, {
+              targetAltitudeDeg: astronomyHour?.target_altitude_deg,
+              targetAzimuthDeg: astronomyHour?.target_azimuth_deg,
+            });
             return `
             <tr class="${rowClass}">
               <td>${escapeHtml(formatTimestampDisplay(astronomyHour?.time_utc ?? weatherHour?.time ?? null))}</td>
@@ -1754,6 +1765,8 @@ function renderConditionsHourlyTable(
               <td>${escapeHtml(formatWeatherValue(weatherHour?.cloud_cover_high_pct, '%'))}</td>
               <td>${escapeHtml(formatWind(weatherHour?.wind_speed_kmh, weatherHour?.wind_direction_deg))}</td>
               <td>${escapeHtml(formatAngleValue(astronomyHour?.target_altitude_deg))}</td>
+              <td>${escapeHtml(formatLocalHorizonAltitude(localHorizon))}</td>
+              <td>${escapeHtml(formatLocalHorizonClearance(localHorizon))}</td>
               <td>${escapeHtml(formatAirmass(astronomyHour?.target_airmass))}</td>
               <td>${escapeHtml(formatAngleValue(astronomyHour?.moon_target_separation_deg))}</td>
             </tr>
@@ -3194,6 +3207,41 @@ function formatObservationFlag(value: boolean | null | undefined): string {
   return value ? 'yes' : 'no';
 }
 
+function formatLocalHorizonAltitude(analysis: LocalHorizonAnalysis | null): string {
+  if (!analysis || analysis.visibility === 'not_configured') {
+    return 'Not configured';
+  }
+  if (analysis.localHorizonAltitudeDeg == null || !Number.isFinite(analysis.localHorizonAltitudeDeg)) {
+    return '—';
+  }
+  return `${analysis.localHorizonAltitudeDeg.toFixed(0)}°`;
+}
+
+function formatLocalHorizonClearance(analysis: LocalHorizonAnalysis | null): string {
+  if (!analysis || analysis.visibility === 'not_configured') {
+    return '—';
+  }
+  if (analysis.clearanceDeg == null || !Number.isFinite(analysis.clearanceDeg)) {
+    return '—';
+  }
+  const sign = analysis.clearanceDeg > 0 ? '+' : '';
+  return `${sign}${analysis.clearanceDeg.toFixed(0)}°`;
+}
+
+function formatLocalHorizonVisibility(analysis: LocalHorizonAnalysis | null): string {
+  switch (analysis?.visibility) {
+    case 'clear':
+      return 'CLEAR';
+    case 'blocked':
+      return 'BLOCKED';
+    case 'unknown':
+      return 'Unknown';
+    case 'not_configured':
+    default:
+      return 'Not configured';
+  }
+}
+
 function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
   if (!start && !end) {
     return '—';
@@ -3269,12 +3317,13 @@ function formatObservingWindowRange(start: string | null | undefined, end: strin
 function renderObservingWindowConditions(
   points: ObservingWindowConditionPoint[],
   context: ObservationIntentContext,
+  noWindowReason: string | null = null,
 ): string {
   if (!points.length) {
     return `
       <div class="conditions-timeline__conditions">
         <span class="conditions-timeline__summary-label">Observing conditions</span>
-        <p class="muted">No observing window is currently available, so there is nothing to assess yet.</p>
+        <p class="muted">${escapeHtml(noWindowReason ?? 'No observing window is currently available, so there is nothing to assess yet.')}</p>
       </div>
     `;
   }
@@ -3392,6 +3441,7 @@ function renderHorizonCompass(
   timelinePoints: ConditionsTimelinePoint[],
   observingWindow: ObservingWindowRange | null,
   localHorizonProfile: LocalHorizonPoint[] = [],
+  localHorizonAnalysis: LocalHorizonAnalysis | null = null,
 ): string {
   if (azimuthDeg == null || !Number.isFinite(azimuthDeg)) {
     return `
@@ -3413,7 +3463,10 @@ function renderHorizonCompass(
   const markerX = currentProjectedPoint.x;
   const markerY = currentProjectedPoint.y;
   const directionLabel = formatCompassDirection(normalizedAzimuth);
-  const description = `${directionLabel} · ${normalizedAzimuth.toFixed(0)}° azimuth · ${formatAltitudeAboveBelow(altitude)}`;
+  const localVisibilitySuffix = localHorizonAnalysis && localHorizonAnalysis.visibility !== 'not_configured'
+    ? ` · ${formatLocalHorizonVisibility(localHorizonAnalysis)}`
+    : '';
+  const description = `${directionLabel} · ${normalizedAzimuth.toFixed(0)}° azimuth · ${formatAltitudeAboveBelow(altitude)}${localVisibilitySuffix}`;
   const cardinalPoints = [
     { label: 'N', azimuth: 0 },
     { label: 'NE', azimuth: 45 },
@@ -3553,7 +3606,7 @@ function renderHorizonCompass(
       <div class="horizon-compass__footer">
         <span class="horizon-compass__altitude-badge">${escapeHtml(altitude == null ? 'Alt —' : `Alt ${altitude.toFixed(0)}°`)}</span>
         ${moonTrajectoryPoints.length ? '<span class="horizon-compass__moon-badge">Moon path</span>' : ''}
-        ${localHorizonPath ? '<span class="horizon-compass__local-horizon-badge">Local horizon</span>' : ''}
+        ${localHorizonPath ? `<span class="horizon-compass__local-horizon-badge">Local horizon · ${escapeHtml(formatLocalHorizonVisibility(localHorizonAnalysis))}</span>` : ''}
         ${observingWindow ? '<span class="horizon-compass__window-badge">Bright path = observing window</span>' : ''}
       </div>
     </div>
