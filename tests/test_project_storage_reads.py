@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover
 
 # Every public ProjectStorage method must be listed here. Adding a method forces a decision.
 READ_METHODS = {"list_projects", "get_project", "describe_capture", "resolve_capture_file",
-                "locate_project", "project_layout"}
+                "resolve_capture_root", "locate_project", "project_layout"}
 WRITE_METHODS = {"ensure_project", "create_project", "delete_project", "set_project_sky_target",
                  "import_capture", "prepare_siril_run"}
 
@@ -93,6 +93,7 @@ class StorageReadTests(StorageTestCase):
             "get_project": lambda: self.storage.get_project(project),
             "describe_capture": lambda: self.storage.describe_capture(project, capture),
             "resolve_capture_file": lambda: self.storage.resolve_capture_file(project, capture, "lights/a.CR2"),
+            "resolve_capture_root": lambda: self.storage.resolve_capture_root(project, capture),
             "locate_project": lambda: self.storage.locate_project(project),
             "project_layout": lambda: self.storage.project_layout(project),
         }

@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-from .projects import FRAME_TYPE_TO_CAPTURE_DIR, ProjectStorage, RunLayout
+from .projects import (
+    FRAME_TYPE_TO_CAPTURE_DIR,
+    ProjectStorage,
+    RunLayout,
+    path_is_within,
+    validate_capture_name,
+)
 from .siril import DEFAULT_OSC_SCRIPT_PATH, find_osc_preprocessing_result
 
 DEFAULT_SIRIL_EXECUTABLE = ("siril-cli",)
@@ -68,6 +74,7 @@ class ProjectRunManager:
         """Create an isolated workspace and launch Siril asynchronously for one capture."""
         # Locating only: a run for an unknown project must fail without creating that project.
         # prepare_siril_run below is the explicit write that creates the run workspace.
+        validate_capture_name(capture_name)  # before anything is touched or a run id is built
         capture_root = self.project_storage.project_layout(project_slug).captures_dir / capture_name
         frame_sources = self._collect_capture_frame_sources(capture_root)
         run_id = f"run_{project_slug}_{capture_name}_{_utc_now().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -382,11 +389,22 @@ class ProjectRunManager:
             return None
 
     def _collect_capture_frame_sources(self, capture_root: Path) -> list[tuple[str, Path]]:
+        """The frame files of a capture. Every one must physically lie inside the capture.
+
+        A capture that resolves outside its ``captures/`` folder, or a file reached through a
+        link that leads elsewhere, is refused (``ValueError``) instead of being skipped: a run
+        must never quietly process a different set of frames, or files from outside the capture.
+        """
         if not capture_root.exists() or not capture_root.is_dir():
             raise FileNotFoundError(f"Capture directory not found: {capture_root}")
 
+        resolved_root = capture_root.resolve()
+        if resolved_root.parent != capture_root.parent.resolve():
+            raise ValueError(f"Capture resolves outside the project's captures folder: {capture_root.name}")
+
         frame_sources: list[tuple[str, Path]] = []
         missing_directories: list[str] = []
+        outside_capture: list[str] = []
         for frame_type, directory_name in FRAME_TYPE_TO_CAPTURE_DIR.items():
             source_dir = capture_root / directory_name
             if not source_dir.is_dir():
@@ -396,7 +414,16 @@ class ProjectRunManager:
             if not files:
                 missing_directories.append(directory_name)
                 continue
+            for file_path in files:
+                if not path_is_within(file_path.resolve(), resolved_root):
+                    outside_capture.append(f"{directory_name}/{file_path.name}")
             frame_sources.extend((frame_type, file_path) for file_path in files)
+
+        if outside_capture:
+            raise ValueError(
+                f"Capture contains {len(outside_capture)} file(s) that lie outside the capture "
+                f"(for example through a link): " + ", ".join(sorted(outside_capture)[:5])
+            )
 
         if missing_directories:
             raise ValueError(

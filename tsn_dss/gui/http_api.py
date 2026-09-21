@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
 from ..domain.models import LocalHorizonPoint, MosaicPanel, MosaicPlan, Site
 from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
-from ..engine.projects import ProjectStorage
+from ..engine.projects import ProjectStorage, path_is_within
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.project_registry import ProjectInUseError, ProjectRegistry, validate_dir_key
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
@@ -1921,9 +1921,18 @@ def _ensure_capture_thumbnail(
     # Locate only: the project and capture already exist (the caller resolved the source file).
     # The thumbnail cache below is derived data created on demand; it never creates a project.
     project_layout = storage.locate_project(project_slug)
+    # The capture must be a direct child of captures/ and the source must lie inside it, so an
+    # invalid capture name or an escaping file creates nothing (not even cache directories).
+    capture_root = storage.resolve_capture_root(project_slug, capture_name)
+    try:
+        relative_source = source_path.resolve().relative_to(capture_root)
+    except ValueError as error:
+        raise FileNotFoundError("Capture file is not available.") from error
+
     cache_root = project_layout.project_root / ".cache" / "capture_thumbnails" / capture_name
-    relative_source = source_path.relative_to((project_layout.captures_dir / capture_name).resolve())
     thumbnail_dir = (cache_root / relative_source.parent).resolve()
+    if not path_is_within(thumbnail_dir, project_layout.project_root.resolve()):
+        raise OSError("Thumbnail cache location escapes the project.")
     thumbnail_dir.mkdir(parents=True, exist_ok=True)
 
     source_stat = source_path.stat()

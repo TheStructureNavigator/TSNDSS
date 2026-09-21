@@ -11,7 +11,7 @@ import json
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 RAW_CAPTURE_DIRECTORIES = ("biases", "darks", "flats", "lights")
 FRAME_TYPE_TO_CAPTURE_DIR = {
@@ -200,14 +200,25 @@ class ProjectStorage:
         *,
         move: bool = False,
     ) -> Path:
-        """Copy or move a user-provided capture tree into the project workspace."""
+        """Copy or move a user-provided capture tree into the project workspace.
+
+        The capture name is validated first (a pure check), so an invalid name fails before
+        anything is created, copied or moved. The destination is always a new direct child of
+        ``captures/``: a name that already exists there, even as a dangling link, is refused.
+
+        Links inside the source tree: a copy follows them and stores the linked content as
+        ordinary files, so the destination contains no links. A move keeps the links as they
+        are (a same-volume move is a rename). Either way the boundary is enforced when a capture
+        is read or processed (``resolve_capture_root`` and the callers), not at import.
+        """
+        validate_capture_name(capture_name)
         source_path = Path(source_dir)
         self._validate_capture_source(source_path)
 
         layout = self.ensure_project(project_slug)
         destination = layout.captures_dir / capture_name
 
-        if destination.exists():
+        if os.path.lexists(destination):
             raise FileExistsError(f"Capture already exists: {destination}")
 
         if move:
@@ -217,19 +228,51 @@ class ProjectStorage:
 
         return destination
 
-    def describe_capture(self, project_slug: str, capture_name: str) -> CaptureDetails:
-        """Return a UI-friendly listing of the canonical capture subdirectories."""
-        layout = self.locate_project(project_slug)
-        capture_root = layout.captures_dir / capture_name
-        if not capture_root.exists() or not capture_root.is_dir():
+    def resolve_capture_root(self, project_slug: str, capture_name: str) -> Path:
+        """The resolved physical root of an existing capture. A READ: creates nothing.
+
+        The capture must be a direct child directory of the project's ``captures/`` directory
+        after symlinks and junctions are resolved. Raises ``FileNotFoundError`` for an unknown
+        project or capture, an invalid name, or a capture that would resolve outside
+        ``captures/`` (for example ``..``, a nested path, or a link to another location).
+        """
+        return self._capture_root_within(self.locate_project(project_slug), capture_name)
+
+    def _capture_root_within(self, layout: ProjectLayout, capture_name: str) -> Path:
+        try:
+            validate_capture_name(capture_name)
+        except ValueError as error:
+            raise FileNotFoundError(f"Capture not found: {capture_name}") from error
+        captures_root = layout.captures_dir.resolve()
+        resolved = (layout.captures_dir / capture_name).resolve()
+        if resolved.parent != captures_root or not resolved.is_dir():
             raise FileNotFoundError(f"Capture not found: {capture_name}")
+        return resolved
+
+    def describe_capture(self, project_slug: str, capture_name: str) -> CaptureDetails:
+        """Return a UI-friendly listing of the canonical capture subdirectories.
+
+        Only content that physically lies inside the capture is listed: a subfolder or file
+        that resolves elsewhere (a link) is treated as absent, so nothing outside the capture
+        is exposed.
+        """
+        layout = self.locate_project(project_slug)
+        resolved_root = self._capture_root_within(layout, capture_name)
+        capture_root = layout.captures_dir / capture_name
 
         folders: list[CaptureFolderEntry] = []
         for folder_name in RAW_CAPTURE_DIRECTORIES:
             folder_path = capture_root / folder_name
             files: list[CaptureFileEntry] = []
-            if folder_path.exists() and folder_path.is_dir():
-                for file_path in sorted((path for path in folder_path.iterdir() if path.is_file()), key=lambda path: path.name.lower()):
+            if folder_path.is_dir() and path_is_within(folder_path.resolve(), resolved_root):
+                for file_path in sorted(
+                    (
+                        path
+                        for path in folder_path.iterdir()
+                        if path.is_file() and path_is_within(path.resolve(), resolved_root)
+                    ),
+                    key=lambda path: path.name.lower(),
+                ):
                     files.append(
                         CaptureFileEntry(
                             name=file_path.name,
@@ -254,17 +297,19 @@ class ProjectStorage:
         )
 
     def resolve_capture_file(self, project_slug: str, capture_name: str, relative_path: str | Path) -> tuple[Path, Path]:
-        """Resolve a capture-relative file path while preventing path escape."""
-        layout = self.locate_project(project_slug)
-        capture_root = (layout.captures_dir / capture_name).resolve()
-        if not capture_root.exists() or not capture_root.is_dir():
-            raise FileNotFoundError(f"Capture not found: {capture_name}")
+        """Resolve a capture-relative file path while preventing path escape.
+
+        The capture itself must lie inside ``captures/`` (unknown, invalid or escaping captures
+        are ``FileNotFoundError``). The file path must be relative, and the resolved file must
+        lie inside the resolved capture, so ``..``, absolute paths and links to elsewhere raise
+        ``ValueError``. Nested files inside the capture are allowed.
+        """
+        capture_root = self.resolve_capture_root(project_slug, capture_name)
+        _validate_relative_file_path(relative_path)
 
         file_path = (capture_root / Path(relative_path)).resolve()
-        try:
-            file_path.relative_to(capture_root)
-        except ValueError as error:
-            raise ValueError("Capture file path escapes capture root.") from error
+        if not path_is_within(file_path, capture_root):
+            raise ValueError("Capture file path escapes capture root.")
 
         if not file_path.exists() or not file_path.is_file():
             raise FileNotFoundError(f"Capture file not found: {relative_path}")
@@ -391,16 +436,47 @@ class ProjectStorage:
         )
 
 
+def _validate_single_component(name: str, what: str) -> str:
+    """``name`` must be exactly one directory-name component: no separators, no ``.``/``..``,
+    nothing absolute, rooted or drive-qualified (checked with Windows rules on every platform)."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"{what} must not be empty.")
+    if "\x00" in name or "/" in name or "\\" in name or name in {".", ".."}:
+        raise ValueError(f"{what} must be a single directory name: {name!r}")
+    windows = PureWindowsPath(name)
+    path = Path(name)
+    if windows.drive or windows.root or path.name != name or path.is_absolute():
+        raise ValueError(f"{what} must be a single directory name: {name!r}")
+    return name
+
+
 def validate_dir_key(dir_key: str) -> str:
     """A project name (``dir_key``) is exactly one directory name under the projects root."""
-    if not isinstance(dir_key, str) or not dir_key.strip():
-        raise ValueError("Project name must not be empty.")
-    if "\x00" in dir_key or "/" in dir_key or "\\" in dir_key or dir_key in {".", ".."}:
-        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
-    path = Path(dir_key)
-    if path.name != dir_key or path.is_absolute() or path.drive:
-        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
-    return dir_key
+    return _validate_single_component(dir_key, "Project name")
+
+
+def validate_capture_name(capture_name: str) -> str:
+    """A capture name identifies exactly one direct child directory of ``<project>/captures/``.
+
+    Unicode and spaces are fine; nothing is slugified or renamed. Rejected: empty or blank,
+    ``.``, ``..``, separators, absolute, rooted or drive-qualified names. This is a pure check;
+    whether the directory really lies inside ``captures/`` once links are resolved is checked
+    against the filesystem by ``ProjectStorage.resolve_capture_root``.
+    """
+    return _validate_single_component(capture_name, "Capture name")
+
+
+def path_is_within(path: Path, root: Path) -> bool:
+    """True if ``path`` is ``root`` or lies beneath it. Callers pass already-resolved paths."""
+    return path == root or root in path.parents
+
+
+def _validate_relative_file_path(relative_path: str | Path) -> None:
+    """A path beneath a capture must be relative: no drive, no root, no NUL."""
+    text = str(relative_path)
+    windows = PureWindowsPath(text)
+    if "\x00" in text or windows.drive or windows.root or Path(text).is_absolute():
+        raise ValueError("Capture file path must be relative to the capture.")
 
 
 def _layout_for(project_root: Path) -> ProjectLayout:
