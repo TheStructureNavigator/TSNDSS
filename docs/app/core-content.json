@@ -1,6 +1,19 @@
 {
-  "current_version": "0.1.10",
+  "current_version": "0.1.11",
   "releases": [
+    {
+      "version": "0.1.11",
+      "date": "2026-09-20",
+      "changelog": [
+        "Completed the Candidate Site flow so map clicks can be inspected, enriched with modeled light-pollution data, and saved as normal observation Sites.",
+        "Added modeled Light Pollution data to Site details, clearly separating estimated Falchi/New World Atlas values from manual or measured sky-quality fields.",
+        "Added Update light pollution data for existing Sites so older locations can fetch or refresh modeled SQM, Bortle, artificial brightness, ratio, total brightness, dataset, source, and update timestamp.",
+        "Polished Candidate Site and Create Site UX with clearer SQM/Bortle emphasis, read-only light-pollution previews, fallback messaging, and default names based on coordinates.",
+        "Added Current Device Position for field recon, including geolocation states, accuracy display, a temporary device marker, and Inspect this location handoff into the existing Candidate Site workflow.",
+        "Added Local Horizon Profile v1 for Sites with manual azimuth/min-altitude points, validation, persistence, editor modal, template generation, clearing, and compass visualization.",
+        "Integrated Local Horizon with Conditions so target visibility, hourly rows, limiting factors, and Observing Window now account for active Site obstructions when a horizon profile is configured."
+      ]
+    },
     {
       "version": "0.1.10",
       "date": "2026-09-01",
