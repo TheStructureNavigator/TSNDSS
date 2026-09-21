@@ -66,7 +66,9 @@ class ProjectRunManager:
         keep_process_dir: bool = False,
     ) -> ProjectRunSnapshot:
         """Create an isolated workspace and launch Siril asynchronously for one capture."""
-        capture_root = self.project_storage.ensure_project(project_slug).captures_dir / capture_name
+        # Locating only: a run for an unknown project must fail without creating that project.
+        # prepare_siril_run below is the explicit write that creates the run workspace.
+        capture_root = self.project_storage.project_layout(project_slug).captures_dir / capture_name
         frame_sources = self._collect_capture_frame_sources(capture_root)
         run_id = f"run_{project_slug}_{capture_name}_{_utc_now().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
         run_layout = self.project_storage.prepare_siril_run(

@@ -1918,7 +1918,9 @@ def _ensure_capture_thumbnail(
     if Image is None or ImageOps is None:
         raise RuntimeError("Thumbnail support requires Pillow. Install dependencies from requirements.txt.")
 
-    project_layout = storage.ensure_project(project_slug)
+    # Locate only: the project and capture already exist (the caller resolved the source file).
+    # The thumbnail cache below is derived data created on demand; it never creates a project.
+    project_layout = storage.locate_project(project_slug)
     cache_root = project_layout.project_root / ".cache" / "capture_thumbnails" / capture_name
     relative_source = source_path.relative_to((project_layout.captures_dir / capture_name).resolve())
     thumbnail_dir = (cache_root / relative_source.parent).resolve()

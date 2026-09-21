@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..domain.models import Project
-from .projects import ProjectStorage, ProjectSummary
+from .projects import ProjectStorage, ProjectSummary, validate_dir_key  # validate_dir_key is re-exported
 from .sqlite.mosaics import MosaicRepository
 from .sqlite.project_repository import ProjectInUseError, ProjectRepository
 
@@ -79,18 +79,6 @@ class RegistrationReport:
             f"database-only {len(self.db_only)}; mosaic plans linked {len(self.mosaic_linked)}, "
             f"unmatched {len(self.mosaic_unmatched)}"
         )
-
-
-def validate_dir_key(dir_key: str) -> str:
-    """A dir_key is exactly one directory name under the projects root."""
-    if not isinstance(dir_key, str) or not dir_key.strip():
-        raise ValueError("Project name must not be empty.")
-    if "\x00" in dir_key or "/" in dir_key or "\\" in dir_key or dir_key in {".", ".."}:
-        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
-    path = Path(dir_key)
-    if path.name != dir_key or path.is_absolute() or path.drive:
-        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
-    return dir_key
 
 
 def scan_filesystem_projects(projects_root: Path) -> list[FilesystemProject]:

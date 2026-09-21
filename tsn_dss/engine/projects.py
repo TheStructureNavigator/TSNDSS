@@ -1,5 +1,11 @@
 from __future__ import annotations
-"""Filesystem layout helpers for TSN DSS projects, captures, and run workspaces."""
+"""Filesystem layout helpers for TSN DSS projects, captures, and run workspaces.
+
+Read operations never change the filesystem. Only the explicit write operations
+(``ensure_project``, ``create_project``, ``set_project_sky_target``, ``import_capture``,
+``prepare_siril_run`` and ``delete_project``) create or remove anything. Use
+``locate_project`` / ``project_layout`` to find a project without creating it.
+"""
 
 import json
 import os
@@ -78,22 +84,51 @@ class ProjectStorage:
     def __init__(self, projects_root: str | Path) -> None:
         self.projects_root = Path(projects_root)
 
+    # -- locating a project (READ: never creates anything) --------------------------------------
+
+    def project_layout(self, project_slug: str) -> ProjectLayout:
+        """Where a project's directories are, or would be. Pure path arithmetic.
+
+        Validates that the name is a single directory name (no separators, ``..`` or drive
+        prefix) and creates nothing, whether or not the project exists. Raises ``ValueError``
+        for an invalid name.
+        """
+        validate_dir_key(project_slug)
+        return _layout_for(self.projects_root / project_slug)
+
+    def locate_project(self, project_slug: str) -> ProjectLayout:
+        """The layout of an *existing* project directory. Never creates or repairs anything.
+
+        Raises ``FileNotFoundError`` when there is no such project, which includes names
+        that are not a valid single directory name. ``captures_dir`` and ``runs_dir`` are
+        returned as paths even if they do not exist yet (an incomplete project).
+        """
+        try:
+            layout = self.project_layout(project_slug)
+        except ValueError as error:
+            raise FileNotFoundError(f"Project not found: {project_slug}") from error
+        if not layout.project_root.is_dir():
+            raise FileNotFoundError(f"Project not found: {project_slug}")
+        return layout
+
+    # -- creating structure (WRITE: explicit operations only) -------------------------------------
+
     def ensure_project(self, project_slug: str) -> ProjectLayout:
-        """Create the canonical folder structure for a project if it does not exist."""
-        project_root = self.projects_root / project_slug
-        captures_dir = project_root / "captures"
-        runs_dir = project_root / "runs"
+        """Create the canonical folder structure for a project if it does not exist.
 
-        captures_dir.mkdir(parents=True, exist_ok=True)
-        runs_dir.mkdir(parents=True, exist_ok=True)
-
-        return ProjectLayout(
-            project_root=project_root,
-            captures_dir=captures_dir,
-            runs_dir=runs_dir,
-        )
+        This is a WRITE helper. Read operations must use ``locate_project`` instead.
+        """
+        layout = self.project_layout(project_slug)
+        layout.captures_dir.mkdir(parents=True, exist_ok=True)
+        layout.runs_dir.mkdir(parents=True, exist_ok=True)
+        return layout
 
     def list_projects(self) -> list[ProjectSummary]:
+        """Every project directory under the root. A READ: nothing is created or repaired.
+
+        A project that lacks ``captures/`` or ``runs/`` is reported truthfully with no
+        captures or runs.
+        """
         if not self.projects_root.exists():
             return []
 
@@ -102,21 +137,9 @@ class ProjectStorage:
             (path for path in self.projects_root.iterdir() if path.is_dir()),
             key=lambda path: path.name.lower(),
         ):
-            layout = self.ensure_project(project_root.name)
-            capture_names = tuple(
-                sorted(
-                    child.name
-                    for child in layout.captures_dir.iterdir()
-                    if child.is_dir()
-                )
-            )
-            run_names = tuple(
-                sorted(
-                    child.name
-                    for child in layout.runs_dir.iterdir()
-                    if child.is_dir()
-                )
-            )
+            layout = _layout_for(project_root)
+            capture_names = _child_directory_names(layout.captures_dir)
+            run_names = _child_directory_names(layout.runs_dir)
             projects.append(
                 self._build_project_summary(
                     layout=layout,
@@ -196,7 +219,7 @@ class ProjectStorage:
 
     def describe_capture(self, project_slug: str, capture_name: str) -> CaptureDetails:
         """Return a UI-friendly listing of the canonical capture subdirectories."""
-        layout = self.ensure_project(project_slug)
+        layout = self.locate_project(project_slug)
         capture_root = layout.captures_dir / capture_name
         if not capture_root.exists() or not capture_root.is_dir():
             raise FileNotFoundError(f"Capture not found: {capture_name}")
@@ -232,7 +255,7 @@ class ProjectStorage:
 
     def resolve_capture_file(self, project_slug: str, capture_name: str, relative_path: str | Path) -> tuple[Path, Path]:
         """Resolve a capture-relative file path while preventing path escape."""
-        layout = self.ensure_project(project_slug)
+        layout = self.locate_project(project_slug)
         capture_root = (layout.captures_dir / capture_name).resolve()
         if not capture_root.exists() or not capture_root.is_dir():
             raise FileNotFoundError(f"Capture not found: {capture_name}")
@@ -366,6 +389,33 @@ class ProjectStorage:
             json.dumps(metadata, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+
+def validate_dir_key(dir_key: str) -> str:
+    """A project name (``dir_key``) is exactly one directory name under the projects root."""
+    if not isinstance(dir_key, str) or not dir_key.strip():
+        raise ValueError("Project name must not be empty.")
+    if "\x00" in dir_key or "/" in dir_key or "\\" in dir_key or dir_key in {".", ".."}:
+        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
+    path = Path(dir_key)
+    if path.name != dir_key or path.is_absolute() or path.drive:
+        raise ValueError(f"Project name must be a single directory name: {dir_key!r}")
+    return dir_key
+
+
+def _layout_for(project_root: Path) -> ProjectLayout:
+    return ProjectLayout(
+        project_root=project_root,
+        captures_dir=project_root / "captures",
+        runs_dir=project_root / "runs",
+    )
+
+
+def _child_directory_names(directory: Path) -> tuple[str, ...]:
+    """Names of the subdirectories of ``directory``; empty if it does not exist."""
+    if not directory.is_dir():
+        return ()
+    return tuple(sorted(child.name for child in directory.iterdir() if child.is_dir()))
 
 
 def safe_path_component(value: str) -> str:
