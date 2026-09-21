@@ -7,7 +7,8 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 1 (``CURRENT_SCHEMA_VERSION``). Downgrades are not
+    schema is version 2 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
 
@@ -69,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class SchemaVersionError(RuntimeError):
@@ -107,8 +108,44 @@ class SchemaInitializationResult:
     backup_path: Path | None
 
 
-# Production registry. Empty until the first migration beyond the v1 baseline.
-MIGRATIONS: tuple[Migration, ...] = ()
+# v2: canonical Project identity. Schema only; it never reads the filesystem. Existing
+# filesystem projects are registered afterwards by ProjectRegistry (engine/project_registry.py).
+#
+# Both new foreign keys use RESTRICT so that a Project cannot be deleted while a
+# MosaicPlan (or a linked Target) depends on it, and a Target cannot be deleted while a
+# Project points at it. Nothing is deleted implicitly.
+_MIGRATION_2_PROJECTS_SQL = """
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    dir_key TEXT NOT NULL UNIQUE,
+    target_id TEXT,
+    target_label TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'archived')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (target_id) REFERENCES targets(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+);
+
+ALTER TABLE mosaic_plans ADD COLUMN project_id TEXT
+    REFERENCES projects(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+CREATE INDEX idx_mosaic_plans_project_id
+ON mosaic_plans (project_id);
+"""
+
+# Production registry: ordered, forward-only.
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(
+        version=2,
+        description="canonical projects table and mosaic_plans.project_id",
+        sql=_MIGRATION_2_PROJECTS_SQL,
+    ),
+)
 
 # FROZEN legacy-v1 compatibility rules. Do not extend; add a migration instead.
 LEGACY_V1_TABLES: tuple[str, ...] = (

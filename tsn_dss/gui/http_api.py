@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import sqlite3
+import sys
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -30,8 +31,15 @@ from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTarget
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
 from ..engine.projects import ProjectStorage
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
+from ..engine.project_registry import ProjectInUseError, ProjectRegistry, validate_dir_key
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
-from ..engine.sqlite import MosaicRepository, PlanningRepository, connect_database, initialize_database
+from ..engine.sqlite import (
+    MosaicRepository,
+    PlanningRepository,
+    ProjectRepository,
+    connect_database,
+    initialize_database,
+)
 from ..engine.telescope import TelescopeStateService
 from ..engine.weather import OpenMeteoForecastClient
 
@@ -51,6 +59,11 @@ class ApiContext:
     @property
     def storage(self) -> ProjectStorage:
         return ProjectStorage(self.projects_root)
+
+    def project_ids(self) -> dict[str, str]:
+        """Canonical project ids keyed by dir_key (the API's current project identifier)."""
+        with self.open_database() as connection:
+            return ProjectRepository(connection).dir_key_to_id()
 
     @contextmanager
     def open_database(self):
@@ -76,9 +89,14 @@ def create_http_server(
     resolved_projects_root = Path(projects_root)
     resolved_projects_root.mkdir(parents=True, exist_ok=True)
     resolved_database_path = Path(database_path) if database_path is not None else (resolved_projects_root / "tsn_dss.db")
-    bootstrap_connection = initialize_database(resolved_database_path)
-    bootstrap_connection.close()
     storage = ProjectStorage(resolved_projects_root)
+    bootstrap_connection = initialize_database(resolved_database_path)
+    try:
+        # Idempotent and read-only on the filesystem: gives every existing project a canonical
+        # record and links existing mosaic plans. Canonical metadata is never overwritten.
+        registration_report = ProjectRegistry(storage, bootstrap_connection).register_existing()
+    finally:
+        bootstrap_connection.close()
     context = ApiContext(
         projects_root=resolved_projects_root,
         database_path=resolved_database_path,
@@ -93,7 +111,9 @@ def create_http_server(
         ),
     )
     handler_class = _build_handler(context)
-    return ThreadingHTTPServer((host, port), handler_class)
+    server = ThreadingHTTPServer((host, port), handler_class)
+    server.project_registration_report = registration_report  # type: ignore[attr-defined]
+    return server
 
 
 def run_server(
@@ -116,6 +136,7 @@ def run_server(
         f"TSN DSS API listening on http://{host}:{port} "
         f"(projects_root={Path(projects_root).resolve()})"
     )
+    _print_registration_report(server.project_registration_report)  # type: ignore[attr-defined]
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -344,11 +365,12 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 return
 
             if path == "/api/projects":
+                project_ids = context.project_ids()
                 self._write_json(
                     HTTPStatus.OK,
                     {
                         "projects": [
-                            _project_to_dict(project)
+                            _project_to_dict(project, project_ids.get(project.slug))
                             for project in context.storage.list_projects()
                         ]
                     },
@@ -536,7 +558,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 self._write_json(
                     HTTPStatus.OK,
                     {
-                        "project": _project_to_dict(project),
+                        "project": _project_to_dict(project, context.project_ids().get(project.slug)),
                     },
                 )
                 return
@@ -635,14 +657,15 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 try:
-                    project = context.storage.create_project(project_slug)
+                    with context.open_database() as connection:
+                        project, record = ProjectRegistry(context.storage, connection).create_project(project_slug)
                 except Exception as error:
                     self._write_json(
                         HTTPStatus.BAD_REQUEST,
                         {"error": "project_create_failed", "message": str(error)},
                     )
                     return
-                self._write_json(HTTPStatus.CREATED, {"project": _project_to_dict(project)})
+                self._write_json(HTTPStatus.CREATED, {"project": _project_to_dict(project, record.id)})
                 return
 
             if path == "/api/sites":
@@ -846,14 +869,18 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                 sky_target_value = payload.get("sky_target")
                 sky_target = str(sky_target_value).strip() if sky_target_value is not None else None
                 try:
-                    project = context.storage.set_project_sky_target(project_slug, sky_target)
+                    with context.open_database() as connection:
+                        project, record = ProjectRegistry(context.storage, connection).set_target_label(
+                            project_slug,
+                            sky_target,
+                        )
                 except Exception as error:
                     self._write_json(
                         HTTPStatus.BAD_REQUEST,
                         {"error": "project_target_update_failed", "message": str(error)},
                     )
                     return
-                self._write_json(HTTPStatus.OK, {"project": _project_to_dict(project)})
+                self._write_json(HTTPStatus.OK, {"project": _project_to_dict(project, record.id)})
                 return
 
             if path.startswith("/api/sites/"):
@@ -901,6 +928,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 try:
+                    validate_dir_key(project_slug)
                     destination = context.storage.import_capture(
                         project_slug,
                         capture_name,
@@ -913,12 +941,30 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         {"error": "capture_import_failed", "message": str(error)},
                     )
                     return
+
+                # Importing into a project name that did not exist creates the project on disk, so
+                # make sure it has a canonical record too. (Already-registered projects: no-op.)
+                try:
+                    with context.open_database() as connection:
+                        record = ProjectRegistry(context.storage, connection).ensure_registered(project_slug)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {
+                            "error": "project_registration_failed",
+                            "message": (
+                                f"The capture was imported to {destination}, but the project could not be "
+                                f"registered: {error}. It will be registered on the next API start."
+                            ),
+                        },
+                    )
+                    return
                 project = context.storage.get_project(project_slug)
                 self._write_json(
                     HTTPStatus.CREATED,
                     {
                         "capture_root": str(destination),
-                        "project": _project_to_dict(project),
+                        "project": _project_to_dict(project, record.id),
                     },
                 )
                 return
@@ -1167,13 +1213,27 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
             if path.startswith("/api/projects/"):
                 project_slug = unquote(path.removeprefix("/api/projects/")).split("/", 1)[0]
                 try:
-                    context.storage.delete_project(project_slug)
+                    with context.open_database() as connection:
+                        ProjectRegistry(context.storage, connection).delete_project(project_slug)
                 except FileNotFoundError:
                     self._write_json(
                         HTTPStatus.NOT_FOUND,
                         {
                             "error": "project_not_found",
                             "message": f"Unknown project: {project_slug}",
+                        },
+                    )
+                    return
+                except ProjectInUseError as error:
+                    self._write_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "project_has_dependents",
+                            "message": (
+                                f'Project "{project_slug}" cannot be deleted: {error.mosaic_plan_count} mosaic '
+                                f"plan(s) still belong to it. Delete those mosaic plans first."
+                            ),
+                            "mosaic_plan_count": error.mosaic_plan_count,
                         },
                     )
                     return
@@ -1295,8 +1355,28 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
     return TsnDssApiHandler
 
 
-def _project_to_dict(project: Any) -> dict[str, Any]:
+def _print_registration_report(report: Any) -> None:
+    """Console summary of the startup project registration; details only when attention is needed."""
+    print(f"Project registry: {report.summary()}")
+    if not report.needs_attention:
+        return
+    for conflict in report.conflicts:
+        print(
+            f"  conflict: {conflict.dir_key}: {conflict.field} is {conflict.database_value!r} in the database "
+            f"but {conflict.project_json_value!r} in project.json (database kept)",
+            file=sys.stderr,
+        )
+    for dir_key in report.db_only:
+        print(f"  database-only project (directory missing): {dir_key}", file=sys.stderr)
+    for plan_id, slug in report.mosaic_unmatched:
+        print(f"  mosaic plan {plan_id} has no matching project: {slug!r}", file=sys.stderr)
+    for warning in report.warnings:
+        print(f"  warning: {warning}", file=sys.stderr)
+
+
+def _project_to_dict(project: Any, project_id: str | None = None) -> dict[str, Any]:
     return {
+        "project_id": project_id,
         "slug": project.slug,
         "project_root": str(project.project_root),
         "captures_dir": str(project.captures_dir),
@@ -1428,6 +1508,7 @@ def _telescope_adapter_capabilities_to_dict(capabilities: Any) -> dict[str, Any]
 def _mosaic_plan_to_dict(plan: Any) -> dict[str, Any]:
     return {
         "id": plan.id,
+        "project_id": plan.project_id,
         "project_slug": plan.project_slug,
         "name": plan.name,
         "target_name": plan.target_name,

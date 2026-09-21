@@ -22,6 +22,7 @@ class MosaicRepository:
 
     def save_mosaic_plan(self, plan: MosaicPlan) -> MosaicPlan:
         _validate_mosaic_plan(plan)
+        project_id = self._resolve_project_id(plan)
         with transaction(self.connection):
             exists = self.connection.execute(
                 "SELECT 1 FROM mosaic_plans WHERE id = ?;",
@@ -50,6 +51,7 @@ class MosaicRepository:
                         overlap_percent = ?,
                         status = ?,
                         selected_panel_id = ?,
+                        project_id = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?;
                     """,
@@ -71,6 +73,7 @@ class MosaicRepository:
                         plan.overlap_percent,
                         plan.status,
                         plan.selected_panel_id,
+                        project_id,
                         plan.id,
                     ),
                 )
@@ -95,8 +98,9 @@ class MosaicRepository:
                         rotation_deg,
                         overlap_percent,
                         status,
-                        selected_panel_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        selected_panel_id,
+                        project_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     (
                         plan.id,
@@ -117,6 +121,7 @@ class MosaicRepository:
                         plan.overlap_percent,
                         plan.status,
                         plan.selected_panel_id,
+                        project_id,
                     ),
                 )
 
@@ -146,7 +151,8 @@ class MosaicRepository:
                 rotation_deg,
                 overlap_percent,
                 status,
-                selected_panel_id
+                selected_panel_id,
+                project_id
             FROM mosaic_plans
             WHERE id = ?;
             """,
@@ -180,7 +186,8 @@ class MosaicRepository:
                     rotation_deg,
                     overlap_percent,
                     status,
-                    selected_panel_id
+                    selected_panel_id,
+                    project_id
                 FROM mosaic_plans
                 ORDER BY created_at DESC, id DESC;
                 """
@@ -206,7 +213,8 @@ class MosaicRepository:
                     rotation_deg,
                     overlap_percent,
                     status,
-                    selected_panel_id
+                    selected_panel_id,
+                    project_id
                 FROM mosaic_plans
                 WHERE project_slug = ?
                 ORDER BY created_at DESC, id DESC;
@@ -215,6 +223,70 @@ class MosaicRepository:
             ).fetchall()
 
         return [_row_to_mosaic_plan(row, self.list_mosaic_panels(row["id"])) for row in rows]
+
+    def _resolve_project_id(self, plan: MosaicPlan) -> str | None:
+        """The canonical Project a plan belongs to, resolved by exact ``dir_key``.
+
+        A supplied ``project_id`` must exist and agree with ``project_slug``. Without one,
+        the slug is matched exactly against ``projects.dir_key``; no match means the plan
+        stays unlinked (None). There is no fuzzy matching.
+        """
+        if plan.project_id is not None:
+            row = self.connection.execute(
+                "SELECT dir_key FROM projects WHERE id = ?;",
+                (plan.project_id,),
+            ).fetchone()
+            if row is None:
+                raise ValidationError(f"Unknown project_id for mosaic plan: {plan.project_id}")
+            if row["dir_key"] != plan.project_slug:
+                raise ValidationError("Mosaic plan project_id and project_slug refer to different projects.")
+            return plan.project_id
+
+        row = self.connection.execute(
+            "SELECT id FROM projects WHERE dir_key = ?;",
+            (plan.project_slug,),
+        ).fetchone()
+        return row["id"] if row else None
+
+    def list_unlinked_plans(self) -> list[tuple[str, str]]:
+        """Read-only: ``(plan_id, project_slug)`` for plans that have no project_id yet."""
+        return [
+            (str(row["id"]), str(row["project_slug"]))
+            for row in self.connection.execute(
+                "SELECT id, project_slug FROM mosaic_plans WHERE project_id IS NULL ORDER BY id;"
+            ).fetchall()
+        ]
+
+    def link_plans_to_projects(self) -> tuple[list[str], list[tuple[str, str]]]:
+        """Backfill ``project_id`` for unlinked plans by exact ``project_slug == dir_key``.
+
+        Returns ``(linked_plan_ids, unmatched)`` where unmatched lists ``(plan_id,
+        project_slug)`` for plans that still have no project. Already-linked plans and
+        ``updated_at`` are left untouched.
+        """
+        with transaction(self.connection):
+            matches = self.connection.execute(
+                """
+                SELECT plan.id AS plan_id, project.id AS project_id
+                FROM mosaic_plans AS plan
+                JOIN projects AS project ON project.dir_key = plan.project_slug
+                WHERE plan.project_id IS NULL
+                ORDER BY plan.id;
+                """
+            ).fetchall()
+            for match in matches:
+                self.connection.execute(
+                    "UPDATE mosaic_plans SET project_id = ? WHERE id = ? AND project_id IS NULL;",
+                    (match["project_id"], match["plan_id"]),
+                )
+
+        unmatched = [
+            (str(row["id"]), str(row["project_slug"]))
+            for row in self.connection.execute(
+                "SELECT id, project_slug FROM mosaic_plans WHERE project_id IS NULL ORDER BY id;"
+            ).fetchall()
+        ]
+        return [str(match["plan_id"]) for match in matches], unmatched
 
     def delete_mosaic_plan(self, plan_id: str) -> None:
         with transaction(self.connection):
@@ -530,6 +602,7 @@ def _row_to_mosaic_plan(row: sqlite3.Row, panels: list[MosaicPanel]) -> MosaicPl
         status=row["status"],
         selected_panel_id=row["selected_panel_id"],
         panels=panels,
+        project_id=row["project_id"],
     )
 
 

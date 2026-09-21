@@ -49,14 +49,18 @@ Target → AcquisitionPlan → Observation → Frames → Dataset → Processing
 Project → Capture → Run
 ```
 
-- `engine/projects.py` (`ProjectStorage`) lays out `projects/<slug>/…`: captures, thumbnails, run workspaces, and `sky_target` metadata.
+- `engine/projects.py` (`ProjectStorage`) lays out `projects/<dir_key>/…`: captures, thumbnails, run workspaces, and the `project.json` compatibility mirror of the project's target label (`sky_target`).
 - `engine/project_processing.py` (`ProjectRunManager`) executes the stock Siril `OSC_Preprocessing` script headless against a capture, tracks run status/logs/artifacts on disk, and generates previews.
 - The Projects and Processing workspaces are built on this. Run state lives in run folders, not in `processing_runs`.
+- **Project identity is canonical in SQLite** (table `projects`, `ProjectRepository`). `id` is opaque and never derived from the directory name; `dir_key` is the directory name under the projects root (a locator, unique, never renamed by the app) and is still what the HTTP API calls the project "slug". `display_name` starts equal to `dir_key`. `target_label` is free text (initially the `sky_target`); `target_id` stays NULL until a Target is linked with certainty, and nothing links one yet.
+- `engine/project_registry.py` (`ProjectRegistry`) keeps the two in step and owns ordering and compensation; `ProjectStorage` still owns the physical layout. At API start it registers every existing project directory (a read-only scan; it never renames, moves or writes project files) and links existing mosaic plans. Canonical metadata is never overwritten from `project.json`; disagreements are reported as conflicts at startup.
+- **Dual-write (transitional).** Creating a project makes the directory first, then the record, and removes a directory it just created if the record fails. Changing the target label writes the record first and then the `project.json` mirror, restoring the record if the mirror fails. Captures, runs and their files are **not** canonical records yet.
+- **Deleting a project** is refused (HTTP 409) while mosaic plans reference it. The directory is removed before the record, so a failure never loses identity while dependents exist. Because captures and runs are not canonical yet, their files are still deleted with the directory.
 
 ### Where the two worlds touch
 
-- The SQLite `PlanningRepository` and `MosaicRepository` (sites, targets, mosaics) **are** used by the app.
-- `mosaic_plans.project_slug` is a plain string referencing a filesystem Project. It is not a foreign key and not a `Target`.
+- The SQLite `PlanningRepository`, `ProjectRepository` and `MosaicRepository` (sites, targets, projects, mosaics) **are** used by the app.
+- `mosaic_plans.project_id` is a nullable foreign key to `projects` (`ON DELETE RESTRICT`), resolved by exact `project_slug == projects.dir_key`. The legacy `project_slug` column is kept and is what the API still filters on. A plan whose slug matches no project keeps `project_id` NULL. It is not a `Target`.
 - Neither model is marked deprecated in code. Treat this as the current implementation boundary: new work should say explicitly which world it belongs to.
 
 ## Sky and telescope state
@@ -160,7 +164,7 @@ These are independent constraints. A target can be above the minimum altitude an
 
 ## Mosaic planning
 
-- **Model**: `MosaicPlan` → `MosaicPanel[]`, tables `mosaic_plans` / `mosaic_panels`, `MosaicRepository`. Endpoints under `/api/mosaics`, `/api/mosaic-panels`. Plans belong to a filesystem Project through `project_slug`.
+- **Model**: `MosaicPlan` → `MosaicPanel[]`, tables `mosaic_plans` / `mosaic_panels`, `MosaicRepository`. Endpoints under `/api/mosaics`, `/api/mosaic-panels`. Plans belong to a Project through `project_id` (with the legacy `project_slug` kept).
 - **Panels are sky footprints, not UI cells.** A panel's persistent address is `center_ra_deg` / `center_dec_deg`. Alt/Az is never stored on a panel; it is computed at request time by the astronomy service for the active Site and time.
 - **FOV comes from the imaging profile at plan creation.** `fov_width_deg`, `fov_height_deg`, `imaging_profile_id` and `imaging_profile_label` are copied onto the plan (defaulting from the telescope snapshot's profile). `imaging_profile_id` is a plain string, not a foreign key, and later profile changes do not alter existing plans.
 - **Generation** (`_generate_regular_mosaic_panels`): a regular grid, step = FOV × (1 − overlap), rows and columns centered on the plan center, RA offsets divided by cos(Dec), RA wrapped to [0, 360). Limited to 256 panels (`MAX_GENERATED_PANELS`). Validation: `0 ≤ overlap < 100`, FOV > 0, region > 0, RA/Dec ranges. The plan's `rotation_deg` is copied onto each panel; **the grid layout itself is axis-aligned in RA/Dec** and is not rotated.
@@ -171,11 +175,11 @@ These are independent constraints. A target can be above the minimum altitude an
 
 ## Persistence
 
-- One SQLite database. The schema is owned centrally by `tsn_dss/engine/sqlite/migrations.py`, and `PRAGMA user_version` is the schema version. The current production schema is **v1** (`CURRENT_SCHEMA_VERSION`), defined by the baseline `sqlite/schema.sql`. Opening a database newer than the build supports raises `SchemaVersionError`; downgrades are not supported.
+- One SQLite database. The schema is owned centrally by `tsn_dss/engine/sqlite/migrations.py`, and `PRAGMA user_version` is the schema version. The current production schema is **v2** (`CURRENT_SCHEMA_VERSION`): the v1 baseline `sqlite/schema.sql` plus the registered migration that adds `projects` and `mosaic_plans.project_id`. Opening a database newer than the build supports raises `SchemaVersionError`; downgrades are not supported.
 - **Single initialization path.** `initialize_database` runs once at API startup. A fresh database gets the baseline; a database created by an earlier build is normalized to the complete v1 shape (a frozen compatibility step, no version change); then any registered forward migrations run. Each version transition is one transaction that includes its `user_version` update. Before an actual upgrade of a file-backed database, a `<db>.v<from>-<UTC timestamp>.bak` copy is written next to it.
 - **Repositories never evolve the schema.** They assume an initialized database and run no DDL; a test enforces that only the schema layer contains DDL.
-- **Future schema changes are ordered migrations** appended to `MIGRATIONS` (the registry is currently empty). Editing `schema.sql` or the frozen legacy rules is not how the schema changes.
-- **Repository ownership**: `PlanningRepository` (targets, sites, horizon points, equipment, plans/sequences), `MosaicRepository` (mosaics), and the four World-A repositories listed above. Each takes a connection; `transaction()` does not nest.
+- **Schema changes are ordered migrations** appended to `MIGRATIONS` (currently one: v2). Editing `schema.sql` or the frozen legacy rules is not how the schema changes. Migrations are schema-only and never read the filesystem; registering existing projects is a separate, idempotent step (`ProjectRegistry`).
+- **Repository ownership**: `PlanningRepository` (targets, sites, horizon points, equipment, plans/sequences), `ProjectRepository` (projects), `MosaicRepository` (mosaics), and the four World-A repositories listed above. Each takes a connection; `transaction()` does not nest.
 - Filesystem state (projects, captures, runs, thumbnails, logs) is outside SQLite. The active Site, planned pointing, active adapter and simulator state are in process memory only.
 - Tables `surveys`, `survey_targets`, `events`, `telemetry` and two views exist in the schema. No Python repository or API uses them.
 
@@ -211,6 +215,7 @@ Each rule below is supported by current code.
 12. **Filter and observation intent are plan-level metadata,** not panel geometry.
 13. **The SQLite observation domain and the filesystem Project workflow are separate.** State which one a change targets; do not assume data written in one is visible in the other.
 14. **Schema changes are ordered migrations** in `engine/sqlite/migrations.py`. Repositories never run DDL (see Persistence).
+15. **A Project's identity is its `id`, never its directory name.** `dir_key` is only a locator and the API's current identifier. Deleting a project must not silently remove canonical records that depend on it.
 
 ## Testing
 

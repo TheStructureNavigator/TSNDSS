@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 from tsn_dss.domain.models import MosaicPlan
-from tsn_dss.engine.sqlite.db import initialize_database
+from tsn_dss.engine.sqlite.db import DEFAULT_SCHEMA_PATH, connect_database, initialize_database
+from tsn_dss.engine.sqlite.migrations import initialize_schema
 from tsn_dss.engine.sqlite.mosaics import MosaicRepository, ValidationError
 
 
@@ -81,7 +82,9 @@ class MosaicRepositoryTests(unittest.TestCase):
         # the repository itself never alters the schema.
         self.connection.close()
         self.db_path.unlink(missing_ok=True)
-        legacy = initialize_database(self.db_path)
+        legacy = connect_database(self.db_path)
+        # A genuine v1 database: the frozen legacy normalizer only applies to user_version = 1.
+        initialize_schema(legacy, baseline_path=DEFAULT_SCHEMA_PATH, migrations=())
         try:
             legacy.execute("DROP TABLE IF EXISTS mosaic_panels;")
             legacy.execute("DROP TABLE IF EXISTS mosaic_plans;")

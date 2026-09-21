@@ -48,6 +48,11 @@ from tsn_dss.engine.sqlite.processing import ProcessingRunRepository
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
+# The infrastructure tests below exercise the runner against the v1 baseline. "V1_ONLY" is an
+# empty registry: the v1-only world, independent of whichever migrations production has added.
+# Tests about production behaviour pass MIGRATIONS (the default) instead.
+V1_ONLY: tuple = ()
+
 
 # ---------------------------------------------------------------------------
 # Semantic schema comparison helper
@@ -270,7 +275,14 @@ class TempDirTestCase(unittest.TestCase):
             pass
 
     def open_initialized(self, path: Path | None = None) -> sqlite3.Connection:
+        """A database at the current production schema."""
         return self.track(initialize_database(path or self.db_path))
+
+    def open_v1(self, path: Path | None = None) -> sqlite3.Connection:
+        """A database at the v1 baseline only (no production migrations applied)."""
+        connection = self.track(connect_database(path or self.db_path))
+        initialize_schema(connection, baseline_path=DEFAULT_SCHEMA_PATH, migrations=V1_ONLY)
+        return connection
 
     def raw(self, path: Path | None = None) -> sqlite3.Connection:
         return self.track(sqlite3.connect(path or self.db_path))
@@ -346,13 +358,22 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 1)
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 2)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
-        self.assertEqual(MIGRATIONS, ())
 
-    def test_fresh_database_is_created_at_version_one(self) -> None:
+    def test_fresh_database_replays_production_migrations_without_a_backup(self) -> None:
         connection, result = self.initialize()
+        self.assertTrue(result.created)
+        self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
+        self.assertEqual(result.applied_migrations, (2,))
+        self.assertIsNone(result.backup_path)
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
+        self.assertEqual(self.backups(), [])
+
+    def test_fresh_database_is_created_at_version_one_when_only_the_baseline_is_registered(self) -> None:
+        connection, result = self.initialize(migrations=V1_ONLY)
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, 1))
         self.assertFalse(result.normalized_legacy)
@@ -459,7 +480,7 @@ class VersionBehaviourTests(TempDirTestCase):
 
         second = self.track(initialize_database(self.db_path, seed_path=DEFAULT_SEED_PATH))
         self.assertEqual(second.execute("SELECT COUNT(*) FROM targets").fetchone()[0], seeded)
-        self.assertEqual(get_user_version(second), 1)
+        self.assertEqual(get_user_version(second), CURRENT_SCHEMA_VERSION)
 
     def test_frozen_legacy_rule_set_matches_baseline(self) -> None:
         # Tripwire: the legacy normalizer is frozen. Extending it must be a deliberate decision.
@@ -486,11 +507,13 @@ class VersionBehaviourTests(TempDirTestCase):
 
 
 class LegacyNormalizationTests(TempDirTestCase):
-    def fresh_schema(self) -> dict:
+    def fresh_schema(self, migrations=V1_ONLY) -> dict:
         fresh_path = self.dir / "fresh-reference.db"
-        connection = self.track(initialize_database(fresh_path))
+        connection = self.track(sqlite3.connect(fresh_path))
+        initialize_schema(connection, baseline_path=DEFAULT_SCHEMA_PATH, migrations=migrations)
         schema = describe_schema(connection)
         connection.close()
+        fresh_path.unlink()
         return schema
 
     def test_legacy_fixtures_really_differ_from_current_v1(self) -> None:
@@ -511,7 +534,7 @@ class LegacyNormalizationTests(TempDirTestCase):
                 path = self.dir / f"legacy-{variant}.db"
                 build_legacy_v1_database(path, variant)
 
-                connection, result = self.initialize(path=path)
+                connection, result = self.initialize(migrations=V1_ONLY, path=path)
                 self.assertTrue(result.normalized_legacy)
                 self.assertFalse(result.created)
                 self.assertEqual(result.final_version, 1)
@@ -558,7 +581,7 @@ class LegacyNormalizationTests(TempDirTestCase):
             with self.subTest(variant):
                 path = self.dir / f"legacy-{variant}.db"
                 build_legacy_v1_database(path, variant)
-                connection, result = self.initialize(path=path)
+                connection, result = self.initialize(migrations=V1_ONLY, path=path)
                 self.assertIsNone(result.backup_path)
                 self.assertEqual(get_user_version(connection), 1)
                 connection.close()
@@ -592,11 +615,28 @@ class LegacyNormalizationTests(TempDirTestCase):
         )
         raw.close()
 
-        connection = self.open_initialized()
+        connection = self.open_v1()
         columns = {row[1] for row in connection.execute("PRAGMA table_info(sites)").fetchall()}
         self.assertIn("lp_updated_at", columns)
         self.assertEqual(connection.execute("SELECT name FROM sites").fetchone()[0], "Partial")
         self.assertEqual(get_user_version(connection), 1)
+
+    def test_partial_legacy_fixture_also_upgrades_to_the_current_schema(self) -> None:
+        # Even this artificial database (only a sites table) must normalize and then migrate.
+        raw = self.raw()
+        raw.executescript(
+            "PRAGMA user_version = 1;"
+            "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT NOT NULL, latitude_deg REAL, longitude_deg REAL,"
+            " elevation_m REAL, sqm_mag_arcsec2 REAL, bortle_class INTEGER,"
+            " south_horizon_open INTEGER NOT NULL DEFAULT 0, notes TEXT);"
+            "INSERT INTO sites (id, name) VALUES ('site:partial', 'Partial');"
+        )
+        raw.close()
+
+        connection = self.open_initialized()
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
+        self.assertEqual(connection.execute("SELECT name FROM sites").fetchone()[0], "Partial")
+        self.assertIn("projects", describe_schema(connection)["tables"])
 
     def test_complete_site_horizon_and_mosaic_data_survives_reopen_through_repositories(self) -> None:
         connection = self.open_initialized()
@@ -835,7 +875,7 @@ def _boom(connection: sqlite3.Connection) -> None:
 
 class MigrationRunnerTests(TempDirTestCase):
     def prepare_v1(self) -> None:
-        connection = self.open_initialized()
+        connection = self.open_v1()
         connection.execute(
             "INSERT INTO targets (id, catalog, catalog_id, name, ra_deg, dec_deg) "
             "VALUES ('t:1', 'M', '31', 'Andromeda', 10.68, 41.27)"
@@ -1010,7 +1050,7 @@ class MigrationRunnerTests(TempDirTestCase):
     # -- foreign key handling -------------------------------------------------
 
     def seed_parent_child(self) -> None:
-        connection = self.open_initialized()
+        connection = self.open_v1()
         connection.executescript(
             """
             CREATE TABLE parent (id INTEGER PRIMARY KEY, name TEXT);
@@ -1104,7 +1144,7 @@ class BackupTests(TempDirTestCase):
     UPGRADE = Migration(2, "upgrade", sql="ALTER TABLE targets ADD COLUMN backup_probe TEXT;")
 
     def make_v1_with_data(self) -> None:
-        connection = self.open_initialized()
+        connection = self.open_v1()
         connection.execute(
             "INSERT INTO targets (id, catalog, catalog_id, name, ra_deg, dec_deg) "
             "VALUES ('t:1', 'M', '31', 'Andromeda', 10.68, 41.27)"
@@ -1160,11 +1200,11 @@ class BackupTests(TempDirTestCase):
         self.assertEqual(get_user_version(self.raw()), 1)
 
     def test_no_backup_for_fresh_noop_or_normalization(self) -> None:
-        self.initialize()  # fresh
-        self.initialize()  # no-op
+        self.initialize(migrations=V1_ONLY)  # fresh
+        self.initialize(migrations=V1_ONLY)  # no-op
         legacy = self.dir / "legacy.db"
         build_legacy_v1_database(legacy, "2026-08-23")
-        self.initialize(path=legacy)  # legacy normalization
+        self.initialize(migrations=V1_ONLY, path=legacy)  # legacy normalization (no version change)
         self.assertEqual(self.backups(), [])
 
     def test_no_backup_for_a_fresh_database_even_when_migrations_replay(self) -> None:
@@ -1177,7 +1217,7 @@ class BackupTests(TempDirTestCase):
 
     def test_in_memory_database_upgrades_without_a_backup(self) -> None:
         connection = self.track(sqlite3.connect(":memory:"))
-        initialize_schema(connection, baseline_path=DEFAULT_SCHEMA_PATH)
+        initialize_schema(connection, baseline_path=DEFAULT_SCHEMA_PATH, migrations=V1_ONLY)
         result = run_migrations(connection, [self.UPGRADE])
         self.assertEqual(result.applied_versions, (2,))
         self.assertIsNone(result.backup_path)

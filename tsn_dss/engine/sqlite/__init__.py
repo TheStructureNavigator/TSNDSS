@@ -14,6 +14,7 @@ from .mosaics import MosaicRepository
 from .observation import ObservationRepository
 from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
+from .project_repository import ProjectInUseError, ProjectRepository
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
@@ -21,6 +22,8 @@ __all__ = [
     "MigrationError",
     "SchemaVersionError",
     "PlanningRepository",
+    "ProjectRepository",
+    "ProjectInUseError",
     "ObservationRepository",
     "FrameRepository",
     "MosaicRepository",

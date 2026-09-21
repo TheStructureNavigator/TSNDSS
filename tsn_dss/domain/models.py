@@ -56,6 +56,24 @@ class Site:
 
 
 @dataclass(slots=True)
+class Project:
+    """A user workspace / target-centric observing campaign with a stable identity.
+
+    ``id`` is opaque and never derived from ``dir_key``. ``dir_key`` is only the
+    current directory name under the projects root (a locator, not identity).
+    ``target_label`` is free text (initially the legacy ``sky_target``); ``target_id``
+    stays None until a Target is linked with certainty.
+    """
+    id: str
+    display_name: str
+    dir_key: str
+    target_id: str | None = None
+    target_label: str | None = None
+    status: str = "active"
+    notes: str | None = None
+
+
+@dataclass(slots=True)
 class Equipment:
     """A single equipment asset such as a camera, mount, filter, or scope."""
     id: str
@@ -271,3 +289,6 @@ class MosaicPlan:
     filter: str | None = None
     selected_panel_id: str | None = None
     panels: list[MosaicPanel] = field(default_factory=list)
+    # Stable link to the canonical Project. project_slug (the project's dir_key) is kept
+    # for compatibility; the repository resolves project_id from it when it can.
+    project_id: str | None = None

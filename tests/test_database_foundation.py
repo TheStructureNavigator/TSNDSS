@@ -100,10 +100,10 @@ class DatabaseFoundationTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_schema_user_version_is_one(self) -> None:
+    def test_schema_user_version_is_current(self) -> None:
         connection = initialize_database(self.db_path)
         try:
-            self.assertEqual(get_user_version(connection), 1)
+            self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         finally:
             connection.close()
 
