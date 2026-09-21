@@ -16,6 +16,7 @@ from tsn_dss.engine.sqlite.db import (
     integrity_check,
     transaction,
 )
+from tsn_dss.engine.sqlite.migrations import CURRENT_SCHEMA_VERSION
 
 
 class DatabaseFoundationTests(unittest.TestCase):
@@ -285,13 +286,13 @@ class DatabaseFoundationTests(unittest.TestCase):
 
         self.assertEqual(count, 0)
 
-    def test_existing_wrong_schema_version_is_rejected(self) -> None:
+    def test_existing_schema_version_newer_than_supported_is_rejected(self) -> None:
         connection = connect_database(self.db_path)
         try:
             connection.executescript(
                 Path(DEFAULT_SCHEMA_PATH).read_text(encoding="utf-8").replace(
                     "PRAGMA user_version = 1;",
-                    "PRAGMA user_version = 2;",
+                    f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION + 1};",
                 )
             )
             connection.close()

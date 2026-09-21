@@ -9,13 +9,16 @@ from .db import (
     transaction,
 )
 from .frames import FrameRepository
+from .migrations import CURRENT_SCHEMA_VERSION, MigrationError
 from .mosaics import MosaicRepository
 from .observation import ObservationRepository
 from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
 
 __all__ = [
+    "CURRENT_SCHEMA_VERSION",
     "EXPECTED_USER_VERSION",
+    "MigrationError",
     "SchemaVersionError",
     "PlanningRepository",
     "ObservationRepository",

@@ -76,7 +76,9 @@ class MosaicRepositoryTests(unittest.TestCase):
         self.assertEqual(reloaded.observation_type, "dual-band imaging")
         self.assertEqual(reloaded.filter, "L-eXtreme")
 
-    def test_repository_adds_optional_columns_to_legacy_mosaic_schema(self) -> None:
+    def test_initialize_database_adds_optional_columns_to_legacy_mosaic_schema(self) -> None:
+        # Schema evolution belongs to initialize_database (tsn_dss.engine.sqlite.migrations);
+        # the repository itself never alters the schema.
         self.connection.close()
         self.db_path.unlink(missing_ok=True)
         legacy = initialize_database(self.db_path)

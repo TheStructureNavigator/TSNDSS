@@ -19,7 +19,6 @@ class ValidationError(ValueError):
 class MosaicRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
-        ensure_mosaic_schema(connection)
 
     def save_mosaic_plan(self, plan: MosaicPlan) -> MosaicPlan:
         _validate_mosaic_plan(plan)
@@ -395,78 +394,6 @@ class MosaicRepository:
             )
 
 
-def ensure_mosaic_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS mosaic_plans (
-            id TEXT PRIMARY KEY,
-            project_slug TEXT NOT NULL,
-            name TEXT NOT NULL,
-            target_name TEXT,
-            observation_type TEXT,
-            filter TEXT,
-            imaging_profile_id TEXT NOT NULL,
-            imaging_profile_label TEXT NOT NULL,
-            fov_width_deg REAL NOT NULL CHECK (fov_width_deg > 0),
-            fov_height_deg REAL NOT NULL CHECK (fov_height_deg > 0),
-            center_ra_deg REAL NOT NULL CHECK (center_ra_deg >= 0 AND center_ra_deg < 360),
-            center_dec_deg REAL NOT NULL CHECK (center_dec_deg >= -90 AND center_dec_deg <= 90),
-            region_width_deg REAL NOT NULL CHECK (region_width_deg > 0),
-            region_height_deg REAL NOT NULL CHECK (region_height_deg > 0),
-            rotation_deg REAL NOT NULL DEFAULT 0,
-            overlap_percent REAL NOT NULL DEFAULT 10
-                CHECK (overlap_percent >= 0 AND overlap_percent < 100),
-            status TEXT NOT NULL DEFAULT 'draft'
-                CHECK (status IN ('draft', 'ready', 'active', 'archived')),
-            selected_panel_id TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_mosaic_plans_project
-        ON mosaic_plans (project_slug);
-
-        CREATE INDEX IF NOT EXISTS idx_mosaic_plans_status
-        ON mosaic_plans (status);
-
-        CREATE TABLE IF NOT EXISTS mosaic_panels (
-            id TEXT PRIMARY KEY,
-            mosaic_plan_id TEXT NOT NULL,
-            panel_index INTEGER NOT NULL CHECK (panel_index >= 0),
-            panel_label TEXT NOT NULL,
-            center_ra_deg REAL NOT NULL CHECK (center_ra_deg >= 0 AND center_ra_deg < 360),
-            center_dec_deg REAL NOT NULL CHECK (center_dec_deg >= -90 AND center_dec_deg <= 90),
-            fov_width_deg REAL NOT NULL CHECK (fov_width_deg > 0),
-            fov_height_deg REAL NOT NULL CHECK (fov_height_deg > 0),
-            rotation_deg REAL NOT NULL DEFAULT 0,
-            row_index INTEGER,
-            column_index INTEGER,
-            status TEXT NOT NULL DEFAULT 'not_started'
-                CHECK (status IN ('not_started', 'in_progress', 'complete')),
-            target_integration_seconds REAL
-                CHECK (target_integration_seconds IS NULL OR target_integration_seconds >= 0),
-            acquired_integration_seconds REAL
-                CHECK (acquired_integration_seconds IS NULL OR acquired_integration_seconds >= 0),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (mosaic_plan_id) REFERENCES mosaic_plans(id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            UNIQUE (mosaic_plan_id, panel_index),
-            UNIQUE (mosaic_plan_id, panel_label)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_mosaic_panels_plan
-        ON mosaic_panels (mosaic_plan_id);
-
-        CREATE INDEX IF NOT EXISTS idx_mosaic_panels_status
-        ON mosaic_panels (mosaic_plan_id, status);
-        """
-    )
-    _ensure_optional_column(connection, "mosaic_plans", "observation_type", "TEXT")
-    _ensure_optional_column(connection, "mosaic_plans", "filter", "TEXT")
-
-
 def _validate_mosaic_plan(plan: MosaicPlan) -> None:
     if not plan.id or not plan.project_slug or not plan.name:
         raise ValidationError("Mosaic plan id, project_slug and name are required.")
@@ -622,21 +549,4 @@ def _row_to_mosaic_panel(row: sqlite3.Row) -> MosaicPanel:
         status=row["status"],
         target_integration_seconds=row["target_integration_seconds"],
         acquired_integration_seconds=row["acquired_integration_seconds"],
-    )
-
-
-def _ensure_optional_column(
-    connection: sqlite3.Connection,
-    table_name: str,
-    column_name: str,
-    column_definition: str,
-) -> None:
-    columns = {
-        row["name"]
-        for row in connection.execute(f"PRAGMA table_info({table_name});").fetchall()
-    }
-    if column_name in columns:
-        return
-    connection.execute(
-        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition};"
     )

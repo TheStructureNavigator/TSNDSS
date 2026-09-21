@@ -171,11 +171,10 @@ These are independent constraints. A target can be above the minimum altitude an
 
 ## Persistence
 
-- One SQLite database. `sqlite/schema.sql` is applied only when the database has no user tables, then `PRAGMA user_version = 1` is asserted. `EXPECTED_USER_VERSION = 1` in `engine/sqlite/db.py`; a mismatch raises `SchemaVersionError`.
-- **There is no migration framework.** Schema evolution is done by additive, idempotent code that runs against existing databases, and the same definitions are repeated in `schema.sql`:
-  - `db.py::_ensure_backward_compatible_columns` adds the `lp_*` columns to `sites` and creates `site_horizon_profile_points`.
-  - `MosaicRepository.__init__` calls `ensure_mosaic_schema`, which creates `mosaic_plans` / `mosaic_panels` and adds optional columns.
-- A schema change therefore needs edits in `schema.sql` **and** an additive upgrade path; bumping `user_version` alone has no upgrade mechanism.
+- One SQLite database. The schema is owned centrally by `tsn_dss/engine/sqlite/migrations.py`, and `PRAGMA user_version` is the schema version. The current production schema is **v1** (`CURRENT_SCHEMA_VERSION`), defined by the baseline `sqlite/schema.sql`. Opening a database newer than the build supports raises `SchemaVersionError`; downgrades are not supported.
+- **Single initialization path.** `initialize_database` runs once at API startup. A fresh database gets the baseline; a database created by an earlier build is normalized to the complete v1 shape (a frozen compatibility step, no version change); then any registered forward migrations run. Each version transition is one transaction that includes its `user_version` update. Before an actual upgrade of a file-backed database, a `<db>.v<from>-<UTC timestamp>.bak` copy is written next to it.
+- **Repositories never evolve the schema.** They assume an initialized database and run no DDL; a test enforces that only the schema layer contains DDL.
+- **Future schema changes are ordered migrations** appended to `MIGRATIONS` (the registry is currently empty). Editing `schema.sql` or the frozen legacy rules is not how the schema changes.
 - **Repository ownership**: `PlanningRepository` (targets, sites, horizon points, equipment, plans/sequences), `MosaicRepository` (mosaics), and the four World-A repositories listed above. Each takes a connection; `transaction()` does not nest.
 - Filesystem state (projects, captures, runs, thumbnails, logs) is outside SQLite. The active Site, planned pointing, active adapter and simulator state are in process memory only.
 - Tables `surveys`, `survey_targets`, `events`, `telemetry` and two views exist in the schema. No Python repository or API uses them.
@@ -211,7 +210,7 @@ Each rule below is supported by current code.
 11. **Panels are stored as RA/Dec.** Alt/Az is always derived for a Site and a time.
 12. **Filter and observation intent are plan-level metadata,** not panel geometry.
 13. **The SQLite observation domain and the filesystem Project workflow are separate.** State which one a change targets; do not assume data written in one is visible in the other.
-14. **Schema changes need both `schema.sql` and an additive upgrade path** (see Persistence).
+14. **Schema changes are ordered migrations** in `engine/sqlite/migrations.py`. Repositories never run DDL (see Persistence).
 
 ## Testing
 
