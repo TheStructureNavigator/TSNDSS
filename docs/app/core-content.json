@@ -1,6 +1,42 @@
 {
-  "current_version": "0.1.11",
+  "current_version": "0.2.2",
   "releases": [
+    {
+      "version": "0.2.2",
+      "date": "2026-09-21",
+      "changelog": [
+        "Made project and capture reads side-effect free: requesting an unknown project, capture, file or thumbnail no longer creates project folders, captures/ or runs/, so phantom projects can no longer appear or be registered at startup.",
+        "Listing or reading a project no longer repairs an incomplete project folder; it is reported as it is. Only explicit create, import, run and target-update operations create folders, and starting a run for an unknown project fails without creating it.",
+        "Enforced a strict capture boundary: a capture name must be exactly one folder directly inside the project's captures/ directory. Names such as '..', nested paths and absolute or drive paths are rejected, and validation happens before any copy, move or run starts.",
+        "Captures, folders and files that resolve outside their capture through symlinks or junctions are no longer listed, served or processed, and a processing run refuses a capture that contains such files instead of silently using a different set of frames.",
+        "Thumbnail caching still writes derived images under a project's .cache folder, but it can no longer create a project or capture, or write outside the project."
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-09-21",
+      "changelog": [
+        "Added stable canonical Project identities in SQLite: every project now has an opaque id that is separate from its folder name. Existing project folders are not renamed, and the API still addresses projects by folder name; project and mosaic responses gain an additive project_id field.",
+        "Existing projects are registered automatically at API start by a read-only scan. Folder names are kept exactly, the project.json sky target is imported as the project's target label, and unknown metadata stays unknown (no Target is guessed).",
+        "Canonical project metadata is never overwritten from project.json; disagreements are reported at startup instead. Creating a project or changing its target now updates both the canonical record and the project.json compatibility mirror, restoring state if one side fails.",
+        "MosaicPlans are now linked to their project by stable project id, matched exactly on the project folder name. project_slug is kept for compatibility, and plans that match no project stay unlinked and are reported.",
+        "Deleting a project that still has mosaic plans is now refused with an explanatory message instead of leaving orphaned plans. Captures and runs are not canonical records yet and are still removed with the project folder.",
+        "Project names must be a single folder name; names such as '../x' are rejected instead of creating folders outside the projects directory.",
+        "This is the first production database schema migration (schema v2). Existing databases are backed up automatically before they are upgraded."
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-09-21",
+      "changelog": [
+        "Added a centralized, forward-only SQLite migration system: the database schema version is tracked in one place, each upgrade runs atomically together with its version change, and an existing database is backed up before it is upgraded.",
+        "Databases created by earlier builds are normalized to the complete current schema shape without touching data (Sites, Local Horizon profiles and Mosaic plans are preserved), and opening a database from a newer version now fails with a clear error.",
+        "Integrity and foreign-key validation now run after database initialization, normalization and migrations.",
+        "Repositories no longer create or alter database tables; schema changes now happen only in the migration layer.",
+        "Consolidated the documentation into a single README and docs/ARCHITECTURE.md that describe the implemented architecture, and removed completed planning documents.",
+        "Fixed a repository integrity problem where tsn_dss/engine/siril.py was ignored by git, so a fresh clone could not run; it is now tracked. Added npm test for the frontend test suite."
+      ]
+    },
     {
       "version": "0.1.11",
       "date": "2026-09-20",

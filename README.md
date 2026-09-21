@@ -2,7 +2,7 @@
 
 TSN DSS is a local, single-user deep-sky imaging workbench: it manages capture folders and Siril processing runs, plans sky targets and mosaics, models observing sites, and assesses observing conditions. A Python backend serves a local HTTP API to a Vite + TypeScript web app, with SQLite for durable state.
 
-Current version: **0.1.11** (see [docs/app/core-content.json](docs/app/core-content.json) for the changelog).
+Current version: **0.2.2** (see [docs/app/core-content.json](docs/app/core-content.json) for the changelog).
 
 For how the system is structured, what owns what, and known caveats, read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 

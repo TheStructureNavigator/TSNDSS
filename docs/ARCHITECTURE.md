@@ -1,6 +1,6 @@
 # TSN DSS Architecture
 
-Snapshot of the system as implemented at **v0.1.11**. Code, `sqlite/schema.sql` and the tests are the source of truth; if this document disagrees with them, fix this document.
+Snapshot of the system as implemented at **v0.2.2**. Code, `sqlite/schema.sql` and the tests are the source of truth; if this document disagrees with them, fix this document.
 
 Statements below are marked **implemented**, **scaffold** (structure exists, behavior does not), or **not present**. Nothing here is a roadmap.
 
