@@ -1,86 +1,55 @@
-# TSN Deep Space System
+# TSN Deep Space System (DSS)
 
-TSN DSS is a local deep-sky imaging workspace for managing projects, captures, processing runs, telescope state, and sky planning around a small SQLite-centered core.
+TSN DSS is a local, single-user deep-sky imaging workbench: it manages capture folders and Siril processing runs, plans sky targets and mosaics, models observing sites, and assesses observing conditions. A Python backend serves a local HTTP API to a Vite + TypeScript web app, with SQLite for durable state.
 
-Current foundation already covers the main v0.1 domain flow:
+Current version: **0.1.11** (see [docs/app/core-content.json](docs/app/core-content.json) for the changelog).
 
-`Target -> AcquisitionPlan -> Observation -> Frames -> Dataset -> ProcessingRun -> Output`
+For how the system is structured, what owns what, and known caveats, read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-## Repository Structure
+## Current capabilities
 
-- `tsn_dss/domain/` — normalized domain models
-- `tsn_dss/engine/sqlite/` — SQLite repositories, validation, and database bootstrap
-- `tsn_dss/engine/projects.py` — project, capture, and run folder layout
-- `tsn_dss/engine/project_processing.py` — TSN-managed Siril run workflow
-- `tsn_dss/engine/telescope.py` — telescope state service, simulator, adapter registry, Seestar adapter skeleton
-- `tsn_dss/engine/light_pollution.py` — local raster point lookup and light-pollution conversions
-- `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
-- `frontend/` — Vite + TypeScript web GUI
-- `docs/app/` — external app-facing content such as version, changelog, and TODO data
-- `tests/` — automated `unittest` coverage
-- `docs/plans/` — active planning notes for cleanup, telescope state, and mosaic work
-- `sqlite/` — schema, seed data, ERD, example queries, and reference database snapshot
-- `projects/` — local project workspace, imported captures, runs, logs, and artifacts
+Implemented:
 
-## What Already Works
+- **Projects** — create/delete projects, import captures, browse captures with cached thumbnails.
+- **Processing** — headless Siril `OSC_Preprocessing` runs per capture, with logs, output files and previews.
+- **Sky** — Aladin Lite map, telescope marker and field-of-view footprint driven by a normalized telescope state, simulator controls, planned pointing.
+- **Mosaic planner** — regular panel grids from an imaging profile and overlap, panel selection and status, plan-level observation type and filter.
+- **Observation Center** — persistent observing Sites on a map, Current Device position, Candidate Site inspection, modeled Light Pollution per Site, manual Local Horizon Profile, and Conditions (weather, Sun/Moon/twilight, target Alt/Az, observing windows, overall assessment).
 
-- SQLite initialization with `PRAGMA foreign_keys = ON`
-- schema version control with `PRAGMA user_version = 1`
-- CRUD and validation for targets, sites, equipment, plans, observations, frames, datasets, processing runs, and mosaic plans
-- dataset ownership of exact frame membership through `dataset_frames`
-- project-local capture import and run workspace creation
-- headless Siril execution through the official CLI/script workflow
-- preview export and run artifact tracking
-- light-pollution map overlay plus optional local New World Atlas/Falchi 2016 point lookup
-- local HTTP API for projects, captures, runs, mosaics, and telescope state
-- web GUI for:
-  - project creation and deletion
-  - capture import and browsing
-  - Siril run creation, logs, outputs, and preview review
-  - sky view with Aladin Lite
-  - telescope simulator controls
-  - hardware-agnostic telescope state and adapter selection
-  - mosaic planning and panel selection
+Scaffold only (structure exists, no working behavior):
 
-## Runtime Pieces
+- **Seestar adapter** — registered and selectable, but it does not connect to a device or slew. Only the simulator adapter works.
 
-TSN DSS currently has three practical layers:
+Present in code but not reachable from the app:
 
-1. Python domain/engine
+- The SQLite `Observation` / `Frame` / `Dataset` / `ProcessingRun` repositories are implemented and tested, but the local API does not expose them. The Projects and Processing workspaces run on the filesystem instead. See the "Two data worlds" section of the architecture doc.
 
-- owns the normalized models and workflow logic
-- stores durable state in SQLite
-- manages project folders and Siril runs
+## Requirements
 
-2. Local HTTP API
+- Python 3.12 (the version used in development) with `pip`
+- Node.js with native TypeScript stripping (22.18 or newer; tested on 24.14) and npm
+- [Siril](https://siril.org/) CLI for processing runs (optional for everything else)
 
-- exposes the engine to the frontend
-- acts as the app bridge, not as a public network service
-- also serves editable app metadata such as Core changelog/TODO content
+## Quick start
 
-3. Web GUI
+Windows helper — starts the API and the frontend in two terminals:
 
-- runs locally in the browser
-- renders Core, Projects, Processing, and Sky workspaces
-- uses Aladin Lite for sky visualization
-
-## How to Run Tests
-
-```bash
-py -m pip install -r requirements.txt
-py -m unittest discover -s tests -v
+```bat
+run_tsn_dss_gui.bat
 ```
 
-## How to Run the Local App
+It also sets `TSN_DSS_SIRIL_EXECUTABLE` and `TSN_DSS_LIGHT_POLLUTION_RASTER`; edit the paths in that file for your machine.
 
-Start the Python API:
+Or start each part yourself.
+
+Backend (listens on `http://127.0.0.1:8765`):
 
 ```bash
 py -m pip install -r requirements.txt
 py -m tsn_dss.gui.http_api --projects-root projects
 ```
 
-Start the frontend:
+Frontend:
 
 ```bash
 cd frontend
@@ -88,69 +57,54 @@ npm install
 npm run dev
 ```
 
-Or use the root helper:
+## Configuration
 
-```bat
-run_tsn_dss_gui.bat
-```
+Backend options: `--host`, `--port`, `--projects-root` (default `projects`), `--database-path` (default `<projects-root>/tsn_dss.db`), `--light-pollution-raster`.
 
-## Siril Path
+### Siril
 
-If needed, set the local Siril CLI path in:
-
-- [run_tsn_dss_gui.bat](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/run_tsn_dss_gui.bat)
-
-Example:
+Processing runs need the Siril CLI. Set it in the environment (it becomes the default in the run form):
 
 ```bat
 set "TSN_DSS_SIRIL_EXECUTABLE=C:\PATH\TO\siril-cli.exe"
 ```
 
-That value is then used as the default executable in the GUI run form.
+The default script is `siril-1.4.4/scripts/OSC_Preprocessing.ssf` under the repository root. That directory is git-ignored, so place a Siril distribution there, or enter a script path in the run form.
 
-## Light Pollution Raster
+### Light Pollution raster
 
-The Site map uses the public ArcGIS `ArtificialSkyBrightness` layer only as a visual overlay.
-Point data for a clicked Candidate Site is read independently from a local New World Atlas / Falchi 2016 GeoTIFF.
+The Sites map shows the public ArcGIS `ArtificialSkyBrightness` layer as a visual overlay only. Point values for a Candidate Site come from a local New World Atlas / Falchi 2016 GeoTIFF, which TSN DSS does not download. Put the file somewhere and point at it with either:
 
-TSN DSS does not download this large raster automatically. Configure it with either:
-
-```bash
-set TSN_DSS_LIGHT_POLLUTION_RASTER=C:\PATH\TO\NewWorldAtlas.tif
+```bat
+set TSN_DSS_LIGHT_POLLUTION_RASTER=C:\PATH\TO\World_Atlas_2015.tif
 ```
 
-or:
-
 ```bash
-py -m tsn_dss.gui.http_api --projects-root projects --light-pollution-raster C:\PATH\TO\NewWorldAtlas.tif
+py -m tsn_dss.gui.http_api --projects-root projects --light-pollution-raster C:\PATH\TO\World_Atlas_2015.tif
 ```
 
-If the raster is not configured or missing, Candidate Site shows `Light pollution dataset unavailable` and the visual overlay still works.
+Without the raster, Candidate Site reports `Light pollution dataset unavailable` and the overlay still works. Data license and citation requirements are in [data/light_pollution/README.txt](data/light_pollution/README.txt).
 
-## Main Reference Files
+## Tests
 
-- [sqlite/README.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/sqlite/README.md)
-- [sqlite/ERD.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/sqlite/ERD.md)
-- [docs/plans/REPO_CLEANUP_AUDIT_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/REPO_CLEANUP_AUDIT_PLAN.md)
-- [docs/plans/TELESCOPE_STATE_PLAN.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TELESCOPE_STATE_PLAN.md)
-- [docs/plans/TSN_DSS_Mosaic_Planner_Plan.md](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/plans/TSN_DSS_Mosaic_Planner_Plan.md)
-- [docs/app/core-content.json](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/docs/app/core-content.json)
-- [tsn_dss/domain/models.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/domain/models.py)
-- [tsn_dss/engine/telescope.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/engine/telescope.py)
-- [tsn_dss/gui/http_api.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tsn_dss/gui/http_api.py)
-- [tests/test_gui_api.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tests/test_gui_api.py)
-- [tests/test_telescope_state.py](/abs/path/C:/Users/treze/OneDrive/Desktop/TSN_DSS/tests/test_telescope_state.py)
+```bash
+py -m pip install -r requirements.txt
+py -m unittest discover -s tests -v      # backend (python -m pytest tests also works)
 
-## Current Direction
+cd frontend
+npm test                                  # frontend logic tests, Node built-in runner
+```
 
-The next major direction is observation planning on top of the current project, sky, and telescope foundation.
+## Repository map
 
-That means TSN DSS should grow in three connected areas:
-
-- observation sites with persistent coordinates and site metadata
-- observing conditions such as weather, darkness windows, Moon/Sun context, altitude, and airmass
-- hardware adapters that stay behind the normalized telescope-state contract, including the future real `seestarpy` implementation
-
-The goal is to keep the frontend hardware-agnostic while gradually connecting:
-
-`project target -> mosaic plan -> visibility window -> telescope state -> future observation session`
+- `tsn_dss/domain/` — dataclass models and pure domain logic
+- `tsn_dss/engine/` — services: projects, Siril, weather, astronomy, light pollution, telescope
+- `tsn_dss/engine/sqlite/` — schema bootstrap and repositories
+- `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
+- `frontend/` — Vite + TypeScript web app (`src/main.ts`, `src/app/`, `tests/`)
+- `sqlite/` — `schema.sql` and `seed.sql`
+- `docs/ARCHITECTURE.md` — current architecture
+- `docs/app/core-content.json` — version, changelog and TODO list shown in the app's Core page
+- `tests/` — backend `unittest` suite
+- `data/light_pollution/` — location for the local raster (the `.tif` is git-ignored)
+- `projects/` — local workspace: projects, captures, runs and the SQLite file (git-ignored)

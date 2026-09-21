@@ -3,7 +3,7 @@ __pycache__/
 *.bak
 *.tmp.db
 *.generated.db
-siril*
+/siril-1.4.4/
 projects
 data/light_pollution/*.tif
 data/light_pollution/*.tiff

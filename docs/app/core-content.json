@@ -136,7 +136,6 @@
     }
   ],
   "todo": [
-    "Refine observation-site metadata for light pollution, sky quality, and horizon constraints.",
     "Connect project targets and mosaic panels with observing conditions and visibility windows.",
     "Expand the Seestar adapter from the current skeleton toward real device discovery, state synchronization, and telescope control.",
     "Add observation-session tracking to connect planned targets, acquired data, site conditions, and resulting datasets.",
