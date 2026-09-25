@@ -2,3 +2,4 @@ astropy>=8.0.0
 astroplan>=0.10.1
 Pillow>=10.0.0
 rasterio>=1.4.0
+mcp>=2.2,<3

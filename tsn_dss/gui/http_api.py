@@ -30,6 +30,7 @@ from ..domain.models import LocalHorizonPoint, MosaicPanel, MosaicPlan, Site
 from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
 from ..engine.capture_registry import CaptureRegistrar
+from ..engine.target_resolution import TargetResolutionRequest, resolve_astronomical_target_context
 from ..engine.projects import ProjectStorage, path_is_within
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.project_registry import ProjectInUseError, ProjectRegistry, validate_dir_key
@@ -1696,71 +1697,23 @@ def _resolve_astronomical_target_context(
     mosaic_repository: MosaicRepository,
     telescope_service: TelescopeStateService,
 ) -> AstronomicalTargetContext | None:
-    explicit_ra_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_ra_deg"))
-    explicit_dec_deg = _coerce_optional_query_float(_first_query_value(query_params, "target_dec_deg"))
-    explicit_target_name = _coerce_optional_string(_first_query_value(query_params, "target_name"))
-    if explicit_ra_deg is not None or explicit_dec_deg is not None:
-        if explicit_ra_deg is None or explicit_dec_deg is None:
-            raise ValueError("Both target_ra_deg and target_dec_deg are required when explicit target coordinates are provided.")
-        return AstronomicalTargetContext(
-            target_name=explicit_target_name,
-            ra_deg=explicit_ra_deg,
-            dec_deg=explicit_dec_deg,
-            source_kind=_coerce_optional_string(_first_query_value(query_params, "source_kind")) or "manual",
+    use_planned_pointing = _coerce_query_bool(_first_query_value(query_params, "use_planned_pointing"))
+    snapshot = telescope_service.get_snapshot() if use_planned_pointing else None
+    return resolve_astronomical_target_context(
+        TargetResolutionRequest(
+            target_ra_deg=_coerce_optional_query_float(_first_query_value(query_params, "target_ra_deg")),
+            target_dec_deg=_coerce_optional_query_float(_first_query_value(query_params, "target_dec_deg")),
+            target_name=_coerce_optional_string(_first_query_value(query_params, "target_name")),
+            source_kind=_coerce_optional_string(_first_query_value(query_params, "source_kind")),
             source_id=_coerce_optional_string(_first_query_value(query_params, "source_id")),
-        )
-
-    if explicit_target_name:
-        matched_target = planning_repository.find_target_by_query(explicit_target_name)
-        if matched_target is not None:
-            return AstronomicalTargetContext(
-                target_name=matched_target.name,
-                ra_deg=matched_target.ra_deg,
-                dec_deg=matched_target.dec_deg,
-                source_kind="target",
-                source_id=matched_target.id,
-            )
-
-    mosaic_panel_id = _coerce_optional_string(_first_query_value(query_params, "mosaic_panel_id"))
-    if mosaic_panel_id:
-        panel = mosaic_repository.get_mosaic_panel(mosaic_panel_id)
-        if panel is None:
-            raise ValueError(f"Unknown mosaic_panel_id: {mosaic_panel_id}")
-        return AstronomicalTargetContext(
-            target_name=panel.panel_label,
-            ra_deg=panel.center_ra_deg,
-            dec_deg=panel.center_dec_deg,
-            source_kind="mosaic_panel",
-            source_id=panel.id,
-        )
-
-    target_id = _coerce_optional_string(_first_query_value(query_params, "target_id"))
-    if target_id:
-        target = planning_repository.get_target(target_id)
-        if target is None:
-            raise ValueError(f"Unknown target_id: {target_id}")
-        return AstronomicalTargetContext(
-            target_name=target.name,
-            ra_deg=target.ra_deg,
-            dec_deg=target.dec_deg,
-            source_kind="target",
-            source_id=target.id,
-        )
-
-    if _coerce_query_bool(_first_query_value(query_params, "use_planned_pointing")):
-        snapshot = telescope_service.get_snapshot()
-        planned = snapshot.planned_pointing
-        if planned is None:
-            raise ValueError("No planned pointing is available.")
-        return AstronomicalTargetContext(
-            target_name=planned.target_name,
-            ra_deg=planned.ra_hours * 15.0,
-            dec_deg=planned.dec_deg,
-            source_kind=planned.source_kind,
-            source_id=planned.source_id,
-        )
-
-    return None
+            mosaic_panel_id=_coerce_optional_string(_first_query_value(query_params, "mosaic_panel_id")),
+            target_id=_coerce_optional_string(_first_query_value(query_params, "target_id")),
+            use_planned_pointing=use_planned_pointing,
+            planned_pointing=snapshot.planned_pointing if snapshot is not None else None,
+        ),
+        planning_repository=planning_repository,
+        mosaic_repository=mosaic_repository,
+    )
 
 
 def _first_query_value(query_params: dict[str, list[str]], key: str) -> str | None:
