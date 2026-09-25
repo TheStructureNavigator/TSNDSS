@@ -145,18 +145,20 @@ class DatabaseFoundationTests(unittest.TestCase):
                 connection.executemany(
                     """
                     INSERT INTO frames (
+                        project_id,
+                        capture_id,
                         observation_id,
                         sequence_id,
                         frame_type,
-                        file_path,
+                        rel_path,
                         exposure_s,
                         accepted
-                    ) VALUES (?, ?, ?, ?, ?, ?);
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     [
-                        ("obs:test", 1, "light", "frames/accepted.fit", 30.0, 1),
-                        ("obs:test", 1, "light", "frames/unreviewed.fit", 15.0, None),
-                        ("obs:test", 1, "light", "frames/rejected.fit", 10.0, 0),
+                        ("project:test", "capture:test", "obs:test", 1, "light", "captures/C1/accepted.fit", 30.0, 1),
+                        ("project:test", "capture:test", "obs:test", 1, "light", "captures/C1/unreviewed.fit", 15.0, None),
+                        ("project:test", "capture:test", "obs:test", 1, "light", "captures/C1/rejected.fit", 10.0, 0),
                     ],
                 )
 
@@ -182,17 +184,19 @@ class DatabaseFoundationTests(unittest.TestCase):
                 connection.executemany(
                     """
                     INSERT INTO frames (
+                        project_id,
+                        capture_id,
                         observation_id,
                         sequence_id,
                         frame_type,
-                        file_path,
+                        rel_path,
                         exposure_s,
                         accepted
-                    ) VALUES (?, ?, ?, ?, ?, ?);
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     [
-                        ("obs:test", 1, "light", "frames/frame_001.fit", 30.0, 1),
-                        ("obs:test", 1, "light", "frames/frame_002.fit", 30.0, 1),
+                        ("project:test", "capture:test", "obs:test", 1, "light", "captures/C1/frame_001.fit", 30.0, 1),
+                        ("project:test", "capture:test", "obs:test", 1, "light", "captures/C1/frame_002.fit", 30.0, 1),
                     ],
                 )
                 frame_ids = [
@@ -231,7 +235,7 @@ class DatabaseFoundationTests(unittest.TestCase):
 
             rows = connection.execute(
                 """
-                SELECT df.dataset_id, f.file_path
+                SELECT df.dataset_id, f.rel_path
                 FROM dataset_frames df
                 JOIN frames f ON f.id = df.frame_id
                 WHERE df.dataset_id = ?
@@ -245,8 +249,8 @@ class DatabaseFoundationTests(unittest.TestCase):
         self.assertEqual(
             [tuple(row) for row in rows],
             [
-                ("dataset:test", "frames/frame_001.fit"),
-                ("dataset:test", "frames/frame_002.fit"),
+                ("dataset:test", "captures/C1/frame_001.fit"),
+                ("dataset:test", "captures/C1/frame_002.fit"),
             ],
         )
 
@@ -308,6 +312,16 @@ class DatabaseFoundationTests(unittest.TestCase):
 
     def _insert_minimal_observation_graph(self, connection: sqlite3.Connection) -> None:
         with transaction(connection):
+            # Frames belong to a canonical Project and Capture.
+            connection.execute(
+                "INSERT INTO projects (id, display_name, dir_key) VALUES ('project:test', 'Test', 'TestProject');"
+            )
+            connection.execute(
+                """
+                INSERT INTO captures (id, project_id, name, rel_path, source_kind)
+                VALUES ('capture:test', 'project:test', 'C1', 'captures/C1', 'legacy_registered');
+                """
+            )
             connection.execute(
                 """
                 INSERT INTO targets (

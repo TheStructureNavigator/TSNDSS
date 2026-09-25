@@ -19,7 +19,10 @@ from unittest.mock import patch
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from test_project_storage_reads import StorageTestCase, make_raw_capture, snapshot
+try:
+    from test_project_storage_reads import StorageTestCase, make_raw_capture, snapshot
+except ModuleNotFoundError:
+    from tests.test_project_storage_reads import StorageTestCase, make_raw_capture, snapshot
 from tsn_dss.engine.project_processing import ProjectRunManager
 from tsn_dss.engine.projects import ProjectStorage, path_is_within, validate_capture_name, validate_dir_key
 from tsn_dss.gui.http_api import _ensure_capture_thumbnail, create_http_server

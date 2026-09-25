@@ -26,12 +26,26 @@ def new_project_id() -> str:
 class ProjectInUseError(RuntimeError):
     """A Project cannot be deleted while canonical records depend on it."""
 
-    def __init__(self, project_id: str, mosaic_plan_count: int) -> None:
-        super().__init__(
-            f"Project {project_id} is referenced by {mosaic_plan_count} mosaic plan(s) and cannot be deleted."
-        )
+    def __init__(
+        self,
+        project_id: str,
+        mosaic_plan_count: int,
+        *,
+        capture_count: int = 0,
+        frame_count: int = 0,
+    ) -> None:
+        parts = []
+        if mosaic_plan_count:
+            parts.append(f"{mosaic_plan_count} mosaic plan(s)")
+        if capture_count:
+            parts.append(f"{capture_count} registered capture(s)")
+        if frame_count:
+            parts.append(f"{frame_count} registered frame(s)")
+        super().__init__(f"Project {project_id} is referenced by {', '.join(parts) or 'other records'} and cannot be deleted.")
         self.project_id = project_id
         self.mosaic_plan_count = mosaic_plan_count
+        self.capture_count = capture_count
+        self.frame_count = frame_count
 
 
 class ProjectRepository:
@@ -130,6 +144,23 @@ class ProjectRepository:
             ).fetchone()[0]
         )
 
+    def count_captures(self, project_id: str) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM captures WHERE project_id = ?;", (project_id,)).fetchone()[0])
+
+    def count_frames(self, project_id: str) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM frames WHERE project_id = ?;", (project_id,)).fetchone()[0])
+
+    def dependents(self, project_id: str) -> ProjectInUseError | None:
+        """The canonical records that depend on a project, or None if it can be deleted."""
+        plans, captures, frames = (
+            self.count_mosaic_plans(project_id),
+            self.count_captures(project_id),
+            self.count_frames(project_id),
+        )
+        if plans or captures or frames:
+            return ProjectInUseError(project_id, plans, capture_count=captures, frame_count=frames)
+        return None
+
     def delete_project(self, project_id: str) -> None:
         """Delete the canonical record. Refuses (ProjectInUseError) while anything depends on it."""
         try:
@@ -138,7 +169,7 @@ class ProjectRepository:
                 if cursor.rowcount == 0:
                     raise KeyError(f"Project not found: {project_id}")
         except sqlite3.IntegrityError as error:
-            raise ProjectInUseError(project_id, self.count_mosaic_plans(project_id)) from error
+            raise (self.dependents(project_id) or ProjectInUseError(project_id, 0)) from error
 
 
 def _validate_project(project: Project) -> None:

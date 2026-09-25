@@ -244,23 +244,25 @@ class ProjectRegistry:
     def delete_project(self, dir_key: str) -> None:
         """Delete a project, refusing while canonical records depend on it.
 
-        Raises ``ProjectInUseError`` (nothing is changed) if MosaicPlans reference the project,
-        and ``FileNotFoundError`` if there is neither a directory nor a record.
+        Raises ``ProjectInUseError`` (nothing is changed) if MosaicPlans or registered Captures or
+        Frames reference the project, and ``FileNotFoundError`` if there is neither a directory
+        nor a record.
 
         Order: dependents check, then the directory, then the record. If removing the directory
         fails, the record stays and describes a project that still exists. If the record cannot
         be deleted afterwards, it remains as a database-only project that ``inspect`` reports,
         and a retry finishes the job. Identity therefore never disappears while dependents remain.
 
-        S2 limit: captures and runs are not canonical records yet, so their files are deleted
-        with the directory exactly as before.
+        Registered captures and frames are canonical provenance, so a project that has them cannot
+        be deleted yet. Unregistered capture files and run folders are still deleted with the
+        directory as before.
         """
         validate_dir_key(dir_key)
         record = self.projects.get_project_by_dir_key(dir_key)
         if record is not None:
-            dependents = self.projects.count_mosaic_plans(record.id)
-            if dependents:
-                raise ProjectInUseError(record.id, dependents)
+            dependents = self.projects.dependents(record.id)
+            if dependents is not None:
+                raise dependents
 
         if (self.storage.projects_root / dir_key).is_dir():
             self.storage.delete_project(dir_key)

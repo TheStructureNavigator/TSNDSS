@@ -14,17 +14,30 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from test_schema_migrations import (
-    LEGACY_VARIANTS,
-    V1_ONLY,
-    TempDirTestCase,
-    build_legacy_v1_database,
-    describe_schema,
-    populate_legacy_data,
-    rows_for_columns,
-    schema_diff,
-    snapshot_rows,
-)
+try:
+    from test_schema_migrations import (
+        LEGACY_VARIANTS,
+        V1_ONLY,
+        TempDirTestCase,
+        build_legacy_v1_database,
+        describe_schema,
+        populate_legacy_data,
+        rows_for_columns,
+        schema_diff,
+        snapshot_rows,
+    )
+except ModuleNotFoundError:
+    from tests.test_schema_migrations import (
+        LEGACY_VARIANTS,
+        V1_ONLY,
+        TempDirTestCase,
+        build_legacy_v1_database,
+        describe_schema,
+        populate_legacy_data,
+        rows_for_columns,
+        schema_diff,
+        snapshot_rows,
+    )
 from tsn_dss.domain.models import LocalHorizonPoint, MosaicPlan, Project, Target
 from tsn_dss.engine.project_registry import (
     MetadataConflict,
@@ -49,6 +62,9 @@ from tsn_dss.engine.sqlite.planning import PlanningRepository
 from tsn_dss.engine.sqlite.planning import ValidationError as RepositoryValidationError
 from tsn_dss.engine.sqlite.project_repository import ProjectRepository, new_project_id
 from tsn_dss.gui.http_api import create_http_server
+
+# The v2 world: production registry restricted to the v1 -> v2 migration (v3 exists now).
+V2_ONLY = MIGRATIONS[:1]
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +91,7 @@ class ProjectSchemaMigrationTests(TempDirTestCase):
         before = snapshot_rows(before_connection)
         before_connection.close()
 
-        connection, result = self.initialize()
+        connection, result = self.initialize(migrations=V2_ONLY)  # the v2 world: only the v1 -> v2 migration
         self.assertEqual((result.initial_version, result.final_version), (1, 2))
         self.assertEqual(result.applied_migrations, (2,))
         self.assertIsNotNone(result.backup_path)
@@ -148,7 +164,7 @@ class ProjectSchemaMigrationTests(TempDirTestCase):
                 populate_legacy_data(path, variant)
                 connection, result = self.initialize(path=path)
                 self.assertTrue(result.normalized_legacy)
-                self.assertEqual(result.applied_migrations, (2,))
+                self.assertEqual(result.applied_migrations, (2, 3))
                 self.assertEqual(describe_schema(connection), expected)
                 connection.close()
 

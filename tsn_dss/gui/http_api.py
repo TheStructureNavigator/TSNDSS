@@ -29,11 +29,13 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
 from ..domain.models import LocalHorizonPoint, MosaicPanel, MosaicPlan, Site
 from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTargetContext
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
+from ..engine.capture_registry import CaptureRegistrar
 from ..engine.projects import ProjectStorage, path_is_within
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.project_registry import ProjectInUseError, ProjectRegistry, validate_dir_key
 from ..engine.siril import DEFAULT_OSC_SCRIPT_PATH
 from ..engine.sqlite import (
+    CaptureRepository,
     MosaicRepository,
     PlanningRepository,
     ProjectRepository,
@@ -959,12 +961,45 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         },
                     )
                     return
+
+                # Register the imported capture and its frames (database only). The imported files
+                # are never touched or removed if this fails: the import already succeeded, and the
+                # standalone registrar repairs the metadata idempotently.
+                try:
+                    with context.open_database() as connection:
+                        registration = CaptureRegistrar(context.storage, connection).register_imported_capture(
+                            project_slug,
+                            capture_name,
+                            source_dir=source_dir,
+                            move=move,
+                        )
+                        capture_record = CaptureRepository(connection).get_capture_by_name(record.id, capture_name)
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {
+                            "error": "capture_registration_failed",
+                            "message": (
+                                f"The capture was imported to {destination} and its files are untouched, but its "
+                                f"metadata could not be registered: {error}. Run "
+                                f"'python -m tsn_dss.engine.capture_registry --projects-root <projects folder>' to "
+                                f"register it."
+                            ),
+                        },
+                    )
+                    return
                 project = context.storage.get_project(project_slug)
                 self._write_json(
                     HTTPStatus.CREATED,
                     {
                         "capture_root": str(destination),
                         "project": _project_to_dict(project, record.id),
+                        "capture_registration": {
+                            "capture_id": capture_record.id if capture_record else None,
+                            "frames_registered": registration.frames_created,
+                            "ignored_files": sum(registration.ignored_suffixes.values()),
+                            "warnings": registration.warnings,
+                        },
                     },
                 )
                 return
@@ -1229,11 +1264,10 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         HTTPStatus.CONFLICT,
                         {
                             "error": "project_has_dependents",
-                            "message": (
-                                f'Project "{project_slug}" cannot be deleted: {error.mosaic_plan_count} mosaic '
-                                f"plan(s) still belong to it. Delete those mosaic plans first."
-                            ),
+                            "message": _project_dependents_message(project_slug, error),
                             "mosaic_plan_count": error.mosaic_plan_count,
+                            "capture_count": error.capture_count,
+                            "frame_count": error.frame_count,
                         },
                     )
                     return
@@ -1353,6 +1387,22 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(content)
 
     return TsnDssApiHandler
+
+
+def _project_dependents_message(project_slug: str, error: ProjectInUseError) -> str:
+    parts = []
+    if error.mosaic_plan_count:
+        parts.append(f"{error.mosaic_plan_count} mosaic plan(s)")
+    if error.capture_count:
+        parts.append(f"{error.capture_count} registered capture(s)")
+    if error.frame_count:
+        parts.append(f"{error.frame_count} registered frame(s)")
+    message = f'Project "{project_slug}" cannot be deleted: it still has {", ".join(parts)}.'
+    if error.mosaic_plan_count:
+        message += " Delete those mosaic plans first."
+    if error.capture_count or error.frame_count:
+        message += " Registered captures and frames are canonical provenance records and cannot be deleted yet."
+    return message
 
 
 def _print_registration_report(report: Any) -> None:

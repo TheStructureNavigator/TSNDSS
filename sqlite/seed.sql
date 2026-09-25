@@ -140,16 +140,41 @@ INSERT OR IGNORE INTO observation_equipment (
 ('obs:0001', 'telescope:sw72ed-001', 'main_telescope'),
 ('obs:0001', 'camera:canon600d-001', 'main_camera');
 
+-- Demo Project and Capture that own the demo frames below. They exist only in the database
+-- (there are no files on disk for this demo data).
+INSERT OR IGNORE INTO projects (
+    id, display_name, dir_key, target_label
+) VALUES
+(
+    'project:demo-m42',
+    'M42 first light (demo)',
+    'M42FirstLight',
+    'M42'
+);
+
+INSERT OR IGNORE INTO captures (
+    id, project_id, name, rel_path, source_kind
+) VALUES
+(
+    'capture:demo-m42-first-light',
+    'project:demo-m42',
+    'M42FirstLight',
+    'captures/M42FirstLight',
+    'legacy_registered'
+);
+
 INSERT OR IGNORE INTO frames (
-    observation_id, sequence_id, frame_type, file_path, captured_at,
+    project_id, capture_id, observation_id, sequence_id, frame_type, rel_path, captured_at,
     exposure_s, iso, filter_id, accepted, rejection_reason,
     fwhm_arcsec, eccentricity, star_count, guiding_rms_arcsec, camera_temp_c
 ) VALUES
 (
+    'project:demo-m42',
+    'capture:demo-m42-first-light',
     'obs:0001',
     (SELECT id FROM acquisition_sequences WHERE plan_id = 'plan:m42:first-light' AND sequence_order = 10),
     'light',
-    'data/m42/obs0001/light_0030_a.fit',
+    'captures/M42FirstLight/lights/light_0030_a.fit',
     '2026-01-14 21:01:00',
     30,
     800,
@@ -163,10 +188,12 @@ INSERT OR IGNORE INTO frames (
     -4.5
 ),
 (
+    'project:demo-m42',
+    'capture:demo-m42-first-light',
     'obs:0001',
     (SELECT id FROM acquisition_sequences WHERE plan_id = 'plan:m42:first-light' AND sequence_order = 10),
     'light',
-    'data/m42/obs0001/light_0030_reject.fit',
+    'captures/M42FirstLight/lights/light_0030_reject.fit',
     '2026-01-14 21:07:00',
     30,
     800,
@@ -180,10 +207,12 @@ INSERT OR IGNORE INTO frames (
     -4.4
 ),
 (
+    'project:demo-m42',
+    'capture:demo-m42-first-light',
     'obs:0001',
     (SELECT id FROM acquisition_sequences WHERE plan_id = 'plan:m42:first-light' AND sequence_order = 20),
     'light',
-    'data/m42/obs0001/light_0005_a.fit',
+    'captures/M42FirstLight/lights/light_0005_a.fit',
     '2026-01-14 21:43:00',
     5,
     800,
@@ -197,10 +226,12 @@ INSERT OR IGNORE INTO frames (
     -4.2
 ),
 (
+    'project:demo-m42',
+    'capture:demo-m42-first-light',
     'obs:0001',
     (SELECT id FROM acquisition_sequences WHERE plan_id = 'plan:m42:first-light' AND sequence_order = 20),
     'light',
-    'data/m42/obs0001/light_0005_pending.fit',
+    'captures/M42FirstLight/lights/light_0005_pending.fit',
     '2026-01-14 21:47:00',
     5,
     800,
@@ -239,11 +270,11 @@ INSERT OR IGNORE INTO dataset_frames (
 ) VALUES
 (
     'dataset:m42:first-light',
-    (SELECT id FROM frames WHERE observation_id = 'obs:0001' AND file_path = 'data/m42/obs0001/light_0030_a.fit')
+    (SELECT id FROM frames WHERE observation_id = 'obs:0001' AND rel_path ='captures/M42FirstLight/lights/light_0030_a.fit')
 ),
 (
     'dataset:m42:first-light',
-    (SELECT id FROM frames WHERE observation_id = 'obs:0001' AND file_path = 'data/m42/obs0001/light_0005_a.fit')
+    (SELECT id FROM frames WHERE observation_id = 'obs:0001' AND rel_path ='captures/M42FirstLight/lights/light_0005_a.fit')
 );
 
 INSERT OR IGNORE INTO processing_runs (

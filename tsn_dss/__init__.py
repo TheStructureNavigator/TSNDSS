@@ -59,7 +59,14 @@ from .engine.telescope import (
     TelescopeSnapshot,
     TelescopeStateService,
 )
-from .gui import create_http_server, run_server
+
+
+def __getattr__(name: str):
+    if name in {"create_http_server", "run_server"}:
+        from .gui import create_http_server, run_server
+
+        return {"create_http_server": create_http_server, "run_server": run_server}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "EXPECTED_USER_VERSION",

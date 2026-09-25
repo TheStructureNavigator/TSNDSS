@@ -466,6 +466,24 @@ def validate_capture_name(capture_name: str) -> str:
     return _validate_single_component(capture_name, "Capture name")
 
 
+def validate_project_relative_path(rel_path: str) -> str:
+    """A stored file locator: relative to the Project root, ``/``-separated, no escapes.
+
+    Rejected: empty, absolute, rooted or drive-qualified paths, backslashes, NUL, and any
+    empty, ``.`` or ``..`` segment. Returns the path unchanged; this only validates.
+    """
+    if not isinstance(rel_path, str) or not rel_path:
+        raise ValueError("Relative path must not be empty.")
+    if "\x00" in rel_path or "\\" in rel_path:
+        raise ValueError(f"Relative path must use '/' separators and contain no NUL: {rel_path!r}")
+    windows = PureWindowsPath(rel_path)
+    if rel_path.startswith("/") or windows.drive or windows.root or Path(rel_path).is_absolute():
+        raise ValueError(f"Relative path must not be absolute: {rel_path!r}")
+    if any(segment in {"", ".", ".."} for segment in rel_path.split("/")):
+        raise ValueError(f"Relative path must not contain empty, '.' or '..' segments: {rel_path!r}")
+    return rel_path
+
+
 def path_is_within(path: Path, root: Path) -> bool:
     """True if ``path`` is ``root`` or lies beneath it. Callers pass already-resolved paths."""
     return path == root or root in path.parents

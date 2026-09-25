@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from domain_seed import seed_project_and_capture
+except ModuleNotFoundError:
+    from tests.domain_seed import seed_project_and_capture
 from tsn_dss.domain.models import (
     AcquisitionPlan,
     AcquisitionSequence,
@@ -243,6 +247,7 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         self.assertEqual(run.status, "completed")
 
     def _seed_domain_graph(self) -> None:
+        self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning.create_target(
             Target(
                 id="target:m42",
@@ -348,10 +353,12 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
 
         accepted_frame_30_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=m42_plan.sequences[0].id,
                 frame_type="light",
-                file_path="data/m42/light_0030.fit",
+                rel_path="captures/Night1/data/m42/light_0030.fit",
                 exposure_s=30.0,
                 filter_id="filter:l-pro-001",
                 accepted=True,
@@ -359,10 +366,12 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         ).id
         accepted_frame_5_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=m42_plan.sequences[1].id,
                 frame_type="light",
-                file_path="data/m42/light_0005.fit",
+                rel_path="captures/Night1/data/m42/light_0005.fit",
                 exposure_s=5.0,
                 filter_id="filter:l-pro-001",
                 accepted=True,
@@ -370,10 +379,12 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         ).id
         m31_frame_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:1001",
                 sequence_id=m31_plan.sequences[0].id,
                 frame_type="light",
-                file_path="data/m31/light_0060.fit",
+                rel_path="captures/Night1/data/m31/light_0060.fit",
                 exposure_s=60.0,
                 accepted=True,
             )

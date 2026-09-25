@@ -141,19 +141,72 @@ class Observation:
 
 
 @dataclass(slots=True)
+class Capture:
+    """An ingest batch: which files arrived together, and from where.
+
+    A Capture is not a scientific session and not a processing input. It may hold lights,
+    calibration frames or both, in any folder layout. ``rel_path`` is relative to the
+    Project root (``captures/<name>``). ``imported_at`` is None when the arrival time is
+    unknown, as for captures that already existed on disk before they were registered.
+    """
+    id: str
+    project_id: str
+    name: str
+    rel_path: str
+    source_kind: str
+    source_label: str | None = None
+    source_path: str | None = None
+    import_mode: str | None = None
+    imported_at: str | None = None
+    registered_at: str | None = None
+    registrar_version: str | None = None
+
+
+@dataclass(slots=True)
 class Frame:
-    """A single captured file plus review, quality, and capture metadata."""
-    observation_id: str
-    frame_type: str
-    file_path: str
+    """One physical observational file plus its canonical metadata and provenance.
+
+    SQLite owns identity and metadata; the filesystem owns the bytes. ``rel_path`` is relative to
+    the Project root and uses ``/``. Unknown facts are None (including ``frame_type``); ``origin``
+    uses the explicit value ``unknown``. A recorded ``content_sha256`` never changes. A Frame
+    belongs to a Capture and only optionally to an Observation, so calibration and legacy
+    frames need no Observation or Target.
+    """
+    project_id: str
+    capture_id: str
+    rel_path: str
     id: int | None = None
+    observation_id: str | None = None
     sequence_id: int | None = None
+    frame_type: str | None = None
+    origin: str = "unknown"
+    stack_count: int | None = None
+    file_format: str | None = None
+    size_bytes: int | None = None
+    content_sha256: str | None = None
+    hashed_at: str | None = None
+    width_px: int | None = None
+    height_px: int | None = None
+    instrument_name: str | None = None
     captured_at: str | None = None
+    captured_at_source: str | None = None
     exposure_s: float | None = None
-    iso: int | None = None
     gain: float | None = None
     offset_value: float | None = None
+    iso: int | None = None
+    binning_x: int | None = None
+    binning_y: int | None = None
+    camera_temp_c: float | None = None
     filter_id: str | None = None
+    filter_name: str | None = None
+    mount_ra_deg: float | None = None
+    mount_dec_deg: float | None = None
+    guiding_rms_arcsec: float | None = None
+    pointing_source_kind: str | None = None
+    pointing_source_id: str | None = None
+    pointing_label: str | None = None
+    planned_ra_deg: float | None = None
+    planned_dec_deg: float | None = None
     accepted: bool | None = None
     rejection_reason: str | None = None
     fwhm_px: float | None = None
@@ -163,10 +216,6 @@ class Frame:
     background_median: float | None = None
     background_sigma: float | None = None
     snr_estimate: float | None = None
-    mount_ra_deg: float | None = None
-    mount_dec_deg: float | None = None
-    guiding_rms_arcsec: float | None = None
-    camera_temp_c: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

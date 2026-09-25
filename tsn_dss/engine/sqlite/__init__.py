@@ -1,3 +1,4 @@
+from .captures import CaptureRepository
 from .datasets import DatasetRepository
 from .db import (
     EXPECTED_USER_VERSION,
@@ -26,6 +27,7 @@ __all__ = [
     "ProjectInUseError",
     "ObservationRepository",
     "FrameRepository",
+    "CaptureRepository",
     "MosaicRepository",
     "DatasetRepository",
     "ProcessingRunRepository",

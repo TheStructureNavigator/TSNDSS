@@ -211,15 +211,17 @@ class DatasetRepository:
             if frame_row is None:
                 raise sqlite3.IntegrityError(f"Missing frame for dataset: {frame_id}")
 
-            observation = self.observations.get_observation(frame_row["observation_id"])
-            if observation is None:
-                raise sqlite3.IntegrityError(
-                    f"Missing observation for frame in dataset: {frame_row['observation_id']}"
-                )
-            if observation.target_id != dataset.target_id:
-                raise ValidationError("Dataset target must match every linked Frame observation target.")
+            # A frame without an Observation (calibration or legacy frames) has no target to check.
+            if frame_row["observation_id"] is not None:
+                observation = self.observations.get_observation(frame_row["observation_id"])
+                if observation is None:
+                    raise sqlite3.IntegrityError(
+                        f"Missing observation for frame in dataset: {frame_row['observation_id']}"
+                    )
+                if observation.target_id != dataset.target_id:
+                    raise ValidationError("Dataset target must match every linked Frame observation target.")
 
-            frame_observation_ids.add(frame_row["observation_id"])
+                frame_observation_ids.add(frame_row["observation_id"])
 
             if frame_row["frame_type"] == "light" and frame_row["accepted"] == 1:
                 accepted_light_integration += float(frame_row["exposure_s"] or 0.0)

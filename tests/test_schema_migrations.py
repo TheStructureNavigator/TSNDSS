@@ -358,8 +358,8 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 2)
-        self.assertEqual([migration.version for migration in MIGRATIONS], [2])
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 3)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
 
@@ -367,7 +367,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (2,))
+        self.assertEqual(result.applied_migrations, (2, 3))
         self.assertIsNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.backups(), [])

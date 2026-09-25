@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from domain_seed import seed_project_and_capture
+except ModuleNotFoundError:
+    from tests.domain_seed import seed_project_and_capture
 from tsn_dss.domain.models import (
     AcquisitionPlan,
     AcquisitionSequence,
@@ -36,10 +40,12 @@ class FrameRepositoryTests(unittest.TestCase):
     def test_create_frame_with_sequence_and_filter(self) -> None:
         created = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_light_id,
                 frame_type="light",
-                file_path="data/m42/light_0001.fit",
+                rel_path="captures/Night1/data/m42/light_0001.fit",
                 captured_at="2026-08-21 22:10:00",
                 exposure_s=30.0,
                 iso=800,
@@ -55,19 +61,23 @@ class FrameRepositoryTests(unittest.TestCase):
     def test_list_frames_can_filter_by_type_and_review_state(self) -> None:
         first = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_light_id,
                 frame_type="light",
-                file_path="data/m42/light_0001.fit",
+                rel_path="captures/Night1/data/m42/light_0001.fit",
                 exposure_s=30.0,
             )
         )
         second = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_dark_id,
                 frame_type="dark",
-                file_path="data/m42/dark_0001.fit",
+                rel_path="captures/Night1/data/m42/dark_0001.fit",
                 exposure_s=30.0,
             )
         )
@@ -85,10 +95,12 @@ class FrameRepositoryTests(unittest.TestCase):
     def test_review_frame_accepts_and_rejects(self) -> None:
         created = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_light_id,
                 frame_type="light",
-                file_path="data/m42/light_review.fit",
+                rel_path="captures/Night1/data/m42/light_review.fit",
                 exposure_s=30.0,
             )
         )
@@ -107,10 +119,12 @@ class FrameRepositoryTests(unittest.TestCase):
     def test_update_frame_quality_metrics_round_trip(self) -> None:
         created = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_light_id,
                 frame_type="light",
-                file_path="data/m42/light_metrics.fit",
+                rel_path="captures/Night1/data/m42/light_metrics.fit",
                 exposure_s=30.0,
             )
         )
@@ -128,10 +142,12 @@ class FrameRepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.frames.create_frame(
                 Frame(
+                    project_id=self.project_id,
+                    capture_id=self.capture_id,
                     observation_id="obs:0001",
                     sequence_id=self.sequence_other_plan_id,
                     frame_type="light",
-                    file_path="data/m42/wrong_sequence.fit",
+                    rel_path="captures/Night1/data/m42/wrong_sequence.fit",
                     exposure_s=30.0,
                 )
             )
@@ -140,10 +156,12 @@ class FrameRepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.frames.create_frame(
                 Frame(
+                    project_id=self.project_id,
+                    capture_id=self.capture_id,
                     observation_id="obs:0001",
                     sequence_id=self.sequence_dark_id,
                     frame_type="light",
-                    file_path="data/m42/type_mismatch.fit",
+                    rel_path="captures/Night1/data/m42/type_mismatch.fit",
                     exposure_s=30.0,
                 )
             )
@@ -152,10 +170,12 @@ class FrameRepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.frames.create_frame(
                 Frame(
+                    project_id=self.project_id,
+                    capture_id=self.capture_id,
                     observation_id="obs:0001",
                     sequence_id=self.sequence_light_id,
                     frame_type="light",
-                    file_path="data/m42/bad_filter.fit",
+                    rel_path="captures/Night1/data/m42/bad_filter.fit",
                     exposure_s=30.0,
                     filter_id="camera:canon600d-001",
                 )
@@ -175,10 +195,12 @@ class FrameRepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.frames.create_frame(
                 Frame(
+                    project_id=self.project_id,
+                    capture_id=self.capture_id,
                     observation_id="obs:0001",
                     sequence_id=self.sequence_light_id,
                     frame_type="light",
-                    file_path="data/m42/filter_mismatch.fit",
+                    rel_path="captures/Night1/data/m42/filter_mismatch.fit",
                     exposure_s=30.0,
                     filter_id="filter:ha-001",
                 )
@@ -197,10 +219,12 @@ class FrameRepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.frames.create_frame(
                 Frame(
+                    project_id=self.project_id,
+                    capture_id=self.capture_id,
                     observation_id="obs:no-plan",
                     sequence_id=self.sequence_light_id,
                     frame_type="light",
-                    file_path="data/m42/no_plan.fit",
+                    rel_path="captures/Night1/data/m42/no_plan.fit",
                     exposure_s=30.0,
                 )
             )
@@ -208,10 +232,12 @@ class FrameRepositoryTests(unittest.TestCase):
     def test_delete_frame_removes_it(self) -> None:
         created = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=self.sequence_light_id,
                 frame_type="light",
-                file_path="data/m42/delete_me.fit",
+                rel_path="captures/Night1/data/m42/delete_me.fit",
                 exposure_s=30.0,
             )
         )
@@ -221,6 +247,7 @@ class FrameRepositoryTests(unittest.TestCase):
         self.assertIsNone(self.frames.get_frame(created.id))
 
     def _seed_domain_graph(self) -> None:
+        self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning.create_target(
             Target(
                 id="target:m42",

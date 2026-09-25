@@ -7,6 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+try:
+    from domain_seed import seed_project_and_capture
+except ModuleNotFoundError:
+    from tests.domain_seed import seed_project_and_capture
 from tsn_dss.domain.models import (
     AcquisitionPlan,
     AcquisitionSequence,
@@ -341,6 +345,9 @@ class SirilRunnerAndServiceTests(unittest.TestCase):
         self.assertEqual(updated.status, "failed")
 
     def _seed_domain_graph(self) -> None:
+        self.project_id, self.capture_id = seed_project_and_capture(
+            self.connection, dir_key="orion_nebula", capture_name="OrionNebula"
+        )
         self.planning.create_target(
             Target(
                 id="target:m42",
@@ -406,46 +413,56 @@ class SirilRunnerAndServiceTests(unittest.TestCase):
         )
         bias_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=plan.sequences[0].id,
                 frame_type="bias",
-                file_path=str(self.capture_root / "biases" / "bias_001.CR2"),
+                rel_path="captures/OrionNebula/biases/bias_001.CR2",
             )
         ).id
         dark_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=plan.sequences[1].id,
                 frame_type="dark",
-                file_path=str(self.capture_root / "darks" / "dark_001.CR2"),
+                rel_path="captures/OrionNebula/darks/dark_001.CR2",
                 exposure_s=30.0,
             )
         ).id
         flat_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=plan.sequences[2].id,
                 frame_type="flat",
-                file_path=str(self.capture_root / "flats" / "flat_001.CR2"),
+                rel_path="captures/OrionNebula/flats/flat_001.CR2",
                 exposure_s=1.0,
             )
         ).id
         light_id = self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=plan.sequences[3].id,
                 frame_type="light",
-                file_path=str(self.capture_root / "lights" / "light_001.CR2"),
+                rel_path="captures/OrionNebula/lights/light_001.CR2",
                 exposure_s=30.0,
                 accepted=True,
             )
         ).id
         self.frames.create_frame(
             Frame(
+                project_id=self.project_id,
+                capture_id=self.capture_id,
                 observation_id="obs:0001",
                 sequence_id=plan.sequences[3].id,
                 frame_type="light",
-                file_path=str(self.capture_root / "lights" / "light_002.CR2"),
+                rel_path="captures/OrionNebula/lights/light_002.CR2",
                 exposure_s=30.0,
                 accepted=True,
             )

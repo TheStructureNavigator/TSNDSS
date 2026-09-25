@@ -1,6 +1,7 @@
 from .models import (
     AcquisitionPlan,
     AcquisitionSequence,
+    Capture,
     Dataset,
     Equipment,
     Frame,
@@ -12,6 +13,7 @@ from .models import (
 )
 
 __all__ = [
+    "Capture",
     "Target",
     "Site",
     "Equipment",

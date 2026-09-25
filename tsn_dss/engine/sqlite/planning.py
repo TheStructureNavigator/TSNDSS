@@ -494,10 +494,9 @@ class PlanningRepository:
                     """,
                     (plan.target_id, plan.name, plan.description, plan.status, plan.id),
                 )
-                self.connection.execute(
-                    "DELETE FROM acquisition_sequences WHERE plan_id = ?;",
-                    (plan.id,),
-                )
+                # Update sequences in place: their ids are referenced by Frames (provenance), so a
+                # routine plan edit must keep them. Only genuinely new sequences are inserted.
+                to_insert = self._reconcile_existing_sequences(plan)
             else:
                 self.connection.execute(
                     """
@@ -511,63 +510,131 @@ class PlanningRepository:
                     """,
                     (plan.id, plan.target_id, plan.name, plan.description, plan.status),
                 )
+                to_insert = sorted(plan.sequences, key=lambda item: item.sequence_order)
 
-            saved_sequences: list[AcquisitionSequence] = []
-            for sequence in sorted(plan.sequences, key=lambda item: item.sequence_order):
+            for sequence in to_insert:
                 _validate_sequence(sequence)
-                cursor = self.connection.execute(
-                    """
-                    INSERT INTO acquisition_sequences (
-                        plan_id,
-                        sequence_order,
-                        name,
-                        frame_type,
-                        exposure_s,
-                        frame_count,
-                        iso,
-                        gain,
-                        offset_value,
-                        binning_x,
-                        binning_y,
-                        filter_id,
-                        notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    (
-                        plan.id,
-                        sequence.sequence_order,
-                        sequence.name,
-                        sequence.frame_type,
-                        sequence.exposure_s,
-                        sequence.frame_count,
-                        sequence.iso,
-                        sequence.gain,
-                        sequence.offset_value,
-                        sequence.binning_x,
-                        sequence.binning_y,
-                        sequence.filter_id,
-                        sequence.notes,
-                    ),
-                )
-                saved_sequences.append(
-                    AcquisitionSequence(
-                        id=int(cursor.lastrowid),
-                        sequence_order=sequence.sequence_order,
-                        name=sequence.name,
-                        frame_type=sequence.frame_type,
-                        exposure_s=sequence.exposure_s,
-                        frame_count=sequence.frame_count,
-                        iso=sequence.iso,
-                        gain=sequence.gain,
-                        offset_value=sequence.offset_value,
-                        binning_x=sequence.binning_x,
-                        binning_y=sequence.binning_y,
-                        filter_id=sequence.filter_id,
-                        notes=sequence.notes,
-                    )
-                )
+                self._insert_sequence(plan.id, sequence)
 
         return self.get_acquisition_plan(plan.id)
+
+    def _insert_sequence(self, plan_id: str, sequence: AcquisitionSequence) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO acquisition_sequences (
+                plan_id, sequence_order, name, frame_type, exposure_s, frame_count,
+                iso, gain, offset_value, binning_x, binning_y, filter_id, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                plan_id,
+                sequence.sequence_order,
+                sequence.name,
+                sequence.frame_type,
+                sequence.exposure_s,
+                sequence.frame_count,
+                sequence.iso,
+                sequence.gain,
+                sequence.offset_value,
+                sequence.binning_x,
+                sequence.binning_y,
+                sequence.filter_id,
+                sequence.notes,
+            ),
+        )
+
+    def _reconcile_existing_sequences(self, plan: AcquisitionPlan) -> list[AcquisitionSequence]:
+        """Bring a saved plan's sequences in line with ``plan`` without changing surviving ids.
+
+        A sequence is matched to an existing one by its ``id`` when given, otherwise by
+        ``sequence_order``. Matched sequences are updated in place, so Frames that reference them
+        keep their provenance. Returns the sequences that are genuinely new and must be inserted.
+        Refuses (``ValidationError``) to remove a sequence that Frames reference, or to change the
+        frame_type of one. Must run inside the caller's transaction.
+        """
+        existing = {
+            row["id"]: row
+            for row in self.connection.execute(
+                "SELECT id, sequence_order, frame_type FROM acquisition_sequences WHERE plan_id = ?;",
+                (plan.id,),
+            ).fetchall()
+        }
+        by_order = {row["sequence_order"]: sequence_id for sequence_id, row in existing.items()}
+
+        incoming = sorted(plan.sequences, key=lambda item: item.sequence_order)
+        for sequence in incoming:
+            _validate_sequence(sequence)
+
+        claimed: dict[int, AcquisitionSequence] = {}
+        for sequence in incoming:  # explicit ids first
+            if sequence.id is None:
+                continue
+            if sequence.id not in existing:
+                raise ValidationError(f"Acquisition sequence {sequence.id} does not belong to plan {plan.id}.")
+            if sequence.id in claimed:
+                raise ValidationError(f"Acquisition sequence {sequence.id} appears twice in plan {plan.id}.")
+            claimed[sequence.id] = sequence
+
+        new_sequences: list[AcquisitionSequence] = []
+        for sequence in incoming:  # then match id-less sequences by order
+            if sequence.id is not None:
+                continue
+            matched = by_order.get(sequence.sequence_order)
+            if matched is not None and matched not in claimed:
+                claimed[matched] = sequence
+            else:
+                new_sequences.append(sequence)
+
+        for sequence_id, row in existing.items():
+            references = int(
+                self.connection.execute("SELECT COUNT(*) FROM frames WHERE sequence_id = ?;", (sequence_id,)).fetchone()[0]
+            )
+            if not references:
+                continue
+            kept = claimed.get(sequence_id)
+            if kept is None:
+                raise ValidationError(
+                    f"Acquisition sequence {row['sequence_order']} is used by {references} frame(s) and cannot be removed."
+                )
+            if kept.frame_type != row["frame_type"]:
+                raise ValidationError(
+                    f"Acquisition sequence {row['sequence_order']} is used by {references} frame(s); "
+                    f"its frame_type cannot change."
+                )
+
+        # Two phases so a reordering can never collide with UNIQUE (plan_id, sequence_order).
+        self.connection.execute(
+            "UPDATE acquisition_sequences SET sequence_order = sequence_order + 1000000 WHERE plan_id = ?;",
+            (plan.id,),
+        )
+        for sequence_id, sequence in claimed.items():
+            self.connection.execute(
+                """
+                UPDATE acquisition_sequences
+                SET sequence_order = ?, name = ?, frame_type = ?, exposure_s = ?, frame_count = ?,
+                    iso = ?, gain = ?, offset_value = ?, binning_x = ?, binning_y = ?, filter_id = ?, notes = ?
+                WHERE id = ?;
+                """,
+                (
+                    sequence.sequence_order,
+                    sequence.name,
+                    sequence.frame_type,
+                    sequence.exposure_s,
+                    sequence.frame_count,
+                    sequence.iso,
+                    sequence.gain,
+                    sequence.offset_value,
+                    sequence.binning_x,
+                    sequence.binning_y,
+                    sequence.filter_id,
+                    sequence.notes,
+                    sequence_id,
+                ),
+            )
+        for sequence_id in existing:
+            if sequence_id not in claimed:
+                self.connection.execute("DELETE FROM acquisition_sequences WHERE id = ?;", (sequence_id,))
+        return new_sequences
 
     def get_acquisition_plan(self, plan_id: str) -> AcquisitionPlan | None:
         plan_row = self.connection.execute(

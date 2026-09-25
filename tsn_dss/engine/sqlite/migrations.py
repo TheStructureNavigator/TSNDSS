@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 2 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 3 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 class SchemaVersionError(RuntimeError):
@@ -90,6 +90,9 @@ class Migration:
     sql: str = ""
     apply: Callable[[sqlite3.Connection], None] | None = None
     foreign_keys_off: bool = False
+    # Runs first, inside the migration transaction, before any SQL. Raise ``MigrationError`` to
+    # refuse the upgrade (nothing has been changed yet, and the transaction is rolled back).
+    precondition: Callable[[sqlite3.Connection], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,12 +141,185 @@ CREATE INDEX idx_mosaic_plans_project_id
 ON mosaic_plans (project_id);
 """
 
+def _require_no_legacy_frames(connection: sqlite3.Connection) -> None:
+    """v3 replaces the legacy ``frames`` table. Refuse if it holds rows.
+
+    Legacy frames have no Project or Capture. The application never wrote them (only tests
+    did), and TSN DSS will not guess ownership for unknown historical rows, so any rows must
+    be dealt with explicitly before upgrading.
+    """
+    exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'frames'").fetchone()
+    if not exists:
+        return
+    frames = int(connection.execute("SELECT COUNT(*) FROM frames").fetchone()[0])
+    if frames:
+        raise MigrationError(
+            f"Cannot upgrade to schema version 3: the legacy frames table contains {frames} row(s). "
+            f"They have no Project or Capture, and TSN DSS does not guess ownership of historical rows. "
+            f"Export or remove them, then start again. Nothing has been changed."
+        )
+
+
+# v3: canonical Capture and Frame. Replaces the legacy frames table, which must be empty
+# (see _require_no_legacy_frames), so DROP + CREATE loses nothing. It is not a rename-swap
+# because v_observation_summary references frames. foreign_keys_off is set because
+# dataset_frames references frames(id); it stays valid since the new table keeps that key.
+#
+# frame_type is nullable: an unknown type stays NULL like every other unknown fact (origin
+# keeps the explicit 'unknown' the accepted data model defines). exposure_s allows 0 because
+# bias frames have a zero-second exposure. A recorded hash, its size and time are immutable.
+_MIGRATION_3_CAPTURES_FRAMES_SQL = """
+DROP TABLE IF EXISTS frames;
+
+CREATE TABLE captures (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL CHECK (name <> ''),
+    rel_path TEXT NOT NULL CHECK (rel_path <> ''),
+    source_kind TEXT NOT NULL
+        CHECK (source_kind IN ('legacy_registered', 'folder_import', 'device_import', 'acquisition')),
+    source_label TEXT,
+    source_path TEXT,
+    import_mode TEXT
+        CHECK (import_mode IS NULL OR import_mode IN ('copy', 'move', 'acquired')),
+    imported_at TEXT,
+    registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    registrar_version TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    UNIQUE (project_id, name),
+    UNIQUE (project_id, rel_path)
+);
+
+CREATE TABLE frames (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    capture_id TEXT NOT NULL,
+    observation_id TEXT,
+    sequence_id INTEGER,
+    rel_path TEXT NOT NULL
+        CHECK (
+            rel_path <> '' AND
+            substr(rel_path, 1, 1) <> '/' AND
+            instr(rel_path, char(92)) = 0
+        ),
+    frame_type TEXT
+        CHECK (frame_type IS NULL OR frame_type IN ('light', 'dark', 'flat', 'bias', 'dark_flat')),
+    origin TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (origin IN ('raw', 'device_stack', 'master', 'unknown')),
+    stack_count INTEGER CHECK (stack_count IS NULL OR stack_count > 0),
+    file_format TEXT,
+    size_bytes INTEGER CHECK (size_bytes IS NULL OR size_bytes >= 0),
+    content_sha256 TEXT
+        CHECK (
+            content_sha256 IS NULL OR
+            (length(content_sha256) = 64 AND content_sha256 NOT GLOB '*[^0-9a-f]*')
+        ),
+    hashed_at TEXT,
+    width_px INTEGER CHECK (width_px IS NULL OR width_px > 0),
+    height_px INTEGER CHECK (height_px IS NULL OR height_px > 0),
+    instrument_name TEXT,
+    captured_at TEXT,
+    captured_at_source TEXT
+        CHECK (
+            captured_at_source IS NULL OR
+            captured_at_source IN ('fits_header', 'exif', 'device', 'filename', 'user')
+        ),
+    exposure_s REAL CHECK (exposure_s IS NULL OR exposure_s >= 0),
+    gain REAL,
+    offset_value REAL,
+    iso INTEGER CHECK (iso IS NULL OR iso > 0),
+    binning_x INTEGER CHECK (binning_x IS NULL OR binning_x > 0),
+    binning_y INTEGER CHECK (binning_y IS NULL OR binning_y > 0),
+    camera_temp_c REAL,
+    filter_id TEXT,
+    filter_name TEXT,
+    mount_ra_deg REAL,
+    mount_dec_deg REAL,
+    guiding_rms_arcsec REAL,
+    pointing_source_kind TEXT,
+    pointing_source_id TEXT,
+    pointing_label TEXT,
+    planned_ra_deg REAL CHECK (planned_ra_deg IS NULL OR (planned_ra_deg >= 0 AND planned_ra_deg < 360)),
+    planned_dec_deg REAL CHECK (planned_dec_deg IS NULL OR (planned_dec_deg >= -90 AND planned_dec_deg <= 90)),
+    accepted INTEGER CHECK (accepted IS NULL OR accepted IN (0, 1)),
+    rejection_reason TEXT,
+    fwhm_px REAL CHECK (fwhm_px IS NULL OR fwhm_px >= 0),
+    fwhm_arcsec REAL CHECK (fwhm_arcsec IS NULL OR fwhm_arcsec >= 0),
+    eccentricity REAL CHECK (eccentricity IS NULL OR eccentricity >= 0),
+    star_count INTEGER CHECK (star_count IS NULL OR star_count >= 0),
+    background_median REAL,
+    background_sigma REAL,
+    snr_estimate REAL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (capture_id) REFERENCES captures(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (observation_id) REFERENCES observations(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    FOREIGN KEY (sequence_id) REFERENCES acquisition_sequences(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    FOREIGN KEY (filter_id) REFERENCES equipment(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    UNIQUE (project_id, rel_path)
+);
+
+CREATE INDEX idx_frames_capture
+ON frames (capture_id);
+
+CREATE INDEX idx_frames_observation
+ON frames (observation_id);
+
+CREATE INDEX idx_frames_sequence
+ON frames (sequence_id);
+
+CREATE INDEX idx_frames_filter
+ON frames (filter_id);
+
+CREATE INDEX idx_frames_captured_at
+ON frames (captured_at);
+
+CREATE INDEX idx_frames_content_sha256
+ON frames (project_id, content_sha256);
+
+CREATE INDEX idx_frames_quality
+ON frames (observation_id, accepted, fwhm_arcsec, guiding_rms_arcsec);
+
+CREATE TRIGGER trg_frames_recorded_hash_is_immutable
+BEFORE UPDATE OF content_sha256, size_bytes, hashed_at ON frames
+WHEN OLD.content_sha256 IS NOT NULL
+ AND (
+    NEW.content_sha256 IS NOT OLD.content_sha256 OR
+    NEW.size_bytes IS NOT OLD.size_bytes OR
+    NEW.hashed_at IS NOT OLD.hashed_at
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'A recorded frame content hash is immutable.');
+END;
+"""
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version=2,
         description="canonical projects table and mosaic_plans.project_id",
         sql=_MIGRATION_2_PROJECTS_SQL,
+    ),
+    Migration(
+        version=3,
+        description="canonical captures and frames",
+        sql=_MIGRATION_3_CAPTURES_FRAMES_SQL,
+        foreign_keys_off=True,
+        precondition=_require_no_legacy_frames,
     ),
 )
 
@@ -418,6 +594,9 @@ def _apply_migration(connection: sqlite3.Connection, migration: Migration) -> No
     try:
         connection.execute("BEGIN IMMEDIATE")
         try:
+            if migration.precondition is not None:
+                migration.precondition(connection)
+                _require_open_transaction(connection, "precondition")
             for statement in split_sql_statements(migration.sql):
                 connection.execute(statement)
                 _require_open_transaction(connection, statement)

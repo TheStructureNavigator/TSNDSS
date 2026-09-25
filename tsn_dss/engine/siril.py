@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Sequence
 
 from ..domain.models import ProcessingRun
-from .projects import ProjectStorage, RunLayout
-from .sqlite import DatasetRepository, FrameRepository, ProcessingRunRepository
+from .projects import ProjectStorage, RunLayout, path_is_within
+from .sqlite import DatasetRepository, FrameRepository, ProcessingRunRepository, ProjectRepository
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OSC_SCRIPT_PATH = REPO_ROOT / "siril-1.4.4" / "scripts" / "OSC_Preprocessing.ssf"
@@ -277,12 +277,22 @@ class SirilProcessingService:
         if dataset is None:
             raise KeyError(f"Dataset not found: {dataset_id}")
 
+        projects = ProjectRepository(self.processing_runs.connection)
         frame_sources: list[tuple[str, Path]] = []
         for frame_id in dataset.frame_ids:
             frame = self.frames.get_frame(frame_id)
             if frame is None:
                 raise KeyError(f"Frame not found for dataset {dataset_id}: {frame_id}")
-            frame_sources.append((frame.frame_type, Path(frame.file_path)))
+            if frame.frame_type is None:
+                raise ValueError(f"Frame {frame_id} has no frame_type, so it cannot be placed in a Siril workspace.")
+            project = projects.get_project(frame.project_id)
+            if project is None:
+                raise KeyError(f"Project not found for frame {frame_id}: {frame.project_id}")
+            project_root = self.project_storage.locate_project(project.dir_key).project_root
+            frame_path = project_root.joinpath(*frame.rel_path.split("/"))
+            if not path_is_within(frame_path.resolve(), project_root.resolve()):
+                raise ValueError(f"Frame {frame_id} resolves outside its project: {frame.rel_path}")
+            frame_sources.append((frame.frame_type, frame_path))
         return frame_sources
 
 
