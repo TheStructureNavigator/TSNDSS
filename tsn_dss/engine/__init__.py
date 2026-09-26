@@ -7,6 +7,7 @@ own modules.
 """
 
 from .sqlite import (
+    CatalogRepository,
     DatasetRepository,
     EXPECTED_USER_VERSION,
     FrameRepository,
@@ -42,6 +43,7 @@ __all__ = [
     "EXPECTED_USER_VERSION",
     "SchemaVersionError",
     "PlanningRepository",
+    "CatalogRepository",
     "ObservationRepository",
     "FrameRepository",
     "MosaicRepository",

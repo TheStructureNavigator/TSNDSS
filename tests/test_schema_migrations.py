@@ -358,8 +358,8 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 3)
-        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3])
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 4)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
 
@@ -367,7 +367,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (2, 3))
+        self.assertEqual(result.applied_migrations, (2, 3, 4))
         self.assertIsNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.backups(), [])
@@ -386,7 +386,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection = self.open_initialized()
         schema = describe_schema(connection)
         for table in ("targets", "sites", "site_horizon_profile_points", "mosaic_plans", "mosaic_panels",
-                      "frames", "datasets", "processing_runs"):
+                      "frames", "datasets", "processing_runs", "catalog_objects", "catalog_object_aliases"):
             self.assertIn(table, schema["tables"])
         self.assertIn("lp_data_kind", schema["tables"]["sites"]["columns"])
         self.assertIn("filter", schema["tables"]["mosaic_plans"]["columns"])

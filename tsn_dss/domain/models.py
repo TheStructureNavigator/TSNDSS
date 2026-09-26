@@ -23,6 +23,43 @@ class Target:
 
 
 @dataclass(slots=True)
+class CatalogObject:
+    """An astronomical catalog fact, distinct from a user/workflow Target."""
+    id: str
+    canonical_designation: str
+    display_name: str
+    ra_deg: float
+    dec_deg: float
+    object_type: str
+    coordinate_frame: str
+    coordinate_epoch: str | None = None
+    angular_major_arcmin: float | None = None
+    angular_minor_arcmin: float | None = None
+    magnitude: float | None = None
+    source_provider: str = ""
+    source_version: str = ""
+    source_external_id: str | None = None
+    imported_at: str | None = None
+
+
+@dataclass(slots=True)
+class CatalogObjectAlias:
+    """One exact lookup alias for a CatalogObject."""
+    catalog_object_id: str
+    alias: str
+    normalized_alias: str
+    alias_kind: str = "alias"
+
+
+@dataclass(slots=True)
+class CatalogResolutionResult:
+    """Result of deterministic CatalogObject alias resolution."""
+    status: str
+    catalog_object: CatalogObject | None = None
+    candidates: list[CatalogObject] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class LocalHorizonPoint:
     """One manually defined local-horizon obstruction sample for a Site."""
     azimuth_deg: float

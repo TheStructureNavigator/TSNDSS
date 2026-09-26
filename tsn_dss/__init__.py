@@ -8,6 +8,9 @@ the package surface remains easier to reason about during future hardware work.
 from .domain.models import (
     AcquisitionPlan,
     AcquisitionSequence,
+    CatalogObject,
+    CatalogObjectAlias,
+    CatalogResolutionResult,
     Dataset,
     Equipment,
     Frame,
@@ -23,6 +26,7 @@ from .domain.models import (
     Target,
 )
 from .engine.sqlite import (
+    CatalogRepository,
     DatasetRepository,
     EXPECTED_USER_VERSION,
     FrameRepository,
@@ -72,6 +76,9 @@ __all__ = [
     "EXPECTED_USER_VERSION",
     "SchemaVersionError",
     "Target",
+    "CatalogObject",
+    "CatalogObjectAlias",
+    "CatalogResolutionResult",
     "Site",
     "Equipment",
     "AcquisitionPlan",
@@ -87,6 +94,7 @@ __all__ = [
     "MosaicPlan",
     "MosaicPanel",
     "PlanningRepository",
+    "CatalogRepository",
     "ObservationRepository",
     "FrameRepository",
     "MosaicRepository",

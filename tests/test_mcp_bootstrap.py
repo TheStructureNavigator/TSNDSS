@@ -52,7 +52,7 @@ class McpBootstrapTests(unittest.TestCase):
             initialize_schema(
                 connection,
                 baseline_path=DEFAULT_SCHEMA_PATH,
-                migrations=MIGRATIONS[:1],
+                migrations=MIGRATIONS[:2],
             )
             self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION - 1)
         finally:

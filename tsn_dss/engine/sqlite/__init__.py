@@ -1,4 +1,5 @@
 from .captures import CaptureRepository
+from .catalog import CatalogRepository
 from .datasets import DatasetRepository
 from .db import (
     EXPECTED_USER_VERSION,
@@ -23,6 +24,7 @@ __all__ = [
     "MigrationError",
     "SchemaVersionError",
     "PlanningRepository",
+    "CatalogRepository",
     "ProjectRepository",
     "ProjectInUseError",
     "ObservationRepository",

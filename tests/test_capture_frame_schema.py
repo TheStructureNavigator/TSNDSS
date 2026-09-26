@@ -96,7 +96,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
         raw.commit()
         raw.close()
 
-    def test_upgrade_reaches_version_three_and_preserves_existing_data(self) -> None:
+    def test_upgrade_reaches_current_version_and_preserves_existing_data(self) -> None:
         self.build_v2()
         before_connection = self.raw()
         self.assertEqual(get_user_version(before_connection), 2)
@@ -104,10 +104,10 @@ class CaptureFrameMigrationTests(TempDirTestCase):
         before_connection.close()
 
         connection, result = self.initialize()
-        self.assertEqual((result.initial_version, result.final_version), (2, 3))
-        self.assertEqual(result.applied_migrations, (3,))
+        self.assertEqual((result.initial_version, result.final_version), (2, CURRENT_SCHEMA_VERSION))
+        self.assertEqual(result.applied_migrations, (3, 4))
         self.assertIsNotNone(result.backup_path)
-        self.assertEqual(get_user_version(connection), 3)
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
 
         for table, (columns, rows) in before.items():
             if table == "frames":
@@ -129,7 +129,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
         self.assertEqual((project.dir_key, project.target_label), ("Cygnus Loop", "NGC 6960"))
         self.assertEqual(connection.execute("SELECT project_id FROM mosaic_plans").fetchone()[0], "project:one")
 
-    def test_migrated_database_equals_a_fresh_v3_database_semantically(self) -> None:
+    def test_migrated_database_equals_a_fresh_current_database_semantically(self) -> None:
         self.build_v2()
         migrated, _ = self.initialize()
         migrated_schema = describe_schema(migrated)
@@ -203,7 +203,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
         # Observations, plans and datasets do not block the upgrade; only legacy frame rows would.
         self.build_v2()
         connection, result = self.initialize()
-        self.assertEqual(result.final_version, 3)
+        self.assertEqual(result.final_version, CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1)
 
     def test_schema_constraints_and_foreign_key_actions(self) -> None:

@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 3 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 4 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 class SchemaVersionError(RuntimeError):
@@ -307,6 +307,47 @@ BEGIN
 END;
 """
 
+_MIGRATION_4_CATALOG_SQL = """
+CREATE TABLE catalog_objects (
+    id TEXT PRIMARY KEY,
+    canonical_designation TEXT NOT NULL UNIQUE CHECK (canonical_designation <> ''),
+    display_name TEXT NOT NULL CHECK (display_name <> ''),
+    ra_deg REAL NOT NULL CHECK (ra_deg >= 0 AND ra_deg < 360),
+    dec_deg REAL NOT NULL CHECK (dec_deg >= -90 AND dec_deg <= 90),
+    object_type TEXT NOT NULL CHECK (object_type <> ''),
+    coordinate_frame TEXT NOT NULL CHECK (coordinate_frame <> ''),
+    coordinate_epoch TEXT,
+    angular_major_arcmin REAL CHECK (angular_major_arcmin IS NULL OR angular_major_arcmin > 0),
+    angular_minor_arcmin REAL CHECK (angular_minor_arcmin IS NULL OR angular_minor_arcmin > 0),
+    magnitude REAL,
+    source_provider TEXT NOT NULL CHECK (source_provider <> ''),
+    source_version TEXT NOT NULL CHECK (source_version <> ''),
+    source_external_id TEXT,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE catalog_object_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_object_id TEXT NOT NULL,
+    alias TEXT NOT NULL CHECK (alias <> ''),
+    normalized_alias TEXT NOT NULL UNIQUE CHECK (normalized_alias <> ''),
+    alias_kind TEXT NOT NULL DEFAULT 'alias' CHECK (alias_kind <> ''),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (catalog_object_id) REFERENCES catalog_objects(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX idx_catalog_objects_radec
+ON catalog_objects (ra_deg, dec_deg);
+
+CREATE INDEX idx_catalog_objects_type
+ON catalog_objects (object_type);
+
+CREATE INDEX idx_catalog_object_aliases_object
+ON catalog_object_aliases (catalog_object_id);
+"""
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -320,6 +361,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         sql=_MIGRATION_3_CAPTURES_FRAMES_SQL,
         foreign_keys_off=True,
         precondition=_require_no_legacy_frames,
+    ),
+    Migration(
+        version=4,
+        description="canonical astronomical catalog objects",
+        sql=_MIGRATION_4_CATALOG_SQL,
     ),
 )
 
