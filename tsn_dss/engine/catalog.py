@@ -13,7 +13,7 @@ class CatalogConflictError(ValueError):
 @dataclass(slots=True)
 class CatalogRegistrationItem:
     catalog_object: CatalogObject
-    aliases: list[CatalogObjectAlias] = field(default_factory=list)
+    aliases: list[CatalogObjectAlias] | None = None
 
 
 @dataclass(slots=True)
@@ -31,6 +31,7 @@ class CatalogRegistrationReport:
 
 _MESSIER_PATTERN = re.compile(r"^(?:m|messier)\s*0*([1-9][0-9]*)$")
 _NGC_PATTERN = re.compile(r"^ngc\s*0*([1-9][0-9]*)$")
+_IC_PATTERN = re.compile(r"^ic\s*0*([1-9][0-9]*)$")
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -47,5 +48,9 @@ def normalize_catalog_alias(value: str) -> str:
     ngc = _NGC_PATTERN.match(normalized)
     if ngc:
         return f"ngc:{int(ngc.group(1))}"
+
+    ic = _IC_PATTERN.match(normalized)
+    if ic:
+        return f"ic:{int(ic.group(1))}"
 
     return normalized

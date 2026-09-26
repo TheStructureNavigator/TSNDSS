@@ -133,7 +133,7 @@ class CatalogRepository:
             report.conflicts.append(f"CatalogObject conflict for {catalog_object.id}")
             return
 
-        aliases = item.aliases or [
+        aliases = item.aliases if item.aliases is not None else [
             CatalogObjectAlias(
                 catalog_object_id=catalog_object.id,
                 alias=catalog_object.canonical_designation,

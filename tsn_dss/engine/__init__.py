@@ -25,6 +25,12 @@ from .sqlite import (
 )
 from .projects import ProjectStorage
 from .project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager, ProjectRunSnapshot
+from .openngc import (
+    OPENNGC_SOURCE_VERSION,
+    build_openngc_registration_plan,
+    load_bundled_openngc_records,
+    register_bundled_openngc_catalog,
+)
 from .siril import (
     DEFAULT_OSC_SCRIPT_PATH,
     SirilOutputNotFoundError,
@@ -59,6 +65,10 @@ __all__ = [
     "DEFAULT_SIRIL_EXECUTABLE",
     "ProjectRunManager",
     "ProjectRunSnapshot",
+    "OPENNGC_SOURCE_VERSION",
+    "build_openngc_registration_plan",
+    "load_bundled_openngc_records",
+    "register_bundled_openngc_catalog",
     "DEFAULT_OSC_SCRIPT_PATH",
     "SirilProcessingService",
     "SirilOutputNotFoundError",

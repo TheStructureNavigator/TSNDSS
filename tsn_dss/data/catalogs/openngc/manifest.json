@@ -1,0 +1,33 @@
+{
+  "commit_sha": "36cb178a0f69dba8bfc03a99c10512831edf1c6b",
+  "coordinate_epoch": "J2000",
+  "coordinate_frame": "OpenNGC J2000 equatorial",
+  "exclusions_by_reason": {
+    "duplicate": 652,
+    "nonexistent": 10
+  },
+  "generated_artifact": {
+    "path": "tsn_dss/data/catalogs/openngc/objects.json",
+    "records": 13371,
+    "sha256": "2d62abcae34ae4864ddf6d3b562b29a18bf05c249e19b25cd9f72ffff0166f1b"
+  },
+  "license": "CC-BY-SA-4.0",
+  "provider": "OpenNGC",
+  "release_tag": "v20260501",
+  "repository": "https://github.com/mattiaverga/OpenNGC",
+  "source_files": {
+    "database_files/NGC.csv": {
+      "rows": 13969,
+      "sha256": "840fe0c9ee1332e551b2e722a0e92726cd7b157914a3d2177602832aadd3aa9e",
+      "url": "https://raw.githubusercontent.com/mattiaverga/OpenNGC/36cb178a0f69dba8bfc03a99c10512831edf1c6b/database_files/NGC.csv"
+    },
+    "database_files/addendum.csv": {
+      "rows": 64,
+      "sha256": "1d8f0914e643ada325a5a94d88d8fefad6a4937a2f77cc34f21483af22b11983",
+      "url": "https://raw.githubusercontent.com/mattiaverga/OpenNGC/36cb178a0f69dba8bfc03a99c10512831edf1c6b/database_files/addendum.csv"
+    }
+  },
+  "source_version": "v20260501+36cb178a0f69dba8bfc03a99c10512831edf1c6b",
+  "total_source_rows": 14033,
+  "transform_version": "tsn-dss-openngc-transform-v1"
+}

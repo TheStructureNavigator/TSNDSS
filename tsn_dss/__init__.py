@@ -49,6 +49,12 @@ from .engine.project_processing import (
     ProjectRunManager,
     ProjectRunSnapshot,
 )
+from .engine.openngc import (
+    OPENNGC_SOURCE_VERSION,
+    build_openngc_registration_plan,
+    load_bundled_openngc_records,
+    register_bundled_openngc_catalog,
+)
 from .engine.projects import ProjectStorage
 from .engine.siril import (
     DEFAULT_OSC_SCRIPT_PATH,
@@ -110,6 +116,10 @@ __all__ = [
     "DEFAULT_SIRIL_EXECUTABLE",
     "ProjectRunManager",
     "ProjectRunSnapshot",
+    "OPENNGC_SOURCE_VERSION",
+    "build_openngc_registration_plan",
+    "load_bundled_openngc_records",
+    "register_bundled_openngc_catalog",
     "DEFAULT_OSC_SCRIPT_PATH",
     "SirilProcessingService",
     "SirilOutputNotFoundError",

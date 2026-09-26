@@ -48,7 +48,11 @@ class CatalogRepositoryTests(unittest.TestCase):
         self.assertEqual(normalize_catalog_alias("M42"), "messier:42")
         self.assertEqual(normalize_catalog_alias("M 42"), "messier:42")
         self.assertEqual(normalize_catalog_alias("Messier 042"), "messier:42")
+        self.assertEqual(normalize_catalog_alias("NGC1976"), "ngc:1976")
         self.assertEqual(normalize_catalog_alias("NGC 1976"), "ngc:1976")
+        self.assertEqual(normalize_catalog_alias("NGC 01976"), "ngc:1976")
+        self.assertEqual(normalize_catalog_alias("IC434"), "ic:434")
+        self.assertEqual(normalize_catalog_alias("IC 0434"), "ic:434")
         self.assertEqual(normalize_catalog_alias("  Orion   Nebula "), "orion nebula")
 
     def test_register_and_resolve_m42_aliases_to_same_catalog_object(self) -> None:
@@ -76,6 +80,16 @@ class CatalogRepositoryTests(unittest.TestCase):
         self.assertEqual(second.objects_unchanged, ["catalog-object:messier:42"])
         self.assertEqual(self.connection.execute("SELECT COUNT(*) FROM catalog_objects").fetchone()[0], 1)
         self.assertEqual(self.connection.execute("SELECT COUNT(*) FROM catalog_object_aliases").fetchone()[0], 3)
+
+    def test_empty_alias_list_does_not_insert_default_alias(self) -> None:
+        item = self.m42_item()
+        item.aliases = []
+
+        self.repository.register_catalog_objects([item])
+
+        self.assertIsNotNone(self.repository.get_catalog_object("catalog-object:messier:42"))
+        self.assertEqual(self.repository.resolve_alias("M42").status, "not_found")
+        self.assertEqual(self.connection.execute("SELECT COUNT(*) FROM catalog_object_aliases").fetchone()[0], 0)
 
     def test_alias_conflict_is_reported_and_rolled_back(self) -> None:
         self.repository.register_catalog_objects([self.m42_item()])
