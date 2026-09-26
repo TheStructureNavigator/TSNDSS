@@ -26,8 +26,21 @@ The server uses stdio. Stdout is reserved for MCP protocol traffic; diagnostics 
 
 - `get_sites()` lists persisted observing Sites.
 - `get_site(site_id)` returns Site details, including Local Horizon points.
+- `search_catalog(query=None, object_type=None, limit=20)` searches canonical astronomical `CatalogObject` rows already registered in the TSN DSS database.
+- `resolve_catalog_object(query)` resolves one canonical astronomical `CatalogObject` by deterministic exact alias.
 - `search_targets(query=None, limit=20)` searches the local TSN DSS target catalog only.
 - `target_visibility_at(site_id, time_utc, target_id=None, target_query=None, target_ra_deg=None, target_dec_deg=None, min_target_altitude_deg=30)` evaluates deterministic point-in-time visibility.
+
+`CatalogObject` and `Target` are intentionally different concepts:
+
+- `CatalogObject` is an astronomical catalog fact, such as a registered OpenNGC object.
+- `Target` is a user/workflow observing target stored in TSN DSS planning data.
+
+Use `search_catalog` for astronomical catalog discovery. Use `search_targets` for the user's workflow Targets.
+
+Catalog MCP tools read only canonical database state. They do not parse bundled catalog files, download data, register OpenNGC, initialize a database, migrate a database or create Targets. If no `CatalogObject` rows have been explicitly registered beforehand, `search_catalog` returns an empty result and `resolve_catalog_object` returns `not_found`.
+
+Catalog resolution is exact and deterministic after TSN DSS alias normalization. There is no fuzzy matching, no online lookup and no model-knowledge fallback. Ambiguous aliases are not silently assigned to an object; the MCP result reflects the canonical resolver state.
 
 `target_visibility_at.visible` uses this rule:
 
@@ -57,7 +70,8 @@ Provider-neutral MCP clients generally need a command and args:
 
 ## Current Limitations
 
-- Target search uses the local TSN DSS database only; there is no external catalog lookup.
+- Catalog and Target search use the local TSN DSS database only; there is no external catalog lookup.
+- Catalog tools do not integrate with visibility yet.
 - `target_visibility_at` does not include weather forecasts.
 - No write tools or actions are exposed.
 - No planning execution, instrument control, Seestar or ASCOM integration is exposed.

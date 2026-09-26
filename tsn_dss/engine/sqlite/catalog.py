@@ -42,40 +42,71 @@ class CatalogRepository:
         ).fetchone()
         return _row_to_catalog_object(row) if row else None
 
-    def list_catalog_objects(self, *, query: str | None = None, limit: int = 50) -> list[CatalogObject]:
+    def list_catalog_objects(
+        self,
+        *,
+        query: str | None = None,
+        object_type: str | None = None,
+        limit: int = 50,
+    ) -> list[CatalogObject]:
         bounded_limit = max(1, min(int(limit), 200))
-        if query is None or not query.strip():
-            rows = self.connection.execute(
+        conditions: list[str] = []
+        parameters: list[object] = []
+        if object_type is not None and object_type.strip():
+            conditions.append("o.object_type = ?")
+            parameters.append(object_type.strip())
+        if query is not None and query.strip():
+            text = query.strip()
+            needle = f"%{text.casefold()}%"
+            normalized_needle = f"%{normalize_catalog_alias(text)}%"
+            conditions.append(
                 """
-                SELECT
-                    id, canonical_designation, display_name, ra_deg, dec_deg, object_type,
-                    coordinate_frame, coordinate_epoch, angular_major_arcmin, angular_minor_arcmin,
-                    magnitude, source_provider, source_version, source_external_id, imported_at
-                FROM catalog_objects
-                ORDER BY canonical_designation, id
-                LIMIT ?;
-                """,
-                (bounded_limit,),
-            ).fetchall()
-        else:
-            needle = f"%{query.strip().casefold()}%"
-            rows = self.connection.execute(
+                (
+                    lower(o.canonical_designation) LIKE ?
+                    OR lower(o.display_name) LIKE ?
+                    OR lower(a.alias) LIKE ?
+                    OR a.normalized_alias LIKE ?
+                )
                 """
-                SELECT DISTINCT
-                    o.id, o.canonical_designation, o.display_name, o.ra_deg, o.dec_deg, o.object_type,
-                    o.coordinate_frame, o.coordinate_epoch, o.angular_major_arcmin, o.angular_minor_arcmin,
-                    o.magnitude, o.source_provider, o.source_version, o.source_external_id, o.imported_at
-                FROM catalog_objects o
-                LEFT JOIN catalog_object_aliases a ON a.catalog_object_id = o.id
-                WHERE lower(o.canonical_designation) LIKE ?
-                   OR lower(o.display_name) LIKE ?
-                   OR a.normalized_alias LIKE ?
-                ORDER BY o.canonical_designation, o.id
-                LIMIT ?;
-                """,
-                (needle, needle, needle, bounded_limit),
-            ).fetchall()
+            )
+            parameters.extend([needle, needle, needle, normalized_needle])
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        parameters.append(bounded_limit)
+        rows = self.connection.execute(
+            f"""
+            SELECT DISTINCT
+                o.id, o.canonical_designation, o.display_name, o.ra_deg, o.dec_deg, o.object_type,
+                o.coordinate_frame, o.coordinate_epoch, o.angular_major_arcmin, o.angular_minor_arcmin,
+                o.magnitude, o.source_provider, o.source_version, o.source_external_id, o.imported_at
+            FROM catalog_objects o
+            LEFT JOIN catalog_object_aliases a ON a.catalog_object_id = o.id
+            {where}
+            ORDER BY o.canonical_designation, o.id
+            LIMIT ?;
+            """,
+            tuple(parameters),
+        ).fetchall()
         return [_row_to_catalog_object(row) for row in rows]
+
+    def list_aliases_for_object(self, object_id: str) -> list[CatalogObjectAlias]:
+        rows = self.connection.execute(
+            """
+            SELECT catalog_object_id, alias, normalized_alias, alias_kind
+            FROM catalog_object_aliases
+            WHERE catalog_object_id = ?
+            ORDER BY alias_kind, alias, normalized_alias;
+            """,
+            (object_id,),
+        ).fetchall()
+        return [
+            CatalogObjectAlias(
+                catalog_object_id=row["catalog_object_id"],
+                alias=row["alias"],
+                normalized_alias=row["normalized_alias"],
+                alias_kind=row["alias_kind"],
+            )
+            for row in rows
+        ]
 
     def resolve_alias(self, alias: str) -> CatalogResolutionResult:
         normalized = normalize_catalog_alias(alias)

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.models import LocalHorizonPoint, Site, Target
+from ..domain.models import CatalogObject, CatalogObjectAlias, LocalHorizonPoint, Site, Target
+from ..engine.catalog_service import CatalogObjectWithAliases, CatalogResolutionWithAliases
 
 
 def local_horizon_point_to_dict(point: LocalHorizonPoint) -> dict[str, float]:
@@ -62,4 +63,46 @@ def target_to_dict(target: Target) -> dict[str, Any]:
         "distance_ly": target.distance_ly,
         "constellation": target.constellation,
         "notes": target.notes,
+    }
+
+
+def catalog_object_to_dict(catalog_object: CatalogObject) -> dict[str, Any]:
+    return {
+        "catalog_object_id": catalog_object.id,
+        "canonical_designation": catalog_object.canonical_designation,
+        "display_name": catalog_object.display_name,
+        "object_type": catalog_object.object_type,
+        "ra_deg": catalog_object.ra_deg,
+        "dec_deg": catalog_object.dec_deg,
+        "angular_major_arcmin": catalog_object.angular_major_arcmin,
+        "angular_minor_arcmin": catalog_object.angular_minor_arcmin,
+        "magnitude": catalog_object.magnitude,
+        "source_provider": catalog_object.source_provider,
+        "source_version": catalog_object.source_version,
+    }
+
+
+def catalog_alias_to_dict(alias: CatalogObjectAlias) -> dict[str, str]:
+    return {
+        "alias": alias.alias,
+        "normalized_alias": alias.normalized_alias,
+        "alias_kind": alias.alias_kind,
+    }
+
+
+def catalog_object_with_aliases_to_dict(item: CatalogObjectWithAliases) -> dict[str, Any]:
+    data = catalog_object_to_dict(item.catalog_object)
+    data["aliases"] = [catalog_alias_to_dict(alias) for alias in item.aliases]
+    return data
+
+
+def catalog_resolution_to_dict(result: CatalogResolutionWithAliases) -> dict[str, Any]:
+    return {
+        "status": result.status,
+        "catalog_object": (
+            catalog_object_with_aliases_to_dict(result.catalog_object)
+            if result.catalog_object is not None
+            else None
+        ),
+        "candidates": [catalog_object_with_aliases_to_dict(candidate) for candidate in result.candidates],
     }

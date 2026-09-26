@@ -55,6 +55,7 @@ from .engine.openngc import (
     load_bundled_openngc_records,
     register_bundled_openngc_catalog,
 )
+from .engine.catalog_service import CatalogService, MAX_CATALOG_LIMIT
 from .engine.projects import ProjectStorage
 from .engine.siril import (
     DEFAULT_OSC_SCRIPT_PATH,
@@ -120,6 +121,8 @@ __all__ = [
     "build_openngc_registration_plan",
     "load_bundled_openngc_records",
     "register_bundled_openngc_catalog",
+    "CatalogService",
+    "MAX_CATALOG_LIMIT",
     "DEFAULT_OSC_SCRIPT_PATH",
     "SirilProcessingService",
     "SirilOutputNotFoundError",

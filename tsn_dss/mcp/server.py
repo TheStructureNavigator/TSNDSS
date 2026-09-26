@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .bootstrap import McpBootstrapError, readonly_database
+from .tools.catalog import resolve_catalog_object as resolve_catalog_object_impl
+from .tools.catalog import search_catalog as search_catalog_impl
 from .tools.sites import get_site as get_site_impl
 from .tools.sites import get_sites as get_sites_impl
 from .tools.targets import search_targets as search_targets_impl
@@ -59,6 +61,33 @@ def create_mcp_server(
             projects_root=projects_root,
             database_path=database_path,
             callback=lambda connection: search_targets_impl(connection, query=query, limit=limit),
+        )
+
+    @mcp.tool()
+    def search_catalog(
+        query: str | None = None,
+        object_type: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Search registered canonical astronomical CatalogObjects. Read-only and exact/no-fuzzy."""
+        return _call_tool(
+            projects_root=projects_root,
+            database_path=database_path,
+            callback=lambda connection: search_catalog_impl(
+                connection,
+                query=query,
+                object_type=object_type,
+                limit=limit,
+            ),
+        )
+
+    @mcp.tool()
+    def resolve_catalog_object(query: str) -> dict[str, Any]:
+        """Resolve one registered canonical astronomical CatalogObject by exact alias."""
+        return _call_tool(
+            projects_root=projects_root,
+            database_path=database_path,
+            callback=lambda connection: resolve_catalog_object_impl(connection, query),
         )
 
     @mcp.tool()

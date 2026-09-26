@@ -31,6 +31,7 @@ from .openngc import (
     load_bundled_openngc_records,
     register_bundled_openngc_catalog,
 )
+from .catalog_service import CatalogService, MAX_CATALOG_LIMIT
 from .siril import (
     DEFAULT_OSC_SCRIPT_PATH,
     SirilOutputNotFoundError,
@@ -69,6 +70,8 @@ __all__ = [
     "build_openngc_registration_plan",
     "load_bundled_openngc_records",
     "register_bundled_openngc_catalog",
+    "CatalogService",
+    "MAX_CATALOG_LIMIT",
     "DEFAULT_OSC_SCRIPT_PATH",
     "SirilProcessingService",
     "SirilOutputNotFoundError",
