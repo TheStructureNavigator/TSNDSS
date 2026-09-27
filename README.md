@@ -2,7 +2,7 @@
 
 TSN DSS is a local, single-user deep-sky imaging workbench: it manages capture folders and Siril processing runs, plans sky targets and mosaics, models observing sites, and assesses observing conditions. A Python backend serves a local HTTP API to a Vite + TypeScript web app, with SQLite for durable state.
 
-Current version: **0.2.2** (see [docs/app/core-content.json](docs/app/core-content.json) for the changelog).
+Current version: **0.3.0** (see [docs/app/core-content.json](docs/app/core-content.json) for the changelog).
 
 For how the system is structured, what owns what, and known caveats, read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
@@ -15,6 +15,9 @@ Implemented:
 - **Sky** — Aladin Lite map, telescope marker and field-of-view footprint driven by a normalized telescope state, simulator controls, planned pointing.
 - **Mosaic planner** — regular panel grids from an imaging profile and overlap, panel selection and status, plan-level observation type and filter.
 - **Observation Center** — persistent observing Sites on a map, Current Device position, Candidate Site inspection, modeled Light Pollution per Site, manual Local Horizon Profile, and Conditions (weather, Sun/Moon/twilight, target Alt/Az, observing windows, overall assessment).
+- **Capture provenance** — imported captures and their frames are registered in SQLite with content hashes and FITS metadata; a standalone registrar covers existing captures.
+- **Catalog** — canonical astronomical CatalogObjects with exact alias resolution and a bundled, pinned OpenNGC snapshot (registered explicitly). See [docs/CATALOG.md](docs/CATALOG.md).
+- **WZRD / MCP** — a read-only MCP server for WZRD, the conversational interface: Sites, Targets, catalog, deterministic target visibility and visibility windows, and the Site weather forecast. No write or telescope-control tools. See [docs/MCP.md](docs/MCP.md).
 
 Scaffold only (structure exists, no working behavior):
 
@@ -22,7 +25,7 @@ Scaffold only (structure exists, no working behavior):
 
 Present in code but not reachable from the app:
 
-- The SQLite `Observation` / `Frame` / `Dataset` / `ProcessingRun` repositories are implemented and tested, but the local API does not expose them. The Projects and Processing workspaces run on the filesystem instead. See the "Two data worlds" section of the architecture doc.
+- The SQLite `Observation` / `Dataset` / `ProcessingRun` repositories are implemented and tested, but the local API does not expose them (Captures and Frames are now registered on import). The Projects and Processing workspaces run on the filesystem instead. See the "Two data worlds" section of the architecture doc.
 
 ## Requirements
 
@@ -101,9 +104,11 @@ npm test                                  # frontend logic tests, Node built-in 
 - `tsn_dss/engine/` — services: projects, Siril, weather, astronomy, light pollution, telescope
 - `tsn_dss/engine/sqlite/` — schema bootstrap and repositories
 - `tsn_dss/gui/http_api.py` — local HTTP API used by the frontend
+- `tsn_dss/mcp/` — read-only MCP server for WZRD
 - `frontend/` — Vite + TypeScript web app (`src/main.ts`, `src/app/`, `tests/`)
 - `sqlite/` — `schema.sql` and `seed.sql`
 - `docs/ARCHITECTURE.md` — current architecture
+- `docs/MCP.md`, `docs/CATALOG.md` — MCP interface and catalog objects
 - `docs/app/core-content.json` — version, changelog and TODO list shown in the app's Core page
 - `tests/` — backend `unittest` suite
 - `data/light_pollution/` — location for the local raster (the `.tif` is git-ignored)

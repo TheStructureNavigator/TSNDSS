@@ -1,6 +1,21 @@
 {
-  "current_version": "0.2.2",
+  "current_version": "0.3.0",
   "releases": [
+    {
+      "version": "0.3.0",
+      "date": "2026-09-27",
+      "changelog": [
+        "Added canonical Capture and Frame records in SQLite. Each capture of a project is registered with where it came from, and each observational file (.fit, .fits, .fts, .cr2) becomes a Frame with a SHA-256 content hash, a frame type taken from the capture's biases/darks/flats/lights folder, and conservatively extracted FITS metadata. Registration never modifies, moves or renames capture files.",
+        "Importing a capture now also registers the capture and its frames and reports the result. A standalone registrar (python -m tsn_dss.engine.capture_registry) registers existing projects and captures; it can be run repeatedly and reports missing files, changed content and duplicates instead of fixing or deleting anything.",
+        "Deleting a project is now also refused while it has registered captures or frames, because they are provenance records and there is no purge or archive operation yet.",
+        "The database schema moves to v4: v3 adds canonical captures and replaces the earlier frames table (the upgrade refuses to run and changes nothing if that table holds data), and v4 adds astronomical catalog objects and aliases. Existing databases are backed up automatically before each upgrade.",
+        "Added astronomical CatalogObjects, kept separate from workflow Targets, with deterministic exact alias resolution: M42, M 42 and Messier 42 resolve to the same object, and there is no fuzzy matching. TSN DSS bundles a pinned OpenNGC snapshot (release v20260501, CC-BY-SA-4.0); registering it into a database is an explicit step, and names shared by more than one object, such as Eagle Nebula, are left unresolved instead of guessed.",
+        "Added deterministic target visibility in the backend: a target counts as visible when it is above the horizon, above the minimum altitude and clear of the Site's Local Horizon. It can be evaluated at one moment or as visibility windows over a time interval. Weather, twilight, the Moon and any ranking are deliberately not part of it.",
+        "Added a read-only MCP server (python -m tsn_dss.mcp.server) for WZRD, the conversational interface to TSN DSS. It can list Sites and their Local Horizon, search workflow Targets, search and resolve CatalogObjects, evaluate target visibility and visibility windows, and read the Site weather forecast. It opens the database read-only and exposes no write or telescope-control actions.",
+        "WZRD can read the same Open-Meteo Site forecast the Observation Center uses, by Site id or exact Site name. Forecast times are Open-Meteo local times together with the Site's timezone, the default range is two days so the whole coming night is covered, and the forecast is kept separate from visibility and astronomy.",
+        "Added WZRD guidance for natural, voice-friendly answers: grounded in TSN DSS data, short by default, with more detail or full precision when asked."
+      ]
+    },
     {
       "version": "0.2.2",
       "date": "2026-09-21",
