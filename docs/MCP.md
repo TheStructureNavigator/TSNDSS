@@ -30,6 +30,7 @@ The server uses stdio. Stdout is reserved for MCP protocol traffic; diagnostics 
 - `resolve_catalog_object(query)` resolves one canonical astronomical `CatalogObject` by deterministic exact alias.
 - `search_targets(query=None, limit=20)` searches the local TSN DSS target catalog only.
 - `target_visibility_at(site_id, time_utc, target_id=None, target_query=None, target_ra_deg=None, target_dec_deg=None, min_target_altitude_deg=30)` evaluates deterministic point-in-time visibility.
+- `target_visibility_windows(site_id, start_time_utc, end_time_utc, target_id=None, target_query=None, catalog_query=None, target_ra_deg=None, target_dec_deg=None, min_target_altitude_deg=30)` evaluates deterministic visibility windows over a UTC interval.
 
 `CatalogObject` and `Target` are intentionally different concepts:
 
@@ -52,6 +53,8 @@ AND (no Local Horizon profile OR above_local_horizon)
 
 Weather/cloud cover is not part of this boolean, and the result does not mean astrophotography conditions are good.
 
+`target_visibility_windows` uses the same deterministic visibility predicate over a closed UTC interval and returns zero or more clipped windows. It can use exactly one target source: a persisted workflow `Target`, a resolved canonical `CatalogObject` through `catalog_query`, or explicit RA/Dec coordinates. Window diagnostics are evaluation-grid-derived observations, not continuous proof that an opposite condition never occurred between evaluated instants. Weather, twilight, Moon constraints and ranking are excluded.
+
 ## Example Client Configuration
 
 Provider-neutral MCP clients generally need a command and args:
@@ -71,7 +74,7 @@ Provider-neutral MCP clients generally need a command and args:
 ## Current Limitations
 
 - Catalog and Target search use the local TSN DSS database only; there is no external catalog lookup.
-- Catalog tools do not integrate with visibility yet.
 - `target_visibility_at` does not include weather forecasts.
+- `target_visibility_windows` does not include weather forecasts.
 - No write tools or actions are exposed.
 - No planning execution, instrument control, Seestar or ASCOM integration is exposed.

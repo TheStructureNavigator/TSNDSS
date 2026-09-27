@@ -14,6 +14,7 @@ from .tools.sites import get_site as get_site_impl
 from .tools.sites import get_sites as get_sites_impl
 from .tools.targets import search_targets as search_targets_impl
 from .tools.visibility import target_visibility_at as target_visibility_at_impl
+from .tools.visibility import target_visibility_windows as target_visibility_windows_impl
 
 try:
     from mcp.server import MCPServer
@@ -118,6 +119,41 @@ def create_mcp_server(
                 target_ra_deg=target_ra_deg,
                 target_dec_deg=target_dec_deg,
                 time_utc=time_utc,
+                min_target_altitude_deg=min_target_altitude_deg,
+            ),
+        )
+
+    @mcp.tool()
+    def target_visibility_windows(
+        site_id: str,
+        start_time_utc: str,
+        end_time_utc: str,
+        target_id: str | None = None,
+        target_query: str | None = None,
+        catalog_query: str | None = None,
+        target_ra_deg: float | None = None,
+        target_dec_deg: float | None = None,
+        min_target_altitude_deg: float = 30.0,
+    ) -> dict[str, Any]:
+        """Evaluate deterministic TSN DSS visibility windows over a UTC interval.
+
+        The returned windows use the same geometric/minimum-altitude/Local Horizon predicate
+        as point visibility. Weather, twilight, Moon constraints and ranking are not included.
+        Diagnostics are derived from evaluated states, not continuous mathematical proofs.
+        """
+        return _call_tool(
+            projects_root=projects_root,
+            database_path=database_path,
+            callback=lambda connection: target_visibility_windows_impl(
+                connection,
+                site_id=site_id,
+                target_id=target_id,
+                target_query=target_query,
+                catalog_query=catalog_query,
+                target_ra_deg=target_ra_deg,
+                target_dec_deg=target_dec_deg,
+                start_time_utc=start_time_utc,
+                end_time_utc=end_time_utc,
                 min_target_altitude_deg=min_target_altitude_deg,
             ),
         )

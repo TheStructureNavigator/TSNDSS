@@ -4,6 +4,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tsn_dss.domain.models import LocalHorizonPoint, Site, Target
 from tsn_dss.engine.openngc import register_bundled_openngc_catalog
@@ -14,6 +15,12 @@ from tsn_dss.mcp.server import create_mcp_server
 from tsn_dss.mcp.tools.catalog import resolve_catalog_object, search_catalog
 from tsn_dss.mcp.tools.sites import get_site, get_sites
 from tsn_dss.mcp.tools.targets import search_targets
+from tsn_dss.mcp.tools.visibility import target_visibility_windows
+
+try:
+    from mcp.server.mcpserver.exceptions import ToolError
+except ModuleNotFoundError:  # pragma: no cover - dependency is required for these tests
+    ToolError = RuntimeError  # type: ignore[assignment,misc]
 
 
 class McpToolsTests(unittest.TestCase):
@@ -130,12 +137,166 @@ class McpToolsTests(unittest.TestCase):
                     "search_catalog",
                     "search_targets",
                     "target_visibility_at",
+                    "target_visibility_windows",
                 ],
             )
             self.assertFalse(result.is_error)
             self.assertEqual(result.structured_content["sites"][0]["id"], "site:yard")
 
         asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_accepts_explicit_coordinates(self) -> None:
+        async def run_check() -> None:
+            server = create_mcp_server(database_path=self.db_path)
+            result = await server.call_tool(
+                "target_visibility_windows",
+                {
+                    "site_id": "site:yard",
+                    "start_time_utc": "2026-10-15T18:00:00Z",
+                    "end_time_utc": "2026-10-15T23:00:00Z",
+                    "target_ra_deg": 10.6847083,
+                    "target_dec_deg": 41.26875,
+                    "min_target_altitude_deg": 20.0,
+                },
+            )
+
+            self.assertFalse(result.is_error)
+            visibility = result.structured_content["visibility_windows"]
+            self.assertEqual(visibility["site"]["id"], "site:yard")
+            self.assertEqual(visibility["target"]["source_kind"], "manual")
+            self.assertEqual(len(visibility["windows"]), 1)
+            self.assertEqual(visibility["diagnostic_semantics"], "evaluation_grid_derived_not_continuous_proof")
+            self.assertIn("weather", visibility["excluded_constraints"])
+
+        asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_returns_zero_windows(self) -> None:
+        async def run_check() -> None:
+            server = create_mcp_server(database_path=self.db_path)
+            result = await server.call_tool(
+                "target_visibility_windows",
+                {
+                    "site_id": "Back Yard",
+                    "start_time_utc": "2026-10-15T18:00:00Z",
+                    "end_time_utc": "2026-10-15T23:00:00Z",
+                    "target_ra_deg": 0.0,
+                    "target_dec_deg": -80.0,
+                    "min_target_altitude_deg": 30.0,
+                },
+            )
+
+            self.assertFalse(result.is_error)
+            visibility = result.structured_content["visibility_windows"]
+            self.assertEqual(visibility["site"]["id"], "site:yard")
+            self.assertEqual(visibility["windows"], [])
+            self.assertFalse(visibility["diagnostics"]["any_visible"])
+
+        asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_rejects_invalid_interval(self) -> None:
+        async def run_check() -> None:
+            server = create_mcp_server(database_path=self.db_path)
+            with self.assertRaisesRegex(ToolError, "end_time_utc"):
+                await server.call_tool(
+                    "target_visibility_windows",
+                    {
+                        "site_id": "site:yard",
+                        "start_time_utc": "2026-10-15T18:00:00Z",
+                        "end_time_utc": "2026-10-15T18:00:00Z",
+                        "target_ra_deg": 10.6847083,
+                        "target_dec_deg": 41.26875,
+                    },
+                )
+
+        asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_rejects_unknown_site(self) -> None:
+        async def run_check() -> None:
+            server = create_mcp_server(database_path=self.db_path)
+            with self.assertRaisesRegex(ToolError, "Unknown site_id"):
+                await server.call_tool(
+                    "target_visibility_windows",
+                    {
+                        "site_id": "site:missing",
+                        "start_time_utc": "2026-10-15T18:00:00Z",
+                        "end_time_utc": "2026-10-15T19:00:00Z",
+                        "target_ra_deg": 10.6847083,
+                        "target_dec_deg": 41.26875,
+                    },
+                )
+
+        asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_is_read_only(self) -> None:
+        async def run_check() -> None:
+            before = self._planning_counts()
+            server = create_mcp_server(database_path=self.db_path)
+            result = await server.call_tool(
+                "target_visibility_windows",
+                {
+                    "site_id": "site:yard",
+                    "start_time_utc": "2026-10-15T18:00:00Z",
+                    "end_time_utc": "2026-10-15T19:00:00Z",
+                    "target_id": "target:m31",
+                    "min_target_altitude_deg": 20.0,
+                },
+            )
+            after = self._planning_counts()
+
+            self.assertFalse(result.is_error)
+            self.assertEqual(after, before)
+
+        asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_preserves_multiple_window_payload(self) -> None:
+        class FakeWindowResult:
+            def to_dict(self) -> dict:
+                return {
+                    "interval_start_utc": "2026-10-15T18:00:00Z",
+                    "interval_end_utc": "2026-10-15T20:00:00Z",
+                    "min_target_altitude_deg": 20.0,
+                    "windows": [
+                        {
+                            "start_utc": "2026-10-15T18:10:00Z",
+                            "end_utc": "2026-10-15T18:30:00Z",
+                            "starts_at_interval_start": False,
+                            "ends_at_interval_end": False,
+                            "max_altitude_deg": 35.0,
+                            "max_altitude_time_utc": "2026-10-15T18:20:00Z",
+                        },
+                        {
+                            "start_utc": "2026-10-15T19:05:00Z",
+                            "end_utc": "2026-10-15T19:50:00Z",
+                            "starts_at_interval_start": False,
+                            "ends_at_interval_end": False,
+                            "max_altitude_deg": 42.0,
+                            "max_altitude_time_utc": "2026-10-15T19:25:00Z",
+                        },
+                    ],
+                    "diagnostics": {"samples_evaluated": 241, "any_visible": True},
+                }
+
+        with patch("tsn_dss.mcp.tools.visibility.visibility_windows", return_value=FakeWindowResult()):
+            payload = target_visibility_windows(
+                self.connection,
+                site_id="site:yard",
+                target_id="target:m31",
+                start_time_utc="2026-10-15T18:00:00Z",
+                end_time_utc="2026-10-15T20:00:00Z",
+                min_target_altitude_deg=20.0,
+            )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(len(visibility["windows"]), 2)
+        self.assertEqual(visibility["windows"][0]["end_utc"], "2026-10-15T18:30:00Z")
+        self.assertEqual(visibility["windows"][1]["start_utc"], "2026-10-15T19:05:00Z")
+
+    def _planning_counts(self) -> tuple[int, int, int]:
+        return (
+            self.connection.execute("SELECT COUNT(*) FROM sites").fetchone()[0],
+            self.connection.execute("SELECT COUNT(*) FROM targets").fetchone()[0],
+            self.connection.execute("SELECT COUNT(*) FROM catalog_objects").fetchone()[0],
+        )
 
     def test_mcp_catalog_tools_do_not_auto_register_openngc(self) -> None:
         async def run_check() -> None:
@@ -177,6 +338,15 @@ class McpCatalogToolsTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "catalog.db"
         cls.connection = initialize_database(cls.db_path)
+        PlanningRepository(cls.connection).create_site(
+            Site(
+                id="site:yard",
+                name="Back Yard",
+                latitude_deg=52.1,
+                longitude_deg=21.0,
+                elevation_m=110.0,
+            )
+        )
         register_bundled_openngc_catalog(CatalogRepository(cls.connection))
 
     @classmethod
@@ -273,6 +443,36 @@ class McpCatalogToolsTests(unittest.TestCase):
             self.assertEqual(search.structured_content["objects"][0]["catalog_object_id"], "catalog-object:openngc:ngc7000")
 
         asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_resolves_catalog_query_without_creating_target(self) -> None:
+        before = self._catalog_counts()
+        target_count_before = self.connection.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+
+        payload = target_visibility_windows(
+            self.connection,
+            site_id="site:yard",
+            catalog_query="M42",
+            start_time_utc="2026-10-15T18:00:00Z",
+            end_time_utc="2026-10-15T23:00:00Z",
+            min_target_altitude_deg=0.0,
+        )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(visibility["target"]["source_kind"], "catalog_object")
+        self.assertEqual(visibility["target"]["source_id"], "catalog-object:openngc:ngc1976")
+        self.assertGreaterEqual(len(visibility["windows"]), 1)
+        self.assertEqual(self.connection.execute("SELECT COUNT(*) FROM targets").fetchone()[0], target_count_before)
+        self.assertEqual(self._catalog_counts(), before)
+
+    def test_mcp_visibility_windows_rejects_unresolved_catalog_query(self) -> None:
+        with self.assertRaisesRegex(ValueError, "CatalogObject not found"):
+            target_visibility_windows(
+                self.connection,
+                site_id="site:yard",
+                catalog_query="Definitely Not A Catalog Object 999",
+                start_time_utc="2026-10-15T18:00:00Z",
+                end_time_utc="2026-10-15T23:00:00Z",
+            )
 
     def _resolved_id(self, alias: str) -> str:
         payload = resolve_catalog_object(self.connection, alias)
