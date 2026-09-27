@@ -135,8 +135,8 @@ See the next section for the pipeline and the exact backend/frontend split.
 ```
 Site (id → lat/lon/elevation) + reference time + target + min altitude + forecast range
    │
-   ├─ GET /api/site-forecast           weather   (Open-Meteo, normalized in weather.py)
-   └─ GET /api/astronomical-conditions astronomy (astropy/astroplan, engine/astronomy.py)
+   ├─ GET /api/site-forecast           weather   (Open-Meteo, normalized in weather.py; optional past_days=0|1)
+   └─ GET /api/astronomical-conditions astronomy (astropy/astroplan, engine/astronomy.py; optional scope=rolling|night)
            Sun/twilight/night, Moon, hourly target Alt/Az, airmass, Moon–target separation
    │
    ▼  frontend joins the two hourly series by exact UTC instant (conditions_time.ts)
@@ -151,6 +151,9 @@ Site (id → lat/lon/elevation) + reference time + target + min altitude + forec
 - Weather retrieval from Open-Meteo, normalization to `SiteForecastSnapshot`, and derived dew margin and dew risk (`weather.py`). The forecast range is 1–16 days, starting at Site-local midnight.
 - Weather sample time: the client requests Unix timestamps (`timeformat=unixtime`), so every sample has an unambiguous `time_utc`. `time` keeps Open-Meteo's local wall-clock label, reproduced as the instant plus the single response-level `utc_offset_seconds` (also returned). Open-Meteo uses one offset for the whole response, so after a DST change inside the range `time` differs from civil time by the DST delta; it is for display and compatibility only.
 - Astronomy: sky state (day/civil/nautical/astronomical twilight/night), twilight and astronomical-night boundaries, sunrise/sunset, Moon altitude/azimuth/illumination/phase, moonrise/moonset, and for a target: hourly altitude, azimuth, airmass, Moon–target separation, transit, and the above-horizon window.
+- Observing-night astronomy (`scope=night`): `hourly` covers the whole observing night, floor(sunset) to ceil(sunrise), instead of starting at the reference hour; `current` is still the reference time. The night is anchored like the night window (daytime → the next night; twilight, night, after midnight and before sunrise → the night that began at the previous sunset). A `night` block adds `status` (`ok`, `sun_does_not_set`, `sun_does_not_rise`, `incomplete`), every sunset/twilight/sunrise boundary under the same names as `current` (searched forward from that sunset and bounded by the following sunrise; null = phase not reached), `moon_up_at_sunset`, and `moon_events` (moonrise/moonset within the night, found from the Moon's true altitude, centre at 0°, no refraction). `forecast_hours` is ignored and hourly is empty unless `status` is `ok`. Without `scope`, the response is unchanged (no `night` key).
+- Weather history: `past_days` (0 or 1, default 0, clamped like `forecast_days`) starts the hourly series at Site-local midnight of the previous date, so a night that began yesterday evening is covered after midnight. Samples keep `time_utc`; nothing is filled or shifted.
+- Known issue (default scope): during evening twilight, before astronomical night starts, `current`'s evening boundaries after the reference and the whole following night come from the previous night, because they are searched backwards from the reference. `current.moonrise_utc`/`moonset_utc` come from astroplan and can miss an event shortly after the reference. The `night` block does not have either issue.
 - The configured minimum target altitude: `min_target_altitude_deg` query parameter (default 30), producing `target_above_observation_threshold` per hour (`altitude ≥ min`). The frontend currently always sends 30.
 - Target resolution for a request: explicit `target_ra_deg`/`target_dec_deg`, else a `target_name` matching a stored Target, else `mosaic_panel_id`, `target_id`, or `use_planned_pointing`.
 

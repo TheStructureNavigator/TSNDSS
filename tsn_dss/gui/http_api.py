@@ -247,6 +247,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     forecast = context.weather_client.fetch_site_forecast(
                         site,
                         forecast_days=forecast_days,
+                        past_days=_coerce_past_days(self._get_query_param("past_days")),
                     )
                 except ValueError as error:
                     self._write_json(
@@ -316,6 +317,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                         )
                         or 30.0,
                         forecast_hours=forecast_hours,
+                        scope=self._get_query_param("scope") or "rolling",
                     )
                 except ValueError as error:
                     self._write_json(
@@ -1676,6 +1678,12 @@ def _coerce_forecast_days(value: str | None, *, forecast_hours: str | None = Non
         return max(1, min(MAX_FORECAST_DAYS, (hours + 23) // 24))
 
     return DEFAULT_FORECAST_DAYS
+
+
+def _coerce_past_days(value: str | None) -> int:
+    if value is None or value == "":
+        return 0
+    return max(0, min(1, int(value)))
 
 
 def _coerce_forecast_hours(value: str | None, *, forecast_days: int) -> int:

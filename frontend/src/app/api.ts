@@ -208,6 +208,37 @@ export type AstronomicalConditionsHour = {
   target_above_observation_threshold: boolean | null;
 };
 
+export type AstronomicalMoonEvent = {
+  kind: 'moonrise' | 'moonset';
+  time_utc: string;
+};
+
+/**
+ * One observing night (sunset -> following sunrise), returned for scope=night.
+ * Boundary names match AstronomicalConditionsCurrent; null means the phase is not reached this night.
+ */
+export type AstronomicalNight = {
+  status: 'ok' | 'sun_does_not_set' | 'sun_does_not_rise' | 'incomplete';
+  sunset_utc: string | null;
+  sunrise_utc: string | null;
+  civil_twilight_evening_start_utc: string | null;
+  civil_twilight_evening_end_utc: string | null;
+  civil_twilight_morning_start_utc: string | null;
+  civil_twilight_morning_end_utc: string | null;
+  nautical_twilight_evening_start_utc: string | null;
+  nautical_twilight_evening_end_utc: string | null;
+  nautical_twilight_morning_start_utc: string | null;
+  nautical_twilight_morning_end_utc: string | null;
+  astronomical_twilight_evening_start_utc: string | null;
+  astronomical_twilight_evening_end_utc: string | null;
+  astronomical_twilight_morning_start_utc: string | null;
+  astronomical_twilight_morning_end_utc: string | null;
+  astronomical_night_start_utc: string | null;
+  astronomical_night_end_utc: string | null;
+  moon_up_at_sunset: boolean | null;
+  moon_events: AstronomicalMoonEvent[];
+};
+
 export type AstronomicalConditionsSnapshot = {
   site_id: string;
   site_name: string;
@@ -220,6 +251,8 @@ export type AstronomicalConditionsSnapshot = {
   target: AstronomicalTargetContext | null;
   current: AstronomicalConditionsCurrent;
   hourly: AstronomicalConditionsHour[];
+  /** Present only for scope=night. */
+  night?: AstronomicalNight;
 };
 
 export type ProjectSummary = {
@@ -416,13 +449,16 @@ export async function fetchSites(): Promise<{
   return getJson<{ active_site_id: string | null; sites: Site[] }>('/api/sites');
 }
 
-export async function fetchSiteForecast(siteId?: string | null, forecastDays = 1): Promise<SiteForecastSnapshot> {
+export async function fetchSiteForecast(siteId?: string | null, forecastDays = 1, pastDays = 0): Promise<SiteForecastSnapshot> {
   const query = new URLSearchParams();
   if (siteId) {
     query.set('site_id', siteId);
   }
   if (forecastDays > 0) {
     query.set('forecast_days', String(forecastDays));
+  }
+  if (pastDays > 0) {
+    query.set('past_days', String(pastDays));
   }
   const queryString = query.toString();
   const suffix = queryString ? `?${queryString}` : '';
@@ -452,6 +488,8 @@ export async function fetchAstronomicalConditions(input?: {
   source_id?: string | null;
   min_target_altitude_deg?: number | null;
   forecast_hours?: number | null;
+  /** 'night' returns hourly astronomy for the whole observing night plus a `night` block. */
+  scope?: 'rolling' | 'night';
 }): Promise<AstronomicalConditionsSnapshot> {
   const query = new URLSearchParams();
   if (input?.site_id) {
@@ -489,6 +527,9 @@ export async function fetchAstronomicalConditions(input?: {
   }
   if (input?.forecast_hours != null) {
     query.set('forecast_hours', String(input.forecast_hours));
+  }
+  if (input?.scope) {
+    query.set('scope', input.scope);
   }
 
   const queryString = query.toString();

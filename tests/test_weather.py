@@ -82,6 +82,7 @@ class WeatherClientTests(unittest.TestCase):
         requested_query = parse_qs(urlsplit(mocked_urlopen.call_args.args[0]).query)
         self.assertEqual(requested_query["forecast_days"], ["16"])
         self.assertEqual(requested_query["timeformat"], ["unixtime"])
+        self.assertNotIn("past_days", requested_query)
         self.assertEqual(snapshot.utc_offset_seconds, 7200)
         self.assertEqual(snapshot.current.time, "2026-08-30T20:00")
         self.assertEqual(snapshot.current.time_utc, "2026-08-30T18:00:00Z")
@@ -123,6 +124,35 @@ class WeatherClientTests(unittest.TestCase):
             ["2026-10-25T01:00", "2026-10-25T02:00", "2026-10-25T03:00", "2026-10-25T04:00"],
         )
         self.assertEqual(len({hour.time_utc for hour in snapshot.hourly}), 4)
+
+    def test_past_days_extends_coverage_and_keeps_instant_semantics(self) -> None:
+        # Opened at 01:30 local: the observing night began on the previous local date.
+        instants = ["2026-09-26T22:00:00Z", "2026-09-26T23:00:00Z", "2026-09-27T22:00:00Z"]
+        payload = {
+            "timezone": "Europe/Warsaw",
+            "utc_offset_seconds": 7200,
+            "hourly": {"time": [_epoch(value) for value in instants], "cloud_cover": [10, None, 30]},
+        }
+        with patch("tsn_dss.engine.weather.urlopen", return_value=_FakeResponse(payload)) as mocked_urlopen:
+            snapshot = OpenMeteoForecastClient().fetch_site_forecast(_site(), forecast_days=2, past_days=1)
+
+        query = parse_qs(urlsplit(mocked_urlopen.call_args.args[0]).query)
+        self.assertEqual(query["past_days"], ["1"])
+        self.assertEqual(query["forecast_days"], ["2"])
+        self.assertEqual(query["timeformat"], ["unixtime"])
+        self.assertEqual([hour.time_utc for hour in snapshot.hourly], instants)
+        self.assertEqual([hour.time for hour in snapshot.hourly], ["2026-09-27T00:00", "2026-09-27T01:00", "2026-09-28T00:00"])
+        # A missing provider value stays missing; nothing is shifted or substituted.
+        self.assertEqual([hour.cloud_cover_pct for hour in snapshot.hourly], [10.0, None, 30.0])
+
+    def test_past_days_is_clamped_like_forecast_days(self) -> None:
+        payload = {"timezone": "Europe/Warsaw", "utc_offset_seconds": 7200}
+        for requested, expected in [(0, None), (-3, None), (1, ["1"]), (7, ["1"])]:
+            with self.subTest(requested=requested):
+                with patch("tsn_dss.engine.weather.urlopen", return_value=_FakeResponse(payload)) as mocked_urlopen:
+                    OpenMeteoForecastClient().fetch_site_forecast(_site(), past_days=requested)
+                query = parse_qs(urlsplit(mocked_urlopen.call_args.args[0]).query)
+                self.assertEqual(query.get("past_days"), expected)
 
     def test_missing_utc_offset_is_rejected_as_malformed(self) -> None:
         payload = {"timezone": "Europe/Warsaw", "hourly": {"time": [_epoch("2026-08-30T18:00:00Z")]}}

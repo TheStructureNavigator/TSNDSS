@@ -9,6 +9,10 @@ from urllib.request import urlopen
 
 from ..domain.models import Site
 
+# Observation Center needs the previous local date after midnight; larger history is not a v1 need.
+MIN_PAST_DAYS = 0
+MAX_PAST_DAYS = 1
+
 
 @dataclass(slots=True)
 class SiteForecastCurrent:
@@ -139,9 +143,11 @@ class OpenMeteoForecastClient:
     base_url = "https://api.open-meteo.com/v1/forecast"
     provider_name = "open-meteo"
 
-    def fetch_site_forecast(self, site: Site, *, forecast_days: int = 1) -> SiteForecastSnapshot:
+    def fetch_site_forecast(self, site: Site, *, forecast_days: int = 1, past_days: int = 0) -> SiteForecastSnapshot:
+        """Hourly forecast from Site-local midnight `past_days` days ago through `forecast_days` days ahead."""
         if site.latitude_deg is None or site.longitude_deg is None:
             raise ValueError("Site must define latitude and longitude before forecast can be requested.")
+        past_days = max(MIN_PAST_DAYS, min(MAX_PAST_DAYS, int(past_days)))
 
         params = {
             "latitude": site.latitude_deg,
@@ -197,6 +203,8 @@ class OpenMeteoForecastClient:
         }
         if site.elevation_m is not None:
             params["elevation"] = site.elevation_m
+        if past_days > 0:
+            params["past_days"] = past_days
 
         url = f"{self.base_url}?{urlencode(params)}"
         with urlopen(url, timeout=15) as response:

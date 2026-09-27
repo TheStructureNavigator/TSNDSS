@@ -24,6 +24,10 @@ warnings.filterwarnings("ignore", category=NonRotationTransformationWarning)
 warnings.filterwarnings("ignore", category=TargetAlwaysUpWarning)
 warnings.filterwarnings("ignore", category=TargetNeverUpWarning)
 
+CONDITIONS_SCOPES = ("rolling", "night")
+_MOON_EVENT_SCAN_STEP = timedelta(minutes=2)
+_MOON_EVENT_TOLERANCE = timedelta(seconds=1)
+
 
 @dataclass(slots=True)
 class AstronomicalTargetContext:
@@ -142,6 +146,38 @@ class AstronomicalConditionsHour:
 
 
 @dataclass(slots=True)
+class AstronomicalMoonEvent:
+    kind: str
+    time_utc: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "time_utc": self.time_utc}
+
+
+@dataclass(slots=True)
+class AstronomicalNight:
+    """One observing night: sunset to the following sunrise, with exact boundaries.
+
+    Boundary fields use the same names and meanings as `AstronomicalConditionsCurrent`; null means the
+    phase is not reached during this night. `status` is `ok`, `sun_does_not_set`, `sun_does_not_rise`
+    (no sunset within the search horizon) or `incomplete` (sunset found, no following sunrise).
+    """
+
+    status: str
+    boundaries: dict[str, str | None]
+    moon_up_at_sunset: bool | None
+    moon_events: list[AstronomicalMoonEvent]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            **self.boundaries,
+            "moon_up_at_sunset": self.moon_up_at_sunset,
+            "moon_events": [event.to_dict() for event in self.moon_events],
+        }
+
+
+@dataclass(slots=True)
 class AstronomicalConditionsSnapshot:
     site_id: str
     site_name: str
@@ -154,9 +190,10 @@ class AstronomicalConditionsSnapshot:
     target: dict[str, Any] | None
     current: AstronomicalConditionsCurrent
     hourly: list[AstronomicalConditionsHour]
+    night: AstronomicalNight | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "site_id": self.site_id,
             "site_name": self.site_name,
             "latitude_deg": self.latitude_deg,
@@ -169,6 +206,9 @@ class AstronomicalConditionsSnapshot:
             "current": self.current.to_dict(),
             "hourly": [hour.to_dict() for hour in self.hourly],
         }
+        if self.night is not None:
+            payload["night"] = self.night.to_dict()
+        return payload
 
 
 @dataclass(slots=True)
@@ -202,9 +242,19 @@ class AstronomicalConditionsService:
         target: AstronomicalTargetContext | None = None,
         min_target_altitude_deg: float = 30.0,
         forecast_hours: int = 24,
+        scope: str = "rolling",
     ) -> AstronomicalConditionsSnapshot:
+        """Astronomy at a reference time plus an hourly series.
+
+        scope="rolling" (default): hourly from the reference hour for `forecast_hours`.
+        scope="night": hourly covers the observing night (floor(sunset) .. ceil(sunrise)) anchored like the
+        night window (daytime -> next night; otherwise the night that began at the previous sunset), and a
+        `night` block is added. `forecast_hours` is ignored for scope="night".
+        """
         if site.latitude_deg is None or site.longitude_deg is None:
             raise ValueError("Site must define latitude and longitude before astronomical conditions can be calculated.")
+        if scope not in CONDITIONS_SCOPES:
+            raise ValueError(f"scope must be one of: {', '.join(CONDITIONS_SCOPES)}.")
 
         reference_dt = normalize_utc_datetime(reference_time_utc)
         observer = _build_observer(site)
@@ -255,15 +305,20 @@ class AstronomicalConditionsService:
             target=current_target,
         )
 
-        hourly_start = reference_dt.replace(minute=0, second=0, microsecond=0)
+        night = None
+        if scope == "night":
+            night, hourly_times = _compute_observing_night(observer, reference_time, sky_state)
+        else:
+            hourly_start = reference_dt.replace(minute=0, second=0, microsecond=0)
+            hourly_times = [hourly_start + timedelta(hours=index) for index in range(max(1, forecast_hours))]
         hourly = [
             _compute_hour(
                 observer,
-                hourly_start + timedelta(hours=index),
+                moment,
                 target=target,
                 min_target_altitude_deg=min_target_altitude_deg,
             )
-            for index in range(max(1, forecast_hours))
+            for moment in hourly_times
         ]
 
         return AstronomicalConditionsSnapshot(
@@ -278,6 +333,7 @@ class AstronomicalConditionsService:
             target=target.to_dict() if target else None,
             current=current,
             hourly=hourly,
+            night=night,
         )
 
 
@@ -528,6 +584,140 @@ def _compute_night_window(observer: Observer, reference_time: Time, sky_state: s
         astronomical_night_start=astronomical_evening_end,
         astronomical_night_end=astronomical_morning_start,
     )
+
+
+def _compute_observing_night(
+    observer: Observer,
+    reference_time: Time,
+    sky_state: str,
+) -> tuple[AstronomicalNight, list[datetime]]:
+    """The observing night for a reference time, with every boundary searched forward from its sunset.
+
+    Anchoring matches the night window: daytime -> next sunset; otherwise the previous sunset. Unlike the
+    rolling current block, evening boundaries are the next events after that sunset and must precede the
+    following sunrise, so they always belong to the same night.
+    """
+    sunset = _safe_observer_time(observer.sun_set_time, reference_time, which="next" if sky_state == "day" else "previous")
+    if sunset is None:
+        status = "sun_does_not_set" if sky_state == "day" else "sun_does_not_rise"
+        return AstronomicalNight(status, _night_boundaries_to_dict(_empty_night_window()), None, []), []
+
+    sunrise = _safe_observer_time(observer.sun_rise_time, sunset, which="next")
+    night_end_bound = sunrise if sunrise is not None else sunset + 24 * u.hour
+
+    def within_night(value: Time | None) -> Time | None:
+        return value if value is not None and sunset < value < night_end_bound else None
+
+    civil_evening_end = within_night(_safe_observer_time(observer.twilight_evening_civil, sunset, which="next"))
+    nautical_evening_end = within_night(_safe_observer_time(observer.twilight_evening_nautical, sunset, which="next"))
+    astronomical_evening_end = within_night(_safe_observer_time(observer.twilight_evening_astronomical, sunset, which="next"))
+
+    def morning_after(evening_end: Time | None, method: Any) -> Time | None:
+        if evening_end is None:
+            return None
+        return within_night(_safe_observer_time(method, evening_end, which="next"))
+
+    civil_morning_start = morning_after(civil_evening_end, observer.twilight_morning_civil)
+    nautical_morning_start = morning_after(nautical_evening_end, observer.twilight_morning_nautical)
+    astronomical_morning_start = morning_after(astronomical_evening_end, observer.twilight_morning_astronomical)
+
+    window = _NightWindow(
+        sunrise=sunrise,
+        sunset=sunset,
+        civil_evening_start=sunset,
+        civil_evening_end=civil_evening_end,
+        civil_morning_start=civil_morning_start,
+        civil_morning_end=sunrise,
+        nautical_evening_start=civil_evening_end,
+        nautical_evening_end=nautical_evening_end,
+        nautical_morning_start=nautical_morning_start,
+        nautical_morning_end=civil_morning_start,
+        astronomical_evening_start=nautical_evening_end,
+        astronomical_evening_end=astronomical_evening_end,
+        astronomical_morning_start=astronomical_morning_start,
+        astronomical_morning_end=nautical_morning_start,
+        astronomical_night_start=astronomical_evening_end,
+        astronomical_night_end=astronomical_morning_start,
+    )
+    if sunrise is None:
+        return AstronomicalNight("incomplete", _night_boundaries_to_dict(window), None, []), []
+
+    moon_up_at_sunset, moon_events = _compute_moon_events(observer, sunset, sunrise)
+    night = AstronomicalNight("ok", _night_boundaries_to_dict(window), moon_up_at_sunset, moon_events)
+    return night, _hourly_times_covering(sunset, sunrise)
+
+
+def _empty_night_window() -> _NightWindow:
+    return _NightWindow(*([None] * 16))
+
+
+def _night_boundaries_to_dict(window: _NightWindow) -> dict[str, str | None]:
+    return {
+        "sunset_utc": _time_to_utc_iso(window.sunset),
+        "sunrise_utc": _time_to_utc_iso(window.sunrise),
+        "civil_twilight_evening_start_utc": _time_to_utc_iso(window.civil_evening_start),
+        "civil_twilight_evening_end_utc": _time_to_utc_iso(window.civil_evening_end),
+        "civil_twilight_morning_start_utc": _time_to_utc_iso(window.civil_morning_start),
+        "civil_twilight_morning_end_utc": _time_to_utc_iso(window.civil_morning_end),
+        "nautical_twilight_evening_start_utc": _time_to_utc_iso(window.nautical_evening_start),
+        "nautical_twilight_evening_end_utc": _time_to_utc_iso(window.nautical_evening_end),
+        "nautical_twilight_morning_start_utc": _time_to_utc_iso(window.nautical_morning_start),
+        "nautical_twilight_morning_end_utc": _time_to_utc_iso(window.nautical_morning_end),
+        "astronomical_twilight_evening_start_utc": _time_to_utc_iso(window.astronomical_evening_start),
+        "astronomical_twilight_evening_end_utc": _time_to_utc_iso(window.astronomical_evening_end),
+        "astronomical_twilight_morning_start_utc": _time_to_utc_iso(window.astronomical_morning_start),
+        "astronomical_twilight_morning_end_utc": _time_to_utc_iso(window.astronomical_morning_end),
+        "astronomical_night_start_utc": _time_to_utc_iso(window.astronomical_night_start),
+        "astronomical_night_end_utc": _time_to_utc_iso(window.astronomical_night_end),
+    }
+
+
+def _hourly_times_covering(start: Time, end: Time) -> list[datetime]:
+    start_dt = _time_to_datetime(start)
+    end_dt = _time_to_datetime(end)
+    if start_dt is None or end_dt is None:
+        return []
+    first = start_dt.replace(minute=0, second=0, microsecond=0)
+    last = end_dt.replace(minute=0, second=0, microsecond=0)
+    if last < end_dt:
+        last += timedelta(hours=1)
+    hours = int((last - first).total_seconds() // 3600)
+    return [first + timedelta(hours=index) for index in range(hours + 1)]
+
+
+def _compute_moon_events(observer: Observer, start: Time, end: Time) -> tuple[bool | None, list[AstronomicalMoonEvent]]:
+    """Moonrise/moonset inside [start, end] from the Moon's true altitude (centre at 0 deg, no refraction).
+
+    astroplan's moon_rise_time/moon_set_time can miss a crossing shortly after the anchor, so crossings are
+    found on a fixed scan grid and refined by bisection.
+    """
+    start_dt = _time_to_datetime(start)
+    end_dt = _time_to_datetime(end)
+    if start_dt is None or end_dt is None or end_dt <= start_dt:
+        return None, []
+
+    step_seconds = _MOON_EVENT_SCAN_STEP.total_seconds()
+    total_seconds = (end_dt - start_dt).total_seconds()
+    offsets = list(np.arange(0.0, total_seconds, step_seconds)) + [total_seconds]
+    sample_times = start + np.asarray(offsets) * u.s
+    altitudes = np.asarray(observer.moon_altaz(sample_times).alt.deg, dtype=float)
+    above = altitudes > 0.0
+
+    events: list[AstronomicalMoonEvent] = []
+    for index in range(len(offsets) - 1):
+        if above[index] == above[index + 1]:
+            continue
+        low, high = offsets[index], offsets[index + 1]
+        while high - low > _MOON_EVENT_TOLERANCE.total_seconds():
+            middle = (low + high) / 2.0
+            if (float(observer.moon_altaz(start + middle * u.s).alt.deg) > 0.0) == above[index]:
+                low = middle
+            else:
+                high = middle
+        crossing = _time_to_utc_iso(start + high * u.s)
+        if crossing is not None:
+            events.append(AstronomicalMoonEvent("moonset" if above[index] else "moonrise", crossing))
+    return bool(above[0]), events
 
 
 def _safe_observer_time(method: Any, anchor: Time, *, which: str) -> Time | None:

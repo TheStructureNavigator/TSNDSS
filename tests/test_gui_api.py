@@ -21,8 +21,8 @@ class FakeWeatherClient:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
 
-    def fetch_site_forecast(self, site, *, forecast_days=1):
-        self.requests.append({"site_id": site.id, "forecast_days": forecast_days})
+    def fetch_site_forecast(self, site, *, forecast_days=1, past_days=0):
+        self.requests.append({"site_id": site.id, "forecast_days": forecast_days, "past_days": past_days})
         return type(
             "ForecastPayload",
             (),
@@ -359,6 +359,7 @@ class GuiApiServerTests(unittest.TestCase):
 
         forecast = payload["forecast"]
         self.assertEqual(self.weather_client.requests[-1]["forecast_days"], 16)
+        self.assertEqual(self.weather_client.requests[-1]["past_days"], 0)
         self.assertEqual(forecast["site_id"], site_id)
         self.assertEqual(forecast["provider"], "open-meteo")
         self.assertEqual(forecast["current"]["cloud_cover_pct"], 22.0)
@@ -366,6 +367,23 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(forecast["current"]["cloud_cover_high_pct"], 35.0)
         self.assertEqual(forecast["current"]["wind_direction_deg"], 225.0)
         self.assertEqual(len(forecast["hourly"]), 1)
+
+    def test_site_forecast_endpoint_accepts_past_days(self) -> None:
+        site_id = self._send_json(
+            "/api/sites",
+            {"name": "Remote Ridge", "latitude_deg": 49.245, "longitude_deg": 22.511},
+        )["site"]["id"]
+
+        self._read_json(f"/api/site-forecast?site_id={site_id}&forecast_days=2&past_days=1")
+        self.assertEqual(self.weather_client.requests[-1], {"site_id": site_id, "forecast_days": 2, "past_days": 1})
+
+        self._read_json(f"/api/site-forecast?site_id={site_id}&past_days=5")
+        self.assertEqual(self.weather_client.requests[-1]["past_days"], 1)
+
+        with self.assertRaises(HTTPError) as context:
+            self._read_json(f"/api/site-forecast?site_id={site_id}&past_days=yesterday")
+        self.assertEqual(context.exception.code, 400)
+        self.assertEqual(json.loads(context.exception.read())["error"], "invalid_site_forecast_request")
 
     def test_site_forecast_endpoint_rejects_site_without_coordinates(self) -> None:
         created = self._send_json(
@@ -415,6 +433,33 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(conditions["current"]["target"]["target_name"], "M31")
         self.assertEqual(len(conditions["hourly"]), 3)
         self.assertIn("moon_azimuth_deg", conditions["hourly"][0])
+        self.assertNotIn("night", conditions)
+        self.assertEqual(conditions["hourly"][0]["time_utc"], "2026-10-15T20:00:00Z")
+
+    def test_astronomical_conditions_endpoint_night_scope(self) -> None:
+        site_id = self._send_json(
+            "/api/sites",
+            {"name": "Remote Ridge", "latitude_deg": 49.245, "longitude_deg": 22.511},
+        )["site"]["id"]
+
+        payload = self._read_json(
+            f"/api/astronomical-conditions?site_id={site_id}&scope=night&time_utc=2026-10-15T23:30:00Z&forecast_hours=3"
+        )
+
+        conditions = payload["conditions"]
+        night = conditions["night"]
+        self.assertEqual(night["status"], "ok")
+        self.assertTrue(night["sunset_utc"].startswith("2026-10-15T"))
+        self.assertTrue(night["sunrise_utc"].startswith("2026-10-16T"))
+        self.assertLessEqual(conditions["hourly"][0]["time_utc"], night["sunset_utc"])
+        self.assertGreaterEqual(conditions["hourly"][-1]["time_utc"], night["sunrise_utc"])
+        self.assertGreater(len(conditions["hourly"]), 3)
+        self.assertEqual(conditions["current"]["time_utc"], "2026-10-15T23:30:00Z")
+
+        with self.assertRaises(HTTPError) as context:
+            self._read_json(f"/api/astronomical-conditions?site_id={site_id}&scope=week")
+        self.assertEqual(context.exception.code, 400)
+        self.assertEqual(json.loads(context.exception.read())["error"], "invalid_astronomical_conditions_request")
 
     def test_astronomical_conditions_endpoint_rejects_missing_coordinates(self) -> None:
         created = self._send_json(
