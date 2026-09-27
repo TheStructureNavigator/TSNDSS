@@ -235,5 +235,79 @@ class ObservingNightScopeTests(unittest.TestCase):
         self.assertEqual([hour.time_utc for hour in default.hourly], ["2026-09-27T16:00:00Z", "2026-09-27T17:00:00Z", "2026-09-27T18:00:00Z"])
 
 
+class RollingObservingNightAnchorTests(unittest.TestCase):
+    """Default/rolling scope keeps rolling hourly data but uses the selected observing night for boundaries."""
+
+    BOUNDARY_FIELDS = [
+        "sunset_utc",
+        "sunrise_utc",
+        "civil_twilight_evening_start_utc",
+        "civil_twilight_evening_end_utc",
+        "civil_twilight_morning_start_utc",
+        "civil_twilight_morning_end_utc",
+        "nautical_twilight_evening_start_utc",
+        "nautical_twilight_evening_end_utc",
+        "nautical_twilight_morning_start_utc",
+        "nautical_twilight_morning_end_utc",
+        "astronomical_twilight_evening_start_utc",
+        "astronomical_twilight_evening_end_utc",
+        "astronomical_twilight_morning_start_utc",
+        "astronomical_twilight_morning_end_utc",
+        "astronomical_night_start_utc",
+        "astronomical_night_end_utc",
+    ]
+
+    def setUp(self) -> None:
+        self.service = AstronomicalConditionsService()
+        self.site = Site(id="site:synthetic-50n", name="Synthetic 50N", latitude_deg=50.0, longitude_deg=19.0, elevation_m=0.0)
+
+    def test_rolling_boundaries_use_observing_night_anchor_for_daytime_evening_night_dawn_and_after_sunrise(self) -> None:
+        cases = [
+            ("daytime", "2026-09-27T12:00:00Z", "2026-09-27"),
+            ("evening_twilight", "2026-09-27T16:45:00Z", "2026-09-27"),
+            ("astronomical_night_before_midnight", "2026-09-27T21:30:00Z", "2026-09-27"),
+            ("after_midnight", "2026-09-28T01:30:00Z", "2026-09-27"),
+            ("morning_twilight", "2026-09-28T04:20:00Z", "2026-09-27"),
+            ("after_sunrise", "2026-09-28T08:00:00Z", "2026-09-28"),
+        ]
+        for label, reference, expected_sunset_date in cases:
+            with self.subTest(label=label):
+                rolling = self.service.fetch_conditions(self.site, reference_time_utc=reference, forecast_hours=3)
+                explicit_rolling = self.service.fetch_conditions(self.site, reference_time_utc=reference, forecast_hours=3, scope="rolling")
+                night = self.service.fetch_conditions(self.site, reference_time_utc=reference, scope="night").to_dict()["night"]
+
+                self.assertEqual(rolling.to_dict(), explicit_rolling.to_dict())
+                self.assertNotIn("night", rolling.to_dict())
+                self.assertEqual([hour.time_utc for hour in rolling.hourly], self._expected_rolling_hours(reference, 3))
+                self.assertTrue(rolling.current.sunset_utc.startswith(f"{expected_sunset_date}T"))
+                for field in self.BOUNDARY_FIELDS:
+                    self.assertEqual(getattr(rolling.current, field), night[field])
+
+    def test_evening_twilight_regression_uses_that_evenings_sunset_not_previous_night(self) -> None:
+        rolling = self.service.fetch_conditions(self.site, reference_time_utc="2026-09-27T16:45:00Z", forecast_hours=2)
+
+        self.assertTrue(rolling.current.sunset_utc.startswith("2026-09-27T16:"))
+        self.assertTrue(rolling.current.astronomical_night_start_utc.startswith("2026-09-27T18:"))
+        self.assertTrue(rolling.current.astronomical_night_end_utc.startswith("2026-09-28T"))
+        self.assertEqual([hour.time_utc for hour in rolling.hourly], ["2026-09-27T16:00:00Z", "2026-09-27T17:00:00Z"])
+
+    def test_scope_night_output_remains_distinct_from_rolling(self) -> None:
+        rolling = self.service.fetch_conditions(self.site, reference_time_utc="2026-09-27T16:45:00Z", forecast_hours=3)
+        night = self.service.fetch_conditions(self.site, reference_time_utc="2026-09-27T16:45:00Z", forecast_hours=3, scope="night")
+
+        self.assertNotIn("night", rolling.to_dict())
+        self.assertIn("night", night.to_dict())
+        self.assertEqual(rolling.current.to_dict()["sunset_utc"], night.to_dict()["night"]["sunset_utc"])
+        self.assertEqual(rolling.current.time_utc, night.current.time_utc)
+        self.assertEqual(len(rolling.hourly), 3)
+        self.assertGreater(len(night.hourly), 3)
+        self.assertLessEqual(_utc(night.hourly[0].time_utc), _utc(night.to_dict()["night"]["sunset_utc"]))
+        self.assertGreaterEqual(_utc(night.hourly[-1].time_utc), _utc(night.to_dict()["night"]["sunrise_utc"]))
+
+    def _expected_rolling_hours(self, reference: str, count: int) -> list[str]:
+        start = _utc(reference).replace(minute=0, second=0, microsecond=0)
+        return [(start + timedelta(hours=index)).isoformat().replace("+00:00", "Z") for index in range(count)]
+
+
 if __name__ == "__main__":
     unittest.main()

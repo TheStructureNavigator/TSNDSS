@@ -552,38 +552,8 @@ def _derive_target_window(
 
 
 def _compute_night_window(observer: Observer, reference_time: Time, sky_state: str) -> _NightWindow:
-    use_previous_evening = sky_state != "day"
-    evening_which = "previous" if use_previous_evening else "next"
-
-    sunset = _safe_observer_time(observer.sun_set_time, reference_time, which=evening_which)
-    civil_evening_end = _safe_observer_time(observer.twilight_evening_civil, reference_time, which=evening_which)
-    nautical_evening_end = _safe_observer_time(observer.twilight_evening_nautical, reference_time, which=evening_which)
-    astronomical_evening_end = _safe_observer_time(observer.twilight_evening_astronomical, reference_time, which=evening_which)
-
-    morning_anchor = astronomical_evening_end or sunset or reference_time
-    sunrise = _safe_observer_time(observer.sun_rise_time, morning_anchor, which="next")
-    civil_morning_start = _safe_observer_time(observer.twilight_morning_civil, morning_anchor, which="next")
-    nautical_morning_start = _safe_observer_time(observer.twilight_morning_nautical, morning_anchor, which="next")
-    astronomical_morning_start = _safe_observer_time(observer.twilight_morning_astronomical, morning_anchor, which="next")
-
-    return _NightWindow(
-        sunrise=sunrise,
-        sunset=sunset,
-        civil_evening_start=sunset,
-        civil_evening_end=civil_evening_end,
-        civil_morning_start=civil_morning_start,
-        civil_morning_end=sunrise,
-        nautical_evening_start=civil_evening_end,
-        nautical_evening_end=nautical_evening_end,
-        nautical_morning_start=nautical_morning_start,
-        nautical_morning_end=civil_morning_start,
-        astronomical_evening_start=nautical_evening_end,
-        astronomical_evening_end=astronomical_evening_end,
-        astronomical_morning_start=astronomical_morning_start,
-        astronomical_morning_end=nautical_morning_start,
-        astronomical_night_start=astronomical_evening_end,
-        astronomical_night_end=astronomical_morning_start,
-    )
+    _, window = _select_observing_night_window(observer, reference_time, sky_state)
+    return window
 
 
 def _compute_observing_night(
@@ -597,10 +567,29 @@ def _compute_observing_night(
     rolling current block, evening boundaries are the next events after that sunset and must precede the
     following sunrise, so they always belong to the same night.
     """
+    status, window = _select_observing_night_window(observer, reference_time, sky_state)
+    if status != "ok":
+        return AstronomicalNight(status, _night_boundaries_to_dict(window), None, []), []
+
+    sunset = window.sunset
+    sunrise = window.sunrise
+    if sunset is None or sunrise is None:
+        return AstronomicalNight("incomplete", _night_boundaries_to_dict(window), None, []), []
+
+    moon_up_at_sunset, moon_events = _compute_moon_events(observer, sunset, sunrise)
+    night = AstronomicalNight("ok", _night_boundaries_to_dict(window), moon_up_at_sunset, moon_events)
+    return night, _hourly_times_covering(sunset, sunrise)
+
+
+def _select_observing_night_window(
+    observer: Observer,
+    reference_time: Time,
+    sky_state: str,
+) -> tuple[str, _NightWindow]:
     sunset = _safe_observer_time(observer.sun_set_time, reference_time, which="next" if sky_state == "day" else "previous")
     if sunset is None:
         status = "sun_does_not_set" if sky_state == "day" else "sun_does_not_rise"
-        return AstronomicalNight(status, _night_boundaries_to_dict(_empty_night_window()), None, []), []
+        return status, _empty_night_window()
 
     sunrise = _safe_observer_time(observer.sun_rise_time, sunset, which="next")
     night_end_bound = sunrise if sunrise is not None else sunset + 24 * u.hour
@@ -640,11 +629,8 @@ def _compute_observing_night(
         astronomical_night_end=astronomical_morning_start,
     )
     if sunrise is None:
-        return AstronomicalNight("incomplete", _night_boundaries_to_dict(window), None, []), []
-
-    moon_up_at_sunset, moon_events = _compute_moon_events(observer, sunset, sunrise)
-    night = AstronomicalNight("ok", _night_boundaries_to_dict(window), moon_up_at_sunset, moon_events)
-    return night, _hourly_times_covering(sunset, sunrise)
+        return "incomplete", window
+    return "ok", window
 
 
 def _empty_night_window() -> _NightWindow:
