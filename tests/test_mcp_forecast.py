@@ -7,6 +7,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -24,10 +25,15 @@ except ModuleNotFoundError:  # pragma: no cover - dependency is required for the
     ToolError = RuntimeError  # type: ignore[assignment,misc]
 
 
+def _epoch(value: str) -> int:
+    return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
+
+
 PROVIDER_PAYLOAD = {
     "timezone": "Europe/Warsaw",
+    "utc_offset_seconds": 7200,
     "current": {
-        "time": "2026-09-27T20:15",
+        "time": _epoch("2026-09-27T18:15:00Z"),
         "temperature_2m": 11.2,
         "relative_humidity_2m": 78,
         "dew_point_2m": 8.9,
@@ -46,7 +52,7 @@ PROVIDER_PAYLOAD = {
         "is_day": 0,
     },
     "hourly": {
-        "time": ["2026-09-27T00:00", "2026-09-27T01:00"],
+        "time": [_epoch("2026-09-26T22:00:00Z"), _epoch("2026-09-26T23:00:00Z")],
         "temperature_2m": [11.2, 10.6],
         "relative_humidity_2m": [78, 82],
         "dew_point_2m": [8.9, 8.8],
@@ -200,15 +206,20 @@ class McpSiteForecastTests(unittest.TestCase):
 
         current = forecast["current"]
         self.assertEqual(current["time_local"], "2026-09-27T20:15")
+        self.assertEqual(current["time_utc"], "2026-09-27T18:15:00Z")
         self.assertNotIn("time", current)
-        self.assertNotIn("time_utc", current)
+        self.assertEqual(forecast["utc_offset_seconds"], 7200)
         self.assertEqual(current["cloud_cover_pct"], 22.0)
         self.assertEqual(current["wind_direction_deg"], 225.0)
         self.assertEqual(current["condition_code"], 1)
 
         self.assertEqual([hour["time_local"] for hour in forecast["hourly"]], ["2026-09-27T00:00", "2026-09-27T01:00"])
         self.assertEqual(forecast["hourly"][1]["precipitation_probability_pct"], 15.0)
-        self.assertTrue(all("time_utc" not in hour for hour in forecast["hourly"]))
+        self.assertEqual(
+            [hour["time_utc"] for hour in forecast["hourly"]],
+            ["2026-09-26T22:00:00Z", "2026-09-26T23:00:00Z"],
+        )
+        self.assertIn("time_utc", forecast["field_semantics"])
 
         self.assertEqual(forecast["units"]["wind_speed_kmh"], "km/h")
         self.assertEqual(forecast["units"]["surface_pressure_hpa"], "hPa")

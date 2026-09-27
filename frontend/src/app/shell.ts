@@ -6,6 +6,7 @@ import {
   type ObservingWindowConditionPoint,
 } from './conditions_assessment';
 import {
+  type AstronomicalConditionsHour,
   type AstronomicalConditionsSnapshot,
   type CaptureDetails,
   type CaptureFileEntry,
@@ -24,10 +25,19 @@ import {
   type ProjectSummary,
   type RunArtifactImage,
   type Site,
+  type SiteForecastHour,
   type SiteForecastSnapshot,
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
 } from './api';
+import {
+  type ConditionsJoinedRow,
+  formatInstant,
+  joinConditionsByInstant,
+  localDateKey,
+  parseInstantMs,
+  resolveDisplayTimeZone,
+} from './conditions_time';
 import { normalizeLocalHorizonProfile } from './local_horizon';
 import type { LightPollutionPointResult } from './light_pollution';
 import {
@@ -128,11 +138,15 @@ const NIGHT_TIMELINE_REJECTION_REASONS = [
   'Not astronomical night',
   'Target below 30°',
   'Cloud cover above threshold',
+  'Weather data unavailable',
   'Blocked by local horizon',
 ] as const;
 
+type ConditionsRow = ConditionsJoinedRow<SiteForecastHour, AstronomicalConditionsHour>;
+
 type ConditionsTimelinePoint = {
   index: number;
+  /** UTC instant (ISO 8601 with Z) of this row; weather and astronomy in a row share it exactly. */
   timeText: string | null;
   timeMs: number | null;
   skyState: string | null;
@@ -1030,6 +1044,7 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
   const astronomy = state.astronomicalConditions;
   const currentWeather = forecast?.current ?? null;
   const currentAstronomy = astronomy?.current ?? null;
+  const timeZone = getConditionsTimeZone(forecast);
   if (!forecast && !astronomy) {
     return `
       <article class="panel">
@@ -1047,8 +1062,8 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
       ${renderConditionsMetadata([
         ['Site', activeSite.name],
         ['Provider', [forecast?.provider, astronomy?.provider].filter(Boolean).join(' + ') || 'pending'],
-        ['Timezone', forecast?.timezone ?? 'UTC / browser local view'],
-        ['Updated', formatTimestampDisplay(currentAstronomy?.time_utc ?? currentWeather?.time ?? forecast?.generated_at ?? null)],
+        ['Timezone', timeZone ?? 'browser local (Site timezone unavailable)'],
+        ['Updated', formatConditionsTimestamp(currentAstronomy?.time_utc ?? currentWeather?.time_utc ?? null, timeZone)],
       ])}
       <div class="conditions-grid conditions-grid--summary">
         ${renderConditionCard('Current sky', formatSkyState(currentAstronomy?.sky_state))}
@@ -1061,7 +1076,7 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
         ${renderConditionSection(
           'Sky darkness',
           [
-            ['Astronomical night', formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc)],
+            ['Astronomical night', formatTimeRange(currentAstronomy?.astronomical_night_start_utc, currentAstronomy?.astronomical_night_end_utc, timeZone)],
           ],
         )}
         ${renderAstronomicalTargetSummary(
@@ -1131,11 +1146,12 @@ function renderAstronomicalTargetSummary(
     ]);
   }
 
+  const timeZone = getConditionsTimeZone(forecast);
   const points = buildConditionsTimelinePoints(forecast, astronomy);
   const observingWindows = getObservingWindows(points, minTargetAltitudeDeg, localHorizonProfile);
   const observingWindowIndex = getActiveObservingWindowIndex(observingWindows, selectedObservingWindowIndex);
   const observingWindow = observingWindowIndex != null ? observingWindows[observingWindowIndex] ?? null : null;
-  const compassPoints = getHorizonCompassTimelinePoints(points, observingWindow);
+  const compassPoints = getHorizonCompassTimelinePoints(points, observingWindow, timeZone);
   const currentLocalHorizon = analyzeLocalHorizonVisibility(localHorizonProfile, {
     targetAltitudeDeg: target.altitude_deg,
     targetAzimuthDeg: target.azimuth_deg,
@@ -1152,16 +1168,16 @@ function renderAstronomicalTargetSummary(
           ${renderConditionCard('Source', target.source_kind ?? 'target')}
           ${renderConditionCard('Alt / az', `${formatAngleValue(target.altitude_deg)} / ${formatAngleValue(target.azimuth_deg)}`)}
           ${renderConditionCard('Airmass', formatAirmass(target.airmass))}
-          ${renderConditionCard('Transit', formatTimestampDisplay(target.transit_time_utc))}
+          ${renderConditionCard('Transit', formatConditionsTimestamp(target.transit_time_utc, timeZone))}
           ${renderConditionCard('Max altitude', formatAngleValue(target.max_altitude_deg))}
           ${renderConditionCard('Above horizon', formatObservationFlag(target.above_horizon))}
           ${renderConditionCard(`Above ${minTargetAltitudeDeg.toFixed(0)}°`, formatObservationFlag(target.above_observation_threshold))}
-          ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status))}
+          ${renderConditionCard('Night horizon window', formatWindowSummary(target.above_horizon_window_start_utc, target.above_horizon_window_end_utc, target.above_horizon_window_status, timeZone))}
           ${renderConditionCard('Local horizon', formatLocalHorizonAltitude(currentLocalHorizon))}
           ${renderConditionCard('Clearance', formatLocalHorizonClearance(currentLocalHorizon))}
           ${renderConditionCard('Local visibility', formatLocalHorizonVisibility(currentLocalHorizon))}
         </div>
-        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow, localHorizonProfile, currentLocalHorizon)}
+        ${renderHorizonCompass(target.azimuth_deg, target.altitude_deg, compassPoints, observingWindow, localHorizonProfile, currentLocalHorizon, timeZone)}
       </div>
     </section>
   `;
@@ -1170,6 +1186,7 @@ function renderAstronomicalTargetSummary(
 function getHorizonCompassTimelinePoints(
   points: ConditionsTimelinePoint[],
   observingWindow: ObservingWindowRange | null,
+  timeZone: string | undefined,
 ): ConditionsTimelinePoint[] {
   if (!observingWindow) {
     return points.slice(0, 24);
@@ -1180,16 +1197,11 @@ function getHorizonCompassTimelinePoints(
     return points.slice(Math.max(0, observingWindow.startIndex - 12), observingWindow.endIndex + 13);
   }
 
-  const windowStart = new Date(windowStartPoint.timeMs);
-  const dayStart = new Date(windowStart);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEndMs = dayStart.getTime() + 24 * 60 * 60 * 1000;
-  const dayStartMs = dayStart.getTime();
+  const windowDay = localDateKey(windowStartPoint.timeMs, timeZone);
   const sameDayPoints = points.filter((point) => (
     point.timeMs != null
     && Number.isFinite(point.timeMs)
-    && point.timeMs >= dayStartMs
-    && point.timeMs < dayEndMs
+    && localDateKey(point.timeMs, timeZone) === windowDay
   ));
 
   return sameDayPoints.length > 0
@@ -1197,18 +1209,32 @@ function getHorizonCompassTimelinePoints(
     : points.slice(Math.max(0, observingWindow.startIndex - 12), observingWindow.endIndex + 13);
 }
 
+/**
+ * Weather and astronomy rows are joined by exact UTC instant (see conditions_time.ts),
+ * never by array position or wall-clock label.
+ */
+function joinConditionsRows(
+  forecast: SiteForecastSnapshot | null,
+  astronomy: AstronomicalConditionsSnapshot | null,
+): ConditionsRow[] {
+  return joinConditionsByInstant(forecast?.hourly, astronomy?.hourly);
+}
+
+function getConditionsTimeZone(forecast: SiteForecastSnapshot | null): string | undefined {
+  return resolveDisplayTimeZone(forecast?.timezone);
+}
+
 function buildConditionsTimelinePoints(
   forecast: SiteForecastSnapshot | null,
   astronomy: AstronomicalConditionsSnapshot | null,
 ): ConditionsTimelinePoint[] {
-  const rowCount = Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0);
-  return Array.from({ length: rowCount }, (_, index) => {
-    const weatherHour = forecast?.hourly[index] ?? null;
-    const astronomyHour = astronomy?.hourly[index] ?? null;
+  return joinConditionsRows(forecast, astronomy).map((row) => {
+    const weatherHour = row.weather;
+    const astronomyHour = row.astronomy;
     return {
-      index,
-      timeText: astronomyHour?.time_utc ?? weatherHour?.time ?? null,
-      timeMs: toTimestampMillis(astronomyHour?.time_utc ?? weatherHour?.time ?? null),
+      index: row.index,
+      timeText: row.timeUtc,
+      timeMs: row.instantMs,
       skyState: astronomyHour?.sky_state ?? null,
       targetAltitudeDeg: astronomyHour?.target_altitude_deg ?? null,
       targetAzimuthDeg: astronomyHour?.target_azimuth_deg ?? null,
@@ -1331,6 +1357,7 @@ function renderConditionsTimeline(
   const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
   const activeSite = state.sites.find((site) => site.id === state.activeSiteId) ?? null;
   const localHorizonProfile = activeSite?.horizon_profile ?? [];
+  const timeZone = getConditionsTimeZone(forecast);
 
   const validTimes = points
     .map((point) => point.timeMs)
@@ -1340,7 +1367,7 @@ function renderConditionsTimeline(
   const spanMs = Math.max(endMs - startMs, 1);
 
   const width = 960;
-  const height = 364;
+  const height = 380;
   const left = 64;
   const right = 24;
   const top = 30;
@@ -1361,7 +1388,7 @@ function renderConditionsTimeline(
   };
 
   const xForTime = (value: string | null | undefined): number | null => {
-    const ms = toTimestampMillis(value);
+    const ms = parseInstantMs(value);
     if (ms == null || ms < startMs || ms > endMs) {
       return null;
     }
@@ -1409,11 +1436,10 @@ function renderConditionsTimeline(
     ) {
       reasons.push(`Target below ${minTargetAltitudeDeg.toFixed(0)}°`);
     }
-    if (
-      point.cloudCoverPct == null
-      || !Number.isFinite(point.cloudCoverPct)
-      || point.cloudCoverPct > OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT
-    ) {
+    if (point.cloudCoverPct == null || !Number.isFinite(point.cloudCoverPct)) {
+      // Same rule as before (no cloud value never qualifies), but reported truthfully.
+      reasons.push('Weather data unavailable');
+    } else if (point.cloudCoverPct > OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT) {
       reasons.push('Cloud cover above threshold');
     }
     if (isBlockedByLocalHorizon(localHorizonProfile, {
@@ -1600,7 +1626,7 @@ function renderConditionsTimeline(
       const labelY = axisBottom + 18 + (tickIndex % 2) * 12;
       return `
         <line class="conditions-timeline__tick" x1="${x.toFixed(2)}" y1="${axisBottom}" x2="${x.toFixed(2)}" y2="${(axisBottom + 5).toFixed(2)}" />
-        <text class="conditions-timeline__tick-label" x="${x.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${escapeHtml(formatTimelineTick(point.timeText))}</text>
+        <text class="conditions-timeline__tick-label" x="${x.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${escapeHtml(formatTimelineTick(point.timeText, timeZone))}</text>
       `;
     })
     .join('');
@@ -1632,7 +1658,7 @@ function renderConditionsTimeline(
                 type="button"
                 data-observing-window-index="${index}"
               >
-                Window ${index + 1} · ${escapeHtml(formatObservingWindowRange(startLabel, endLabel))}
+                Window ${index + 1} · ${escapeHtml(formatObservingWindowRange(startLabel, endLabel, timeZone))}
               </button>
             `;
           }).join('')}
@@ -1683,6 +1709,7 @@ function renderConditionsTimeline(
                   points[Math.min(observingWindow.endIndex + 1, points.length - 1)]?.timeText
                     ?? points[observingWindow.endIndex]?.timeText
                     ?? null,
+                  timeZone,
                 )
               : 'No observing window',
           )}
@@ -1707,11 +1734,13 @@ function renderConditionsHourlyTable(
   forecast: SiteForecastSnapshot | null,
   astronomy: AstronomicalConditionsSnapshot | null,
 ): string {
+  const rows = joinConditionsRows(forecast, astronomy);
   const points = buildConditionsTimelinePoints(forecast, astronomy);
-  const rowCount = points.length;
+  const rowCount = rows.length;
   if (rowCount === 0) {
     return '<p class="muted">No hourly observation points are available for this site yet.</p>';
   }
+  const timeZone = getConditionsTimeZone(forecast);
 
   const minTargetAltitudeDeg = astronomy?.min_target_altitude_deg ?? 30;
   const activeSite = state.sites.find((site) => site.id === state.activeSiteId) ?? null;
@@ -1743,9 +1772,9 @@ function renderConditionsHourlyTable(
           </tr>
         </thead>
         <tbody>
-          ${Array.from({ length: rowCount }, (_, index) => {
-            const weatherHour = forecast?.hourly[index] ?? null;
-            const astronomyHour = astronomy?.hourly[index] ?? null;
+          ${rows.map((row, index) => {
+            const weatherHour = row.weather;
+            const astronomyHour = row.astronomy;
             const point = points[index] ?? null;
             const rowClass = getConditionsTableRowClass(point, activeObservingWindow, minTargetAltitudeDeg, localHorizonProfile);
             const localHorizon = analyzeLocalHorizonVisibility(localHorizonProfile, {
@@ -1754,7 +1783,7 @@ function renderConditionsHourlyTable(
             });
             return `
             <tr class="${rowClass}">
-              <td>${escapeHtml(formatTimestampDisplay(astronomyHour?.time_utc ?? weatherHour?.time ?? null))}</td>
+              <td>${escapeHtml(formatConditionsTimestamp(row.timeUtc, timeZone))}</td>
               <td>${escapeHtml(astronomyHour ? formatSkyState(astronomyHour.sky_state) : formatConditionSummary(weatherHour?.condition_code, weatherHour?.is_day))}</td>
               <td>${escapeHtml(formatAngleValue(astronomyHour?.sun_altitude_deg))}</td>
               <td>${escapeHtml(formatAngleValue(astronomyHour?.moon_altitude_deg))}</td>
@@ -3242,23 +3271,47 @@ function formatLocalHorizonVisibility(analysis: LocalHorizonAnalysis | null): st
   }
 }
 
-function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
+/** Conditions timestamps: an explicit instant shown in the Site timezone (never a naive string). */
+function formatConditionsTimestamp(value: string | null | undefined, timeZone: string | undefined): string {
+  if (!value) {
+    return '—';
+  }
+  const instantMs = parseInstantMs(value);
+  if (instantMs == null) {
+    return value;
+  }
+  return formatInstant(instantMs, timeZone, {
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function formatTimeRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  timeZone: string | undefined,
+): string {
   if (!start && !end) {
     return '—';
   }
-  return `${formatTimestampDisplay(start)} → ${formatTimestampDisplay(end)}`;
+  return `${formatConditionsTimestamp(start, timeZone)} → ${formatConditionsTimestamp(end, timeZone)}`;
 }
 
 function formatWindowSummary(
   start: string | null | undefined,
   end: string | null | undefined,
   status: string | null | undefined,
+  timeZone: string | undefined,
 ): string {
   if (status === 'always_up') {
-    return `all night · ${formatTimeRange(start, end)}`;
+    return `all night · ${formatTimeRange(start, end, timeZone)}`;
   }
   if (status === 'always_observable') {
-    return `all night above threshold · ${formatTimeRange(start, end)}`;
+    return `all night above threshold · ${formatTimeRange(start, end, timeZone)}`;
   }
   if (status === 'never_up') {
     return 'not above horizon tonight';
@@ -3269,49 +3322,45 @@ function formatWindowSummary(
   if (status === 'no_astronomical_night') {
     return 'no astronomical night for this interval';
   }
-  return formatTimeRange(start, end);
+  return formatTimeRange(start, end, timeZone);
 }
 
-function formatTimelineTick(value: string | null | undefined): string {
+function formatTimelineTick(value: string | null | undefined, timeZone: string | undefined): string {
   if (!value) {
     return '—';
   }
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) {
+  const instantMs = parseInstantMs(value);
+  if (instantMs == null) {
     return value;
   }
-  return timestamp.toLocaleTimeString([], {
+  return formatInstant(instantMs, timeZone, {
     hour: '2-digit',
     minute: '2-digit',
   });
 }
 
-function toTimestampMillis(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function formatObservingWindowRange(start: string | null | undefined, end: string | null | undefined): string {
+function formatObservingWindowRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  timeZone: string | undefined,
+): string {
   if (!start || !end) {
     return 'No observing window';
   }
 
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  const startMs = parseInstantMs(start);
+  const endMs = parseInstantMs(end);
+  if (startMs == null || endMs == null) {
     return `${start ?? '—'} → ${end ?? '—'}`;
   }
 
-  const sameDay = startDate.toDateString() === endDate.toDateString();
-  const startLabel = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const endLabel = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const sameDay = localDateKey(startMs, timeZone) === localDateKey(endMs, timeZone);
+  const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
   if (sameDay) {
-    return `${startLabel} → ${endLabel}`;
+    return `${formatInstant(startMs, timeZone, timeOptions)} → ${formatInstant(endMs, timeZone, timeOptions)}`;
   }
-  return `${startDate.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} → ${endDate.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+  const dateTimeOptions: Intl.DateTimeFormatOptions = { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+  return `${formatInstant(startMs, timeZone, dateTimeOptions)} → ${formatInstant(endMs, timeZone, dateTimeOptions)}`;
 }
 
 function renderObservingWindowConditions(
@@ -3442,6 +3491,7 @@ function renderHorizonCompass(
   observingWindow: ObservingWindowRange | null,
   localHorizonProfile: LocalHorizonPoint[] = [],
   localHorizonAnalysis: LocalHorizonAnalysis | null = null,
+  timeZone: string | undefined = undefined,
 ): string {
   if (azimuthDeg == null || !Number.isFinite(azimuthDeg)) {
     return `
@@ -3557,12 +3607,12 @@ function renderHorizonCompass(
         `).join('') : ''}
         ${targetBelowHorizonPoints.map((point) => `
           <circle class="horizon-compass__hour-point horizon-compass__hour-point--below" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.7">
-            <title>${escapeHtml(`Target below horizon · ${formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg)}`)}</title>
+            <title>${escapeHtml(`Target below horizon · ${formatHorizonCompassPointTitle(timeZone, point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg)}`)}</title>
           </circle>
         `).join('')}
         ${moonBelowHorizonPoints.map((point) => `
           <circle class="horizon-compass__moon-point horizon-compass__moon-point--below" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2">
-            <title>${escapeHtml(`Moon below horizon · ${formatHorizonCompassPointTitle(point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
+            <title>${escapeHtml(`Moon below horizon · ${formatHorizonCompassPointTitle(timeZone, point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
           </circle>
         `).join('')}
         ${trajectoryPath ? `<path class="horizon-compass__trajectory" d="${trajectoryPath}" />` : ''}
@@ -3579,21 +3629,21 @@ function renderHorizonCompass(
         ` : ''}
         ${targetAboveHorizonPoints.map((point) => `
           <circle class="horizon-compass__hour-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3">
-            <title>${escapeHtml(formatHorizonCompassPointTitle(point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg))}</title>
+            <title>${escapeHtml(formatHorizonCompassPointTitle(timeZone, point.timeText, point.targetAltitudeDeg, point.targetAzimuthDeg))}</title>
           </circle>
         `).join('')}
         ${moonAboveHorizonPoints.map((point) => `
           <circle class="horizon-compass__moon-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.15">
-            <title>${escapeHtml(`Moon · ${formatHorizonCompassPointTitle(point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
+            <title>${escapeHtml(`Moon · ${formatHorizonCompassPointTitle(timeZone, point.timeText, point.moonAltitudeDeg, point.moonAzimuthDeg)}`)}</title>
           </circle>
         `).join('')}
         <circle class="horizon-compass__current-glow" cx="${markerX.toFixed(2)}" cy="${markerY.toFixed(2)}" r="10" />
         ${trajectoryPoints.length ? `
           <circle class="horizon-compass__start-point" cx="${trajectoryPoints[0]!.x.toFixed(2)}" cy="${trajectoryPoints[0]!.y.toFixed(2)}" r="3.5">
-            <title>${escapeHtml(`Start · ${formatHorizonCompassPointTitle(trajectoryPoints[0]!.timeText, trajectoryPoints[0]!.targetAltitudeDeg, trajectoryPoints[0]!.targetAzimuthDeg)}`)}</title>
+            <title>${escapeHtml(`Start · ${formatHorizonCompassPointTitle(timeZone, trajectoryPoints[0]!.timeText, trajectoryPoints[0]!.targetAltitudeDeg, trajectoryPoints[0]!.targetAzimuthDeg)}`)}</title>
           </circle>
           <circle class="horizon-compass__end-point" cx="${trajectoryPoints[trajectoryPoints.length - 1]!.x.toFixed(2)}" cy="${trajectoryPoints[trajectoryPoints.length - 1]!.y.toFixed(2)}" r="3.5">
-            <title>${escapeHtml(`End · ${formatHorizonCompassPointTitle(trajectoryPoints[trajectoryPoints.length - 1]!.timeText, trajectoryPoints[trajectoryPoints.length - 1]!.targetAltitudeDeg, trajectoryPoints[trajectoryPoints.length - 1]!.targetAzimuthDeg)}`)}</title>
+            <title>${escapeHtml(`End · ${formatHorizonCompassPointTitle(timeZone, trajectoryPoints[trajectoryPoints.length - 1]!.timeText, trajectoryPoints[trajectoryPoints.length - 1]!.targetAltitudeDeg, trajectoryPoints[trajectoryPoints.length - 1]!.targetAzimuthDeg)}`)}</title>
           </circle>
         ` : ''}
         <line class="horizon-compass__pointer" x1="${cx}" y1="${cy}" x2="${markerX.toFixed(2)}" y2="${markerY.toFixed(2)}" />
@@ -3688,11 +3738,12 @@ function formatCompassDirection(azimuthDeg: number): string {
 }
 
 function formatHorizonCompassPointTitle(
+  timeZone: string | undefined,
   timeText: string | null,
   altitudeDeg: number | null | undefined,
   azimuthDeg: number | null | undefined,
 ): string {
-  const timeLabel = formatTimestampDisplay(timeText);
+  const timeLabel = formatConditionsTimestamp(timeText, timeZone);
   const altitudeLabel = altitudeDeg == null || !Number.isFinite(altitudeDeg)
     ? 'Alt —'
     : `Alt ${altitudeDeg.toFixed(0)}°`;

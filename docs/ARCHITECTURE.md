@@ -139,7 +139,7 @@ Site (id → lat/lon/elevation) + reference time + target + min altitude + forec
    └─ GET /api/astronomical-conditions astronomy (astropy/astroplan, engine/astronomy.py)
            Sun/twilight/night, Moon, hourly target Alt/Az, airmass, Moon–target separation
    │
-   ▼  frontend joins the two hourly series by time
+   ▼  frontend joins the two hourly series by exact UTC instant (conditions_time.ts)
    Observing Window        (frontend, shell.ts + local_horizon_conditions.ts)
    Local Horizon clearance (frontend)
    Condition Assessment    (frontend, conditions_assessment.ts) → Overall GOOD / MODERATE / POOR
@@ -148,12 +148,15 @@ Site (id → lat/lon/elevation) + reference time + target + min altitude + forec
 ### Ownership
 
 **Backend owns**
-- Weather retrieval from Open-Meteo, normalization to `SiteForecastSnapshot`, and derived dew margin and dew risk (`weather.py`). The forecast range is 1–16 days.
+- Weather retrieval from Open-Meteo, normalization to `SiteForecastSnapshot`, and derived dew margin and dew risk (`weather.py`). The forecast range is 1–16 days, starting at Site-local midnight.
+- Weather sample time: the client requests Unix timestamps (`timeformat=unixtime`), so every sample has an unambiguous `time_utc`. `time` keeps Open-Meteo's local wall-clock label, reproduced as the instant plus the single response-level `utc_offset_seconds` (also returned). Open-Meteo uses one offset for the whole response, so after a DST change inside the range `time` differs from civil time by the DST delta; it is for display and compatibility only.
 - Astronomy: sky state (day/civil/nautical/astronomical twilight/night), twilight and astronomical-night boundaries, sunrise/sunset, Moon altitude/azimuth/illumination/phase, moonrise/moonset, and for a target: hourly altitude, azimuth, airmass, Moon–target separation, transit, and the above-horizon window.
 - The configured minimum target altitude: `min_target_altitude_deg` query parameter (default 30), producing `target_above_observation_threshold` per hour (`altitude ≥ min`). The frontend currently always sends 30.
 - Target resolution for a request: explicit `target_ra_deg`/`target_dec_deg`, else a `target_name` matching a stored Target, else `mosaic_panel_id`, `target_id`, or `use_planned_pointing`.
 
 **Frontend owns** (nothing below is a backend domain concern)
+- **Time alignment invariant.** Cross-domain time series are joined by unambiguous UTC instant, never by array position or wall-clock label. `joinConditionsByInstant` (`app/conditions_time.ts`) uses the astronomy hours as the axis (they start at the current UTC hour; weather starts at Site-local midnight) and attaches a weather sample only when its `time_utc` equals the row instant. Missing, naive (no offset) or duplicated instants stay unpaired and are reported as "Weather data unavailable", never filled from a neighbouring row. Hours before the astronomy axis are not shown; hours after weather coverage have no weather. The initial range is 2 days (`DEFAULT_CONDITIONS_FORECAST_DAYS`) because a 1-day forecast ends at Site-local midnight, halfway through the coming night; 1–16 days remain selectable.
+- Conditions times are displayed in the Site timezone (the forecast's IANA `timezone`, via `Intl`), not the browser timezone. If the Site timezone is unknown the view falls back to browser-local time and says so in the Timezone field.
 - Local Horizon interpolation, clearance, and CLEAR/BLOCKED semantics.
 - Observing Window definition: an hour qualifies if the sky is `astronomical_night`, target altitude ≥ the minimum, cloud cover ≤ 35 % (`OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT` in `shell.ts`), and the target is clear of the Local Horizon. Consecutive qualifying hours form a window.
 - Context-aware Condition Assessment: factors are Moon illumination, Moon altitude, Moon–target separation, dew risk, wind and gusts. Moon thresholds depend on an intent profile (`neutral`, `broadband`, `dual_band`, `narrowband`) inferred from the mosaic plan's `observation_type` and `filter`.

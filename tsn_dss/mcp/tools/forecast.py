@@ -38,9 +38,12 @@ FORECAST_UNITS = {
 
 FIELD_SEMANTICS = {
     "time_local": (
-        "Provider-local wall-clock timestamp in `timezone`, without UTC offset, exactly as returned by the "
-        "TSN DSS forecast client."
+        "Provider-local wall-clock label in `timezone`, without UTC offset. Open-Meteo applies the single "
+        "response-level `utc_offset_seconds` to every label, so after a DST change inside the forecast range "
+        "labels differ from civil time by the DST delta. Use `time_utc` to identify the real instant."
     ),
+    "time_utc": "Unambiguous UTC instant of the sample, from the provider's Unix timestamp.",
+    "utc_offset_seconds": "The single UTC offset Open-Meteo used for all `time_local` labels in this response.",
     "provider_current_time_local": (
         "Provider-local time of the Open-Meteo current-conditions slot (the TSN DSS client's `generated_at`). "
         "It is NOT fetched_at, NOT a model run time and NOT a forecast generation time."
@@ -115,6 +118,7 @@ def _serialize_forecast(site: Site, snapshot: SiteForecastSnapshot, forecast_day
         "site": site_summary_to_dict(site),
         "provider": data["provider"],
         "timezone": data["timezone"],
+        "utc_offset_seconds": data["utc_offset_seconds"],
         "time_semantics": "provider_local_wall_clock_without_utc_offset",
         "forecast_days": forecast_days,
         "provider_current_time_local": data["generated_at"],

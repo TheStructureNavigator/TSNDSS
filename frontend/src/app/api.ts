@@ -72,9 +72,12 @@ export type SiteForecastCurrent = {
   precipitation_probability_pct: number | null;
   condition_code: number | null;
   is_day: number | null;
+  /** Unambiguous UTC instant (ISO 8601 with Z). Use this, not `time`, to align with other series. */
+  time_utc: string | null;
 };
 
 export type SiteForecastHour = {
+  /** Provider-local wall-clock label (single response-level offset); display/compatibility only. */
   time: string;
   temperature_c: number | null;
   relative_humidity_pct: number | null;
@@ -95,6 +98,8 @@ export type SiteForecastHour = {
   precipitation_probability_pct: number | null;
   condition_code: number | null;
   is_day: number | null;
+  /** Unambiguous UTC instant (ISO 8601 with Z). Use this, not `time`, to align with other series. */
+  time_utc: string | null;
 };
 
 export type SiteForecastSnapshot = {
@@ -103,6 +108,7 @@ export type SiteForecastSnapshot = {
   latitude_deg: number;
   longitude_deg: number;
   timezone: string | null;
+  utc_offset_seconds: number | null;
   generated_at: string | null;
   provider: string;
   current: SiteForecastCurrent | null;

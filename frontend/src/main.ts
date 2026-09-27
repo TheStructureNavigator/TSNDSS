@@ -40,6 +40,7 @@ import {
   updateSite,
   type ProjectSummary,
 } from './app/api';
+import { DEFAULT_CONDITIONS_FORECAST_DAYS } from './app/conditions_time';
 import { getCurrentDeviceLocationMessage, getCurrentDevicePosition } from './app/current_device_position';
 import {
   type CandidateSiteCreateRequest,
@@ -83,7 +84,6 @@ let telescopePollTimer: number | null = null;
 let toastTimer: number | null = null;
 const TOAST_DURATION_MS = 3200;
 const THEME_STORAGE_KEY = 'tsn_dss_theme';
-const DEFAULT_CONDITIONS_FORECAST_DAYS = 1;
 
 // One shared application state keeps this no-framework UI predictable.
 const state: AppState = {

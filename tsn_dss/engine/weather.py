@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -31,6 +32,7 @@ class SiteForecastCurrent:
     precipitation_probability_pct: float | None
     condition_code: int | None
     is_day: int | None
+    time_utc: str | None = None
 
 
 @dataclass(slots=True)
@@ -55,6 +57,7 @@ class SiteForecastHour:
     precipitation_probability_pct: float | None
     condition_code: int | None
     is_day: int | None
+    time_utc: str | None = None
 
 
 @dataclass(slots=True)
@@ -68,6 +71,7 @@ class SiteForecastSnapshot:
     provider: str
     current: SiteForecastCurrent | None
     hourly: list[SiteForecastHour]
+    utc_offset_seconds: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,10 +80,12 @@ class SiteForecastSnapshot:
             "latitude_deg": self.latitude_deg,
             "longitude_deg": self.longitude_deg,
             "timezone": self.timezone,
+            "utc_offset_seconds": self.utc_offset_seconds,
             "generated_at": self.generated_at,
             "provider": self.provider,
             "current": None if self.current is None else {
                 "time": self.current.time,
+                "time_utc": self.current.time_utc,
                 "temperature_c": self.current.temperature_c,
                 "relative_humidity_pct": self.current.relative_humidity_pct,
                 "dew_point_c": self.current.dew_point_c,
@@ -103,6 +109,7 @@ class SiteForecastSnapshot:
             "hourly": [
                 {
                     "time": hour.time,
+                    "time_utc": hour.time_utc,
                     "temperature_c": hour.temperature_c,
                     "relative_humidity_pct": hour.relative_humidity_pct,
                     "dew_point_c": hour.dew_point_c,
@@ -141,6 +148,8 @@ class OpenMeteoForecastClient:
             "longitude": site.longitude_deg,
             "forecast_days": max(1, min(16, int(forecast_days))),
             "timezone": "auto",
+            # Unix instants are unambiguous; provider-local labels are derived from them below.
+            "timeformat": "unixtime",
             "temperature_unit": "celsius",
             "wind_speed_unit": "kmh",
             "precipitation_unit": "mm",
@@ -193,13 +202,17 @@ class OpenMeteoForecastClient:
         with urlopen(url, timeout=15) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
+        utc_offset_seconds = _coerce_required_int(payload.get("utc_offset_seconds"), "utc_offset_seconds")
+
         current_payload = payload.get("current")
         current = None
         if isinstance(current_payload, dict):
             current_temperature_c = _coerce_optional_float(current_payload.get("temperature_2m"))
             current_dew_point_c = _coerce_optional_float(current_payload.get("dew_point_2m"))
+            current_epoch = _coerce_optional_int(current_payload.get("time"))
             current = SiteForecastCurrent(
-                time=_coerce_optional_string(current_payload.get("time")),
+                time=_provider_local_label(current_epoch, utc_offset_seconds),
+                time_utc=_epoch_to_utc_iso(current_epoch),
                 temperature_c=current_temperature_c,
                 relative_humidity_pct=_coerce_optional_float(current_payload.get("relative_humidity_2m")),
                 dew_point_c=current_dew_point_c,
@@ -224,7 +237,7 @@ class OpenMeteoForecastClient:
         hourly_payload = payload.get("hourly")
         hourly: list[SiteForecastHour] = []
         if isinstance(hourly_payload, dict):
-            times = _coerce_string_list(hourly_payload.get("time"))
+            epochs = _coerce_epoch_list(hourly_payload.get("time"))
             temperatures = _coerce_float_list(hourly_payload.get("temperature_2m"))
             humidities = _coerce_float_list(hourly_payload.get("relative_humidity_2m"))
             dew_points = _coerce_float_list(hourly_payload.get("dew_point_2m"))
@@ -243,13 +256,14 @@ class OpenMeteoForecastClient:
             condition_codes = _coerce_int_list(hourly_payload.get("weather_code"))
             is_day_values = _coerce_int_list(hourly_payload.get("is_day"))
 
-            for index, time_value in enumerate(times):
+            for index, epoch in enumerate(epochs):
                 temperature_c = _value_at(temperatures, index)
                 dew_point_c = _value_at(dew_points, index)
                 dew_margin_c = calculate_dew_margin_c(temperature_c, dew_point_c)
                 hourly.append(
                     SiteForecastHour(
-                        time=time_value,
+                        time=_provider_local_label(epoch, utc_offset_seconds),
+                        time_utc=_epoch_to_utc_iso(epoch),
                         temperature_c=temperature_c,
                         relative_humidity_pct=_value_at(humidities, index),
                         dew_point_c=dew_point_c,
@@ -282,6 +296,7 @@ class OpenMeteoForecastClient:
             provider=self.provider_name,
             current=current,
             hourly=hourly,
+            utc_offset_seconds=utc_offset_seconds,
         )
 
 
@@ -323,10 +338,34 @@ def _coerce_optional_int(value: Any) -> int | None:
     return int(value)
 
 
-def _coerce_string_list(value: Any) -> list[str]:
+def _coerce_required_int(value: Any, field_name: str) -> int:
+    if value is None:
+        raise ValueError(f"Forecast provider response is missing {field_name}.")
+    return int(value)
+
+
+def _coerce_epoch_list(value: Any) -> list[int]:
     if not isinstance(value, list):
         return []
-    return [str(item) for item in value]
+    return [int(item) for item in value]
+
+
+def _epoch_to_utc_iso(epoch_seconds: int | None) -> str | None:
+    if epoch_seconds is None:
+        return None
+    return datetime.fromtimestamp(epoch_seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _provider_local_label(epoch_seconds: int | None, utc_offset_seconds: int) -> str | None:
+    """Open-Meteo's local wall-clock label: the instant shifted by the single response-level UTC offset.
+
+    Open-Meteo applies one offset to the whole response, so after a DST change inside the forecast range
+    these labels differ from civil time by the DST delta. Use time_utc for joins and calculations.
+    """
+    if epoch_seconds is None:
+        return None
+    shifted = datetime.fromtimestamp(epoch_seconds, timezone.utc) + timedelta(seconds=utc_offset_seconds)
+    return shifted.strftime("%Y-%m-%dT%H:%M")
 
 
 def _coerce_float_list(value: Any) -> list[float | None]:
