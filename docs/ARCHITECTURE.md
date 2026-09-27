@@ -121,8 +121,8 @@ A `Site` carries these separately; they must not be merged or relabelled:
 ### Local Horizon Profile
 
 - **Data**: a list of `(azimuth_deg ∈ [0,360), min_altitude_deg ∈ [0,90])` points per Site in `site_horizon_profile_points`. Validated and sorted by `domain/local_horizon.py` (`normalize_local_horizon_profile`, duplicate azimuths rejected). Persisted and returned with the Site as `horizon_profile`.
-- **Interpolation and use**: implemented **in the frontend**. `app/local_horizon.ts` interpolates altitude cyclically over azimuth; `app/local_horizon_conditions.ts` computes clearance (`target altitude − local horizon altitude`) and `clear` / `blocked` / `not_configured` / `unknown`, and applies it to observing windows. `shell.ts` uses it for the hourly table, the Horizon Compass and limiting factors.
-- The backend stores the profile, and `domain/local_horizon.py` has an interpolation function (`get_local_horizon_altitude`) that only the tests call. **`engine/astronomy.py` does not read the profile.** Local Horizon is not a backend Conditions input today.
+- **Interpolation and use**: `domain/local_horizon.py` interpolates altitude cyclically over azimuth for backend visibility services. The frontend mirrors the same semantics in `app/local_horizon.ts` / `app/local_horizon_conditions.ts` for the hourly table, the Horizon Compass and UI observing-window overlays.
+- Backend point visibility (`engine/visibility.py`) applies Local Horizon on top of target Alt/Az from `engine/astronomy.py`. Equality with the Local Horizon is blocked (`clearance > 0` is required). Backend astronomical conditions still expose their legacy night-scoped target window fields without Local Horizon; use the visibility service for Local Horizon-aware visibility.
 - An empty profile means no obstruction (`not_configured`), which does not block anything.
 - Editing is manual (editor modal, template generation, clearing). There is no horizon import.
 
