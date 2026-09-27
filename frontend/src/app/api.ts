@@ -255,6 +255,38 @@ export type AstronomicalConditionsSnapshot = {
   night?: AstronomicalNight;
 };
 
+export type VisibilityWindow = {
+  start_utc: string;
+  end_utc: string;
+  starts_at_interval_start: boolean;
+  ends_at_interval_end: boolean;
+  max_altitude_deg: number | null;
+  max_altitude_time_utc: string | null;
+};
+
+export type VisibilityWindowDiagnostics = {
+  samples_evaluated: number;
+  local_horizon_available: boolean;
+  any_above_geometric_horizon: boolean;
+  any_above_minimum_altitude: boolean;
+  any_altitude_constraints_satisfied: boolean;
+  any_clear_of_local_horizon: boolean;
+  any_visible: boolean;
+};
+
+export type VisibilityWindowsResult = {
+  interval_start_utc: string;
+  interval_end_utc: string;
+  min_target_altitude_deg: number;
+  windows: VisibilityWindow[];
+  diagnostics: VisibilityWindowDiagnostics;
+  site: Site;
+  target: AstronomicalTargetContext;
+  visible_rule: string;
+  excluded_constraints: string[];
+  diagnostic_semantics: string;
+};
+
 export type ProjectSummary = {
   slug: string;
   project_root: string;
@@ -536,6 +568,57 @@ export async function fetchAstronomicalConditions(input?: {
   const suffix = queryString ? `?${queryString}` : '';
   const payload = await getJson<{ conditions: AstronomicalConditionsSnapshot }>(`/api/astronomical-conditions${suffix}`);
   return payload.conditions;
+}
+
+export async function fetchVisibilityWindows(input: {
+  site_id: string;
+  start_time_utc: string;
+  end_time_utc: string;
+  target_id?: string | null;
+  mosaic_panel_id?: string | null;
+  use_planned_pointing?: boolean;
+  target_name?: string | null;
+  target_ra_deg?: number | null;
+  target_dec_deg?: number | null;
+  source_kind?: string | null;
+  source_id?: string | null;
+  min_target_altitude_deg?: number | null;
+}): Promise<VisibilityWindowsResult> {
+  const query = new URLSearchParams({
+    site_id: input.site_id,
+    start_time_utc: input.start_time_utc,
+    end_time_utc: input.end_time_utc,
+  });
+  if (input.target_id) {
+    query.set('target_id', input.target_id);
+  }
+  if (input.mosaic_panel_id) {
+    query.set('mosaic_panel_id', input.mosaic_panel_id);
+  }
+  if (input.use_planned_pointing) {
+    query.set('use_planned_pointing', '1');
+  }
+  if (input.target_name) {
+    query.set('target_name', input.target_name);
+  }
+  if (input.target_ra_deg != null) {
+    query.set('target_ra_deg', String(input.target_ra_deg));
+  }
+  if (input.target_dec_deg != null) {
+    query.set('target_dec_deg', String(input.target_dec_deg));
+  }
+  if (input.source_kind) {
+    query.set('source_kind', input.source_kind);
+  }
+  if (input.source_id) {
+    query.set('source_id', input.source_id);
+  }
+  if (input.min_target_altitude_deg != null) {
+    query.set('min_target_altitude_deg', String(input.min_target_altitude_deg));
+  }
+
+  const payload = await getJson<{ visibility_windows: VisibilityWindowsResult }>(`/api/visibility-windows?${query.toString()}`);
+  return payload.visibility_windows;
 }
 
 export async function createSite(input: {

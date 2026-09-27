@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from tsn_dss.domain.models import Target
 from tsn_dss.engine.projects import ProjectStorage
 from tsn_dss.engine.sqlite import PlanningRepository, connect_database
+from tsn_dss.mcp.tools.visibility import target_visibility_windows as mcp_target_visibility_windows
 from tsn_dss.gui.http_api import create_http_server
 
 
@@ -515,6 +516,196 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertEqual(conditions["target"]["source_kind"], "target")
         self.assertEqual(conditions["current"]["target"]["source_id"], "target:m31")
 
+    def test_visibility_windows_endpoint_returns_geometric_window_without_weather(self) -> None:
+        site_id = self._create_visibility_site()
+        before_weather_requests = list(self.weather_client.requests)
+        before_counts = self._planning_counts()
+
+        payload = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10.6847083&target_dec_deg=41.26875"
+            "&min_target_altitude_deg=20"
+        )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(visibility["site"]["id"], site_id)
+        self.assertEqual(visibility["target"]["source_kind"], "manual")
+        self.assertEqual(visibility["interval_start_utc"], "2026-10-15T18:00:00Z")
+        self.assertEqual(visibility["interval_end_utc"], "2026-10-15T19:00:00Z")
+        self.assertEqual(visibility["min_target_altitude_deg"], 20.0)
+        self.assertEqual(len(visibility["windows"]), 1)
+        self.assertTrue(visibility["windows"][0]["starts_at_interval_start"])
+        self.assertTrue(visibility["windows"][0]["ends_at_interval_end"])
+        self.assertIsNotNone(visibility["windows"][0]["max_altitude_deg"])
+        self.assertIsNotNone(visibility["windows"][0]["max_altitude_time_utc"])
+        self.assertIn("weather", visibility["excluded_constraints"])
+        self.assertEqual(visibility["diagnostic_semantics"], "evaluation_grid_derived_not_continuous_proof")
+        self.assertEqual(self.weather_client.requests, before_weather_requests)
+        self.assertEqual(self._planning_counts(), before_counts)
+
+    def test_visibility_windows_endpoint_returns_zero_windows(self) -> None:
+        site_id = self._create_visibility_site()
+
+        payload = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=0&target_dec_deg=-80"
+        )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(visibility["windows"], [])
+        self.assertFalse(visibility["diagnostics"]["any_visible"])
+
+    def test_visibility_windows_endpoint_uses_local_horizon_blocking(self) -> None:
+        site_id = self._create_visibility_site(
+            horizon_profile=[
+                {"azimuth_deg": 0, "min_altitude_deg": 89},
+                {"azimuth_deg": 180, "min_altitude_deg": 89},
+            ],
+        )
+
+        payload = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10.6847083&target_dec_deg=41.26875"
+            "&min_target_altitude_deg=20"
+        )
+
+        diagnostics = payload["visibility_windows"]["diagnostics"]
+        self.assertEqual(payload["visibility_windows"]["windows"], [])
+        self.assertTrue(diagnostics["local_horizon_available"])
+        self.assertTrue(diagnostics["any_altitude_constraints_satisfied"])
+        self.assertFalse(diagnostics["any_clear_of_local_horizon"])
+        self.assertFalse(diagnostics["any_visible"])
+
+    def test_visibility_windows_endpoint_local_horizon_unblocks_inside_interval(self) -> None:
+        site_id = self._create_visibility_site(
+            horizon_profile=[
+                {"azimuth_deg": 0, "min_altitude_deg": 0},
+                {"azimuth_deg": 60, "min_altitude_deg": 0},
+                {"azimuth_deg": 90, "min_altitude_deg": 89},
+                {"azimuth_deg": 120, "min_altitude_deg": 0},
+                {"azimuth_deg": 359, "min_altitude_deg": 0},
+            ],
+        )
+
+        payload = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T20:00:00Z&target_ra_deg=10.6847083&target_dec_deg=41.26875"
+            "&min_target_altitude_deg=20"
+        )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(len(visibility["windows"]), 1)
+        self.assertFalse(visibility["windows"][0]["starts_at_interval_start"])
+        self.assertTrue(visibility["windows"][0]["ends_at_interval_end"])
+        self.assertTrue(visibility["diagnostics"]["local_horizon_available"])
+        self.assertTrue(visibility["diagnostics"]["any_visible"])
+
+    def test_visibility_windows_endpoint_accepts_custom_minimum_altitude(self) -> None:
+        site_id = self._create_visibility_site()
+
+        payload = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10.6847083&target_dec_deg=41.26875"
+            "&min_target_altitude_deg=85"
+        )
+
+        visibility = payload["visibility_windows"]
+        self.assertEqual(visibility["min_target_altitude_deg"], 85.0)
+        self.assertEqual(visibility["windows"], [])
+        self.assertFalse(visibility["diagnostics"]["any_above_minimum_altitude"])
+
+    def test_visibility_windows_endpoint_rejects_invalid_site_target_and_interval(self) -> None:
+        site_id = self._create_visibility_site()
+
+        with self.assertRaises(HTTPError) as missing_site:
+            self._read_json(
+                "/api/visibility-windows?site_id=site:missing&start_time_utc=2026-10-15T18:00:00Z"
+                "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10&target_dec_deg=20"
+            )
+        self.assertEqual(missing_site.exception.code, 404)
+
+        with self.assertRaises(HTTPError) as unresolved:
+            self._read_json(
+                f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+                "&end_time_utc=2026-10-15T19:00:00Z&target_name=NoSuchTarget"
+            )
+        self.assertEqual(unresolved.exception.code, 400)
+        self.assertEqual(json.loads(unresolved.exception.read())["error"], "invalid_visibility_windows_request")
+
+        with self.assertRaises(HTTPError) as invalid_time:
+            self._read_json(
+                f"/api/visibility-windows?site_id={site_id}&start_time_utc=not-a-time"
+                "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10&target_dec_deg=20"
+            )
+        self.assertEqual(invalid_time.exception.code, 400)
+
+        with self.assertRaises(HTTPError) as reversed_interval:
+            self._read_json(
+                f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T19:00:00Z"
+                "&end_time_utc=2026-10-15T18:00:00Z&target_ra_deg=10&target_dec_deg=20"
+            )
+        self.assertEqual(reversed_interval.exception.code, 400)
+
+    def test_visibility_windows_endpoint_resolves_existing_target_contexts(self) -> None:
+        connection = connect_database(self.projects_root / "tsn_dss.db")
+        try:
+            PlanningRepository(connection).create_target(
+                Target(
+                    id="target:m31",
+                    catalog="Messier",
+                    catalog_id="M31",
+                    name="Andromeda Galaxy",
+                    ra_deg=10.6847083,
+                    dec_deg=41.26875,
+                )
+            )
+        finally:
+            connection.close()
+        site_id = self._create_visibility_site()
+
+        by_target = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_id=target:m31"
+        )["visibility_windows"]
+        self.assertEqual(by_target["target"]["source_id"], "target:m31")
+
+        self._send_json(
+            "/api/telescope/planned-pointing",
+            {"ra_hours": 0.71231389, "dec_deg": 41.26875, "target_name": "M31", "source_kind": "manual"},
+        )
+        by_planned = self._read_json(
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&use_planned_pointing=1"
+        )["visibility_windows"]
+        self.assertEqual(by_planned["target"]["target_name"], "M31")
+        self.assertEqual(by_planned["target"]["source_kind"], "manual")
+
+    def test_visibility_windows_endpoint_matches_mcp_domain_payload(self) -> None:
+        site_id = self._create_visibility_site()
+        path = (
+            f"/api/visibility-windows?site_id={site_id}&start_time_utc=2026-10-15T18:00:00Z"
+            "&end_time_utc=2026-10-15T19:00:00Z&target_ra_deg=10.6847083&target_dec_deg=41.26875"
+            "&min_target_altitude_deg=20"
+        )
+        http_visibility = self._read_json(path)["visibility_windows"]
+
+        connection = connect_database(self.projects_root / "tsn_dss.db")
+        try:
+            mcp_visibility = mcp_target_visibility_windows(
+                connection,
+                site_id=site_id,
+                start_time_utc="2026-10-15T18:00:00Z",
+                end_time_utc="2026-10-15T19:00:00Z",
+                target_ra_deg=10.6847083,
+                target_dec_deg=41.26875,
+                min_target_altitude_deg=20.0,
+            )["visibility_windows"]
+        finally:
+            connection.close()
+
+        for key in ("interval_start_utc", "interval_end_utc", "min_target_altitude_deg", "windows", "diagnostics"):
+            self.assertEqual(http_visibility[key], mcp_visibility[key])
+
     def test_telescope_adapters_endpoint_lists_simulator_and_seestar(self) -> None:
         payload = self._read_json("/api/telescope/adapters")
 
@@ -1013,6 +1204,30 @@ class GuiApiServerTests(unittest.TestCase):
         )
         with urlopen(request) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _create_visibility_site(self, *, horizon_profile: list[dict[str, float]] | None = None) -> str:
+        return self._send_json(
+            "/api/sites",
+            {
+                "name": "Visibility Ridge",
+                "latitude_deg": 49.245,
+                "longitude_deg": 22.511,
+                "elevation_m": 640,
+                "horizon_profile": horizon_profile or [],
+            },
+        )["site"]["id"]
+
+    def _planning_counts(self) -> tuple[int, int, int, int]:
+        connection = connect_database(self.projects_root / "tsn_dss.db")
+        try:
+            return (
+                connection.execute("SELECT COUNT(*) FROM sites").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM targets").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM mosaic_plans").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM mosaic_panels").fetchone()[0],
+            )
+        finally:
+            connection.close()
 
     def _wait_for_run(self, run_id: str, timeout_s: float = 5.0) -> dict[str, object]:
         deadline = time.time() + timeout_s

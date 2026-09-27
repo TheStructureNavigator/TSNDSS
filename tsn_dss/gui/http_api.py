@@ -31,6 +31,7 @@ from ..engine.astronomy import AstronomicalConditionsService, AstronomicalTarget
 from ..engine.light_pollution import LocalRasterLightPollutionProvider
 from ..engine.capture_registry import CaptureRegistrar
 from ..engine.target_resolution import TargetResolutionRequest, resolve_astronomical_target_context
+from ..engine.visibility import visibility_windows
 from ..engine.projects import ProjectStorage, path_is_within
 from ..engine.project_processing import DEFAULT_SIRIL_EXECUTABLE, ProjectRunManager
 from ..engine.project_registry import ProjectInUseError, ProjectRegistry, validate_dir_key
@@ -333,6 +334,66 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
                     return
 
                 self._write_json(HTTPStatus.OK, {"conditions": conditions.to_dict()})
+                return
+
+            if path == "/api/visibility-windows":
+                requested_site_id = self._get_query_param("site_id")
+                if not requested_site_id:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "site_id_required", "message": "Provide ?site_id=..."},
+                    )
+                    return
+
+                try:
+                    with context.open_database() as connection:
+                        planning_repository = PlanningRepository(connection)
+                        site = planning_repository.get_site(requested_site_id)
+                        if site is None:
+                            self._write_json(
+                                HTTPStatus.NOT_FOUND,
+                                {"error": "site_not_found", "message": f"Unknown site: {requested_site_id}"},
+                            )
+                            return
+
+                        target_context = _resolve_astronomical_target_context(
+                            query_params,
+                            planning_repository=planning_repository,
+                            mosaic_repository=MosaicRepository(connection),
+                            telescope_service=context.telescope_service,
+                        )
+
+                    if target_context is None:
+                        raise ValueError("Provide target_id, target_name, mosaic_panel_id, planned pointing, or explicit target coordinates.")
+
+                    result = visibility_windows(
+                        site,
+                        target_context,
+                        start_time_utc=_required_query_param(self._get_query_param("start_time_utc"), "start_time_utc"),
+                        end_time_utc=_required_query_param(self._get_query_param("end_time_utc"), "end_time_utc"),
+                        min_target_altitude_deg=_coerce_optional_query_float(
+                            self._get_query_param("min_target_altitude_deg"),
+                            fallback=30.0,
+                        )
+                        or 30.0,
+                    )
+                except ValueError as error:
+                    self._write_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "invalid_visibility_windows_request", "message": str(error)},
+                    )
+                    return
+                except Exception as error:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "visibility_windows_unavailable", "message": str(error)},
+                    )
+                    return
+
+                self._write_json(
+                    HTTPStatus.OK,
+                    {"visibility_windows": _visibility_windows_to_dict(result, site=site, target=target_context)},
+                )
                 return
 
             if path == "/api/telescope/state":
@@ -1696,6 +1757,29 @@ def _coerce_query_bool(value: str | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _required_query_param(value: str | None, name: str) -> str:
+    if value is None or value == "":
+        raise ValueError(f"{name} is required.")
+    return value
+
+
+def _visibility_windows_to_dict(result: Any, *, site: Site, target: AstronomicalTargetContext) -> dict[str, Any]:
+    payload = result.to_dict()
+    payload.update(
+        {
+            "site": _site_to_dict(site),
+            "target": target.to_dict(),
+            "visible_rule": (
+                "above_geometric_horizon AND above_minimum_altitude AND "
+                "(no Local Horizon profile OR above_local_horizon)"
+            ),
+            "excluded_constraints": ["weather", "cloud_cover", "twilight", "moon", "ranking"],
+            "diagnostic_semantics": "evaluation_grid_derived_not_continuous_proof",
+        }
+    )
+    return payload
 
 
 def _resolve_astronomical_target_context(
