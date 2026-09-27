@@ -1,3 +1,9 @@
+import {
+  classifyDewRisk,
+  classifyWindGust,
+  classifyWindSpeed,
+} from './condition_rules.ts';
+
 export type ConditionAssessmentStatus = 'good' | 'moderate' | 'poor';
 
 export type ObservationIntentProfile = 'neutral' | 'broadband' | 'dual_band' | 'narrowband';
@@ -76,11 +82,6 @@ const MOON_THRESHOLDS_BY_PROFILE: Record<ObservationIntentProfile, MoonThreshold
     separationModerateMin: 15,
   },
 };
-
-const MAX_WIND_GOOD_KMH = 15;
-const MAX_WIND_MODERATE_KMH = 25;
-const MAX_GUST_GOOD_KMH = 20;
-const MAX_GUST_MODERATE_KMH = 35;
 
 export function assessObservingWindowConditions(
   points: ObservingWindowConditionPoint[],
@@ -259,8 +260,8 @@ function assessMoonSeparation(
 }
 
 function assessDewRisk(value: string | null): ConditionAssessmentFactor {
-  switch (normalizeContextText(value)) {
-    case 'low':
+  switch (classifyDewRisk(value)) {
+    case 'good':
       return {
         key: 'dew_risk',
         label: 'Dew risk',
@@ -274,7 +275,7 @@ function assessDewRisk(value: string | null): ConditionAssessmentFactor {
         status: 'moderate',
         reason: 'Moderate dew risk means heaters or closer monitoring may be needed.',
       };
-    case 'high':
+    case 'poor':
       return {
         key: 'dew_risk',
         label: 'Dew risk',
@@ -292,7 +293,8 @@ function assessDewRisk(value: string | null): ConditionAssessmentFactor {
 }
 
 function assessWind(value: number | null): ConditionAssessmentFactor {
-  if (value == null) {
+  const category = classifyWindSpeed(value);
+  if (value == null || category == null) {
     return {
       key: 'wind',
       label: 'Wind',
@@ -301,7 +303,7 @@ function assessWind(value: number | null): ConditionAssessmentFactor {
     };
   }
 
-  if (value <= MAX_WIND_GOOD_KMH) {
+  if (category === 'good') {
     return {
       key: 'wind',
       label: 'Wind',
@@ -309,7 +311,7 @@ function assessWind(value: number | null): ConditionAssessmentFactor {
       reason: `${value.toFixed(1)} km/h should be comfortable for routine tracking and imaging.`,
     };
   }
-  if (value <= MAX_WIND_MODERATE_KMH) {
+  if (category === 'moderate') {
     return {
       key: 'wind',
       label: 'Wind',
@@ -326,7 +328,8 @@ function assessWind(value: number | null): ConditionAssessmentFactor {
 }
 
 function assessGusts(value: number | null): ConditionAssessmentFactor {
-  if (value == null) {
+  const category = classifyWindGust(value);
+  if (value == null || category == null) {
     return {
       key: 'gusts',
       label: 'Gusts',
@@ -335,7 +338,7 @@ function assessGusts(value: number | null): ConditionAssessmentFactor {
     };
   }
 
-  if (value <= MAX_GUST_GOOD_KMH) {
+  if (category === 'good') {
     return {
       key: 'gusts',
       label: 'Gusts',
@@ -343,7 +346,7 @@ function assessGusts(value: number | null): ConditionAssessmentFactor {
       reason: `${value.toFixed(1)} km/h gusts stay mild.`,
     };
   }
-  if (value <= MAX_GUST_MODERATE_KMH) {
+  if (category === 'moderate') {
     return {
       key: 'gusts',
       label: 'Gusts',
