@@ -132,6 +132,7 @@ class McpToolsTests(unittest.TestCase):
                 sorted(tool.name for tool in tools),
                 [
                     "get_site",
+                    "get_site_forecast",
                     "get_sites",
                     "resolve_catalog_object",
                     "search_catalog",
@@ -226,6 +227,29 @@ class McpToolsTests(unittest.TestCase):
                 )
 
         asyncio.run(run_check())
+
+    def test_mcp_visibility_windows_shared_site_resolution_semantics(self) -> None:
+        arguments = {
+            "start_time_utc": "2026-10-15T18:00:00Z",
+            "end_time_utc": "2026-10-15T19:00:00Z",
+            "target_ra_deg": 10.6847083,
+            "target_dec_deg": 41.26875,
+        }
+        by_name = target_visibility_windows(self.connection, site_id="  back yard ", **arguments)
+        self.assertEqual(by_name["visibility_windows"]["site"]["id"], "site:yard")
+
+        with self.assertRaisesRegex(ValueError, "Unknown site_id"):
+            target_visibility_windows(self.connection, site_id="Yard", **arguments)
+        with self.assertRaisesRegex(ValueError, "site_id is required"):
+            target_visibility_windows(self.connection, site_id=" ", **arguments)
+
+        self.repository.create_site(Site(id="site:yard-2", name="BACK YARD", latitude_deg=50.0, longitude_deg=19.0))
+        with self.assertRaisesRegex(ValueError, "Site name is ambiguous"):
+            target_visibility_windows(self.connection, site_id="Back Yard", **arguments)
+        self.assertEqual(
+            target_visibility_windows(self.connection, site_id="site:yard", **arguments)["visibility_windows"]["site"]["id"],
+            "site:yard",
+        )
 
     def test_mcp_visibility_windows_is_read_only(self) -> None:
         async def run_check() -> None:

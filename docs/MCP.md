@@ -31,6 +31,7 @@ The server uses stdio. Stdout is reserved for MCP protocol traffic; diagnostics 
 - `search_targets(query=None, limit=20)` searches the local TSN DSS target catalog only.
 - `target_visibility_at(site_id, time_utc, target_id=None, target_query=None, target_ra_deg=None, target_dec_deg=None, min_target_altitude_deg=30)` evaluates deterministic point-in-time visibility.
 - `target_visibility_windows(site_id, start_time_utc, end_time_utc, target_id=None, target_query=None, catalog_query=None, target_ra_deg=None, target_dec_deg=None, min_target_altitude_deg=30)` evaluates deterministic visibility windows over a UTC interval.
+- `get_site_forecast(site_id, forecast_days=2)` returns the TSN DSS weather forecast for a Site.
 
 `CatalogObject` and `Target` are intentionally different concepts:
 
@@ -55,6 +56,16 @@ Weather/cloud cover is not part of this boolean, and the result does not mean as
 
 `target_visibility_windows` uses the same deterministic visibility predicate over a closed UTC interval and returns zero or more clipped windows. It can use exactly one target source: a persisted workflow `Target`, a resolved canonical `CatalogObject` through `catalog_query`, or explicit RA/Dec coordinates. Window diagnostics are evaluation-grid-derived observations, not continuous proof that an opposite condition never occurred between evaluated instants. Weather, twilight, Moon constraints and ranking are excluded.
 
+`get_site_forecast` exposes TSN DSS's existing Site forecast path (the Open-Meteo client used by the Observation Center Conditions view), normalized to structured data:
+
+- `site_id` accepts a stable Site ID, then an exact case-insensitive Site name (same resolver as `target_visibility_windows`). No fuzzy matching and no active-Site fallback. Ambiguous exact names are rejected.
+- Each call performs a live outbound HTTP read to Open-Meteo and sends the Site coordinates (and elevation, when set). There is no cache, no retry and no fallback provider. The database connection is closed before the request starts; canonical TSN DSS state is not modified.
+- Timestamps (`time_local`, `provider_current_time_local`) are provider-local wall-clock times without a UTC offset, accompanied by `timezone`. They are not UTC. `provider_current_time_local` is the provider's current-conditions slot time; it is not a fetch time, model run time or forecast generation time.
+- `forecast_days` defaults to 2 because a 1-day forecast ends at local midnight and does not cover a normal observing night. Values are clamped to 1..16, like the existing client.
+- Fields are weather only: temperature, humidity, dew point, cloud cover (total/low/mid/high), atmospheric visibility, pressure, wind, gusts, precipitation, provider weather code, plus TSN DSS-derived `dew_margin_c` and `dew_risk`. Units and field semantics are included in the response.
+- The forecast does not include target visibility, twilight/darkness, Moon constraints, seeing, transparency or any observability ranking. Observation Center GOOD/MODERATE/POOR assessments are frontend logic and are not exposed.
+- Provider network failures, timeouts and malformed provider responses are returned as tool errors.
+
 ## Example Client Configuration
 
 Provider-neutral MCP clients generally need a command and args:
@@ -76,5 +87,7 @@ Provider-neutral MCP clients generally need a command and args:
 - Catalog and Target search use the local TSN DSS database only; there is no external catalog lookup.
 - `target_visibility_at` does not include weather forecasts.
 - `target_visibility_windows` does not include weather forecasts.
+- `get_site_forecast` is the only tool that performs an external network request.
+- `get_site_forecast` records no forecast model, model run time or fetch time, and current-conditions precipitation probability is always null.
 - No write tools or actions are exposed.
 - No planning execution, instrument control, Seestar or ASCOM integration is exposed.

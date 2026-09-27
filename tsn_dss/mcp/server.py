@@ -7,9 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ..engine.weather import OpenMeteoForecastClient
 from .bootstrap import McpBootstrapError, readonly_database
 from .tools.catalog import resolve_catalog_object as resolve_catalog_object_impl
 from .tools.catalog import search_catalog as search_catalog_impl
+from .tools.forecast import DEFAULT_MCP_FORECAST_DAYS, ForecastProviderError, SiteForecastClient, resolve_forecast_site
+from .tools.forecast import get_site_forecast as get_site_forecast_impl
 from .tools.sites import get_site as get_site_impl
 from .tools.sites import get_sites as get_sites_impl
 from .tools.targets import search_targets as search_targets_impl
@@ -31,11 +34,13 @@ def create_mcp_server(
     *,
     projects_root: str | Path = "projects",
     database_path: str | Path | None = None,
+    weather_client: SiteForecastClient | None = None,
 ) -> Any:
     if MCPServer is None:
         raise RuntimeError("The MCP Python SDK is not installed. Install dependencies from requirements.txt.") from _IMPORT_ERROR
 
     mcp = MCPServer("TSN DSS")
+    forecast_client = weather_client or OpenMeteoForecastClient()
 
     @mcp.tool()
     def get_sites() -> dict[str, Any]:
@@ -157,6 +162,28 @@ def create_mcp_server(
                 min_target_altitude_deg=min_target_altitude_deg,
             ),
         )
+
+    @mcp.tool()
+    def get_site_forecast(site_id: str, forecast_days: int = DEFAULT_MCP_FORECAST_DAYS) -> dict[str, Any]:
+        """Return the TSN DSS weather forecast for a Site (existing Open-Meteo site forecast path).
+
+        Read-only with respect to TSN DSS state, but each call performs a live outbound HTTP request
+        to Open-Meteo with the Site coordinates. No cache and no fallback provider. Timestamps are
+        provider-local wall-clock times accompanied by `timezone`, not UTC. forecast_days is clamped
+        to 1..16; the default of 2 covers a full observing night past local midnight. Weather only:
+        excludes target visibility, twilight/darkness, Moon constraints, seeing, transparency and
+        any observability ranking.
+        """
+        site = _call_tool(
+            projects_root=projects_root,
+            database_path=database_path,
+            callback=lambda connection: resolve_forecast_site(connection, site_id),
+        )
+        # The read-only database connection is closed before the external request starts.
+        try:
+            return get_site_forecast_impl(site, weather_client=forecast_client, forecast_days=forecast_days)
+        except ForecastProviderError as error:
+            raise ToolError(str(error)) from error
 
     return mcp
 

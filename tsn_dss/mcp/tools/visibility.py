@@ -3,13 +3,13 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from ...domain.models import Site
 from ...engine.astronomy import AstronomicalTargetContext
 from ...engine.catalog_service import CatalogService
 from ...engine.sqlite.planning import PlanningRepository
 from ...engine.target_resolution import TargetResolutionRequest, resolve_astronomical_target_context
 from ...engine.visibility import TargetVisibilityService, visibility_windows
 from ..serializers import site_summary_to_dict
+from .site_resolution import resolve_site
 
 
 def target_visibility_at(
@@ -52,7 +52,7 @@ def target_visibility_windows(
 ) -> dict[str, Any]:
     """Return deterministic TSN DSS target visibility windows over a UTC interval."""
     planning = PlanningRepository(connection)
-    site = _resolve_site(planning, site_id)
+    site = resolve_site(planning, site_id)
     target = _resolve_window_target(
         connection,
         planning,
@@ -86,23 +86,6 @@ def target_visibility_windows(
         }
     )
     return {"visibility_windows": payload}
-
-
-def _resolve_site(planning: PlanningRepository, site_identifier: str) -> Site:
-    normalized = str(site_identifier).strip()
-    if not normalized:
-        raise ValueError("site_id is required.")
-
-    site = planning.get_site(normalized)
-    if site is not None:
-        return site
-
-    exact_name_matches = [item for item in planning.list_sites() if item.name.casefold() == normalized.casefold()]
-    if len(exact_name_matches) == 1:
-        return exact_name_matches[0]
-    if len(exact_name_matches) > 1:
-        raise ValueError(f"Site name is ambiguous: {site_identifier}")
-    raise ValueError(f"Unknown site_id: {site_identifier}")
 
 
 def _resolve_window_target(
