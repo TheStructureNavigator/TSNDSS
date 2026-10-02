@@ -406,7 +406,7 @@ function buildMoon(
     .filter((event): event is NightStoryEvent => event != null);
   const upThroughAstronomicalDarkness = darkness == null
     ? null
-    : nightBlock?.moon_up_at_sunset === true
+    : isMoonUpAt(darkness.startMs, nightBlock?.moon_up_at_sunset ?? null, events)
       && !events.some((event) => event.kind === 'moonset' && event.instantMs > darkness.startMs && event.instantMs < darkness.endMs);
   return {
     illuminationPct: astronomy?.current.moon_illumination_pct ?? null,
@@ -415,6 +415,28 @@ function buildMoon(
     events,
     upThroughAstronomicalDarkness,
   };
+}
+
+function isMoonUpAt(
+  instantMs: number,
+  upAtSunset: boolean | null,
+  events: NightStoryEvent[],
+): boolean | null {
+  if (upAtSunset == null) {
+    return null;
+  }
+  let up = upAtSunset;
+  for (const event of [...events].sort((left, right) => left.instantMs - right.instantMs)) {
+    if (event.instantMs > instantMs) {
+      break;
+    }
+    if (event.kind === 'moonrise') {
+      up = true;
+    } else if (event.kind === 'moonset') {
+      up = false;
+    }
+  }
+  return up;
 }
 
 function boundaryEvents(

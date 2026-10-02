@@ -9,6 +9,7 @@ import {
   fetchCoreContent,
   fetchCaptureDetails,
   fetchAstronomicalConditions,
+  fetchVisibilityWindows,
   fetchMosaics,
   deleteProjectRun,
   deleteProject,
@@ -40,8 +41,8 @@ import {
   updateSite,
   type ProjectSummary,
 } from './app/api';
-import { DEFAULT_CONDITIONS_FORECAST_DAYS } from './app/conditions_time';
 import { getCurrentDeviceLocationMessage, getCurrentDevicePosition } from './app/current_device_position';
+import { buildNightStory } from './app/night_story';
 import {
   type CandidateSiteCreateRequest,
   type LightPollutionLayerState,
@@ -60,6 +61,13 @@ import {
   type ThemeName,
   type ViewName,
 } from './app/shell';
+import {
+  buildTonightVisibilityRequest,
+  TONIGHT_ASTRONOMY_SCOPE,
+  TONIGHT_FORECAST_DAYS,
+  TONIGHT_FORECAST_HOURS,
+  TONIGHT_PAST_DAYS,
+} from './app/tonight_data';
 
 /**
  * TSN DSS frontend entrypoint.
@@ -96,9 +104,11 @@ const state: AppState = {
   lpUpdatingSiteId: null,
   currentDeviceLocating: false,
   currentDeviceLocationStatus: null,
-  conditionsForecastDays: DEFAULT_CONDITIONS_FORECAST_DAYS,
+  conditionsForecastDays: TONIGHT_FORECAST_DAYS,
   siteForecast: null,
   astronomicalConditions: null,
+  visibilityWindows: null,
+  nightStory: null,
   projects: [],
   selectedProject: null,
   selectedProjectRunId: null,
@@ -2315,7 +2325,7 @@ async function loadActiveSiteForecast() {
   }
 
   try {
-    return await fetchSiteForecast(state.activeSiteId, state.conditionsForecastDays);
+    return await fetchSiteForecast(state.activeSiteId, TONIGHT_FORECAST_DAYS, TONIGHT_PAST_DAYS);
   } catch {
     return null;
   }
@@ -2342,31 +2352,30 @@ async function loadActiveAstronomicalConditions() {
     ?? selectedMosaic?.panels[0]
     ?? null;
   const plannedPointing = state.telescopeSnapshot?.planned_pointing ?? null;
-  const forecastHours = state.conditionsForecastDays * 24;
+  const forecastHours = TONIGHT_FORECAST_HOURS;
 
   try {
+    let astronomy;
     if (selectedPanel) {
-      return await fetchAstronomicalConditions({
+      astronomy = await fetchAstronomicalConditions({
         site_id: state.activeSiteId,
         mosaic_panel_id: selectedPanel.id,
         min_target_altitude_deg: 30,
         forecast_hours: forecastHours,
+        scope: TONIGHT_ASTRONOMY_SCOPE,
       });
-    }
-
-    if (plannedPointing) {
-      return await fetchAstronomicalConditions({
+    } else if (plannedPointing) {
+      astronomy = await fetchAstronomicalConditions({
         site_id: state.activeSiteId,
         use_planned_pointing: true,
         min_target_altitude_deg: 30,
         forecast_hours: forecastHours,
+        scope: TONIGHT_ASTRONOMY_SCOPE,
       });
-    }
-
-    if (state.selectedProject?.sky_target) {
+    } else if (state.selectedProject?.sky_target) {
       const resolvedCoordinates = await resolveSkyTargetCoordinates(state.selectedProject.sky_target).catch(() => null);
       if (resolvedCoordinates) {
-        return await fetchAstronomicalConditions({
+        astronomy = await fetchAstronomicalConditions({
           site_id: state.activeSiteId,
           target_name: state.selectedProject.sky_target,
           target_ra_deg: resolvedCoordinates.raDeg,
@@ -2375,22 +2384,50 @@ async function loadActiveAstronomicalConditions() {
           source_id: state.selectedProject.slug,
           min_target_altitude_deg: 30,
           forecast_hours: forecastHours,
+          scope: TONIGHT_ASTRONOMY_SCOPE,
+        });
+      } else {
+        astronomy = await fetchAstronomicalConditions({
+          site_id: state.activeSiteId,
+          target_name: state.selectedProject.sky_target,
+          min_target_altitude_deg: 30,
+          forecast_hours: forecastHours,
+          scope: TONIGHT_ASTRONOMY_SCOPE,
         });
       }
-
-      return await fetchAstronomicalConditions({
+    } else {
+      astronomy = await fetchAstronomicalConditions({
         site_id: state.activeSiteId,
-        target_name: state.selectedProject.sky_target,
         min_target_altitude_deg: 30,
         forecast_hours: forecastHours,
+        scope: TONIGHT_ASTRONOMY_SCOPE,
       });
     }
 
-    return await fetchAstronomicalConditions({
-      site_id: state.activeSiteId,
-      min_target_altitude_deg: 30,
-      forecast_hours: forecastHours,
+    state.visibilityWindows = await loadActiveVisibilityWindows(astronomy);
+    state.nightStory = buildNightStory({
+      astronomy,
+      forecast: state.siteForecast,
+      visibility: state.visibilityWindows,
+      nowMs: Date.now(),
+      timeZone: state.siteForecast?.timezone ?? null,
     });
+    return astronomy;
+  } catch {
+    state.visibilityWindows = null;
+    state.nightStory = null;
+    return null;
+  }
+}
+
+async function loadActiveVisibilityWindows(astronomy: Awaited<ReturnType<typeof fetchAstronomicalConditions>>) {
+  const request = buildTonightVisibilityRequest(state.activeSiteId, astronomy);
+  if (!request) {
+    return null;
+  }
+
+  try {
+    return await fetchVisibilityWindows(request);
   } catch {
     return null;
   }

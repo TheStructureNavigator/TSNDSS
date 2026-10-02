@@ -294,6 +294,27 @@ test('Moon up all night is represented from night-specific Moon facts', () => {
   assert.equal(story.moon.upThroughAstronomicalDarkness, true);
 });
 
+test('Moon rise before astronomical darkness counts as up through darkness', () => {
+  const story = buildNightStory({
+    astronomy: astronomy(night({ moon_up_at_sunset: false, moon_events: [{ kind: 'moonrise', time_utc: at(2) }] })),
+    forecast: clearWeather(),
+    visibility: visibility(),
+    nowMs: BASE + 4 * HOUR_MS,
+  });
+  assert.equal(story.moon.upAtSunset, false);
+  assert.equal(story.moon.upThroughAstronomicalDarkness, true);
+});
+
+test('Moon set before astronomical darkness is not treated as up through darkness', () => {
+  const story = buildNightStory({
+    astronomy: astronomy(night({ moon_up_at_sunset: true, moon_events: [{ kind: 'moonset', time_utc: at(2) }] })),
+    forecast: clearWeather(),
+    visibility: visibility(),
+    nowMs: BASE + 4 * HOUR_MS,
+  });
+  assert.equal(story.moon.upThroughAstronomicalDarkness, false);
+});
+
 test('Moon set during darkness is represented as fact and not a score', () => {
   const story = buildNightStory({
     astronomy: astronomy(night({ moon_up_at_sunset: true, moon_events: [{ kind: 'moonset', time_utc: at(6) }] })),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import threading
@@ -15,7 +16,7 @@ from tsn_dss.domain.models import Target
 from tsn_dss.engine.projects import ProjectStorage
 from tsn_dss.engine.sqlite import PlanningRepository, connect_database
 from tsn_dss.mcp.tools.visibility import target_visibility_windows as mcp_target_visibility_windows
-from tsn_dss.gui.http_api import create_http_server
+from tsn_dss.gui.http_api import _write_response_body, create_http_server
 
 
 class FakeWeatherClient:
@@ -214,6 +215,34 @@ class GuiApiServerTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["releases"]), 1)
         self.assertEqual(payload["current_version"], payload["releases"][0]["version"])
         self.assertIn("todo", payload)
+
+    def test_json_response_write_ignores_client_disconnect(self) -> None:
+        class AbortedWriter:
+            def write(self, body: bytes) -> None:
+                raise ConnectionAbortedError(10053, "client disconnected")
+
+        self.assertFalse(_write_response_body(AbortedWriter(), b'{"ok": true}'))
+
+    def test_json_response_write_does_not_swallow_application_errors(self) -> None:
+        class BrokenWriter:
+            def write(self, body: bytes) -> None:
+                raise RuntimeError("serialization path bug")
+
+        with self.assertRaisesRegex(RuntimeError, "serialization path bug"):
+            _write_response_body(BrokenWriter(), b'{"ok": true}')
+
+    def test_http_api_module_help_does_not_emit_runpy_warning(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "tsn_dss.gui.http_api", "--help"],
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("found in sys.modules", result.stderr)
 
     def test_light_pollution_endpoint_reports_missing_local_dataset(self) -> None:
         payload = self._read_json("/api/light-pollution?lat=50.0&lon=18.0")

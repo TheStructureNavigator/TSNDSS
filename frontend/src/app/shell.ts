@@ -29,6 +29,7 @@ import {
   type SiteForecastSnapshot,
   type TelescopeAdapterDescriptor,
   type TelescopeSnapshot,
+  type VisibilityWindowsResult,
 } from './api';
 import {
   type ConditionsJoinedRow,
@@ -47,7 +48,9 @@ import {
   isLocalHorizonObservingWindowPoint,
   type LocalHorizonAnalysis,
 } from './local_horizon_conditions';
+import type { NightStory } from './night_story';
 import { buildCandidateSiteDefaultName, siteLightPollutionPayloadFromCandidate } from './site_light_pollution';
+import { renderTonightStoryLevel } from './tonight_view';
 
 /**
  * Pure rendering layer for the TSN DSS frontend.
@@ -82,6 +85,8 @@ export type AppState = {
   conditionsForecastDays: number;
   siteForecast: SiteForecastSnapshot | null;
   astronomicalConditions: AstronomicalConditionsSnapshot | null;
+  visibilityWindows: VisibilityWindowsResult | null;
+  nightStory: NightStory | null;
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
   selectedProjectRunId: string | null;
@@ -131,9 +136,6 @@ export type SkyDetailTab = 'telescope' | 'mosaic';
 export type ObservationCenterTab = 'sites' | 'conditions';
 
 const OBSERVING_WINDOW_MAX_CLOUD_COVER_PCT = 35;
-const CONDITIONS_FORECAST_DAYS_MIN = 1;
-const CONDITIONS_FORECAST_DAYS_MAX = 16;
-const CONDITIONS_FORECAST_DAYS_STEP = 1;
 const NIGHT_TIMELINE_REJECTION_REASONS = [
   'Not astronomical night',
   'Target below 30°',
@@ -1054,7 +1056,14 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
   }
 
   return `
-    <article class="panel telescope-panel">
+    ${renderTonightStoryLevel(state.nightStory)}
+
+    <details class="panel conditions-detail-disclosure">
+      <summary class="conditions-detail-disclosure__summary">
+        <span>Detailed conditions</span>
+        <span>${escapeHtml(activeSite.name)}</span>
+      </summary>
+      <div class="telescope-panel conditions-detail-disclosure__body">
       <div class="panel__header">
         <h3>Conditions</h3>
         <span>${escapeHtml(activeSite.name)}</span>
@@ -1103,32 +1112,25 @@ function renderObservationConditionsPanel(state: AppState, activeSite: Site | nu
           ],
         )}
       </div>
-    </article>
+      </div>
+    </details>
 
-    <article class="panel">
+    <details class="panel conditions-detail-disclosure">
+      <summary class="conditions-detail-disclosure__summary">
+        <span>Timeline and hourly detail</span>
+        <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
+      </summary>
+      <div class="conditions-detail-disclosure__body">
       <div class="panel__header panel__header--conditions">
         <div>
-          <h3>Next ${state.conditionsForecastDays} ${state.conditionsForecastDays === 1 ? 'day' : 'days'}</h3>
+          <h3>Tonight detail</h3>
           <span>${Math.max(forecast?.hourly.length ?? 0, astronomy?.hourly.length ?? 0)} points</span>
         </div>
-        <label class="conditions-hours-control" aria-label="Conditions forecast days">
-          <span class="conditions-hours-control__label">Range</span>
-          <div class="conditions-hours-control__input">
-            <input
-              type="range"
-              min="${CONDITIONS_FORECAST_DAYS_MIN}"
-              max="${CONDITIONS_FORECAST_DAYS_MAX}"
-              step="${CONDITIONS_FORECAST_DAYS_STEP}"
-              value="${state.conditionsForecastDays}"
-              data-conditions-days-range
-            />
-            <span class="conditions-hours-control__value" data-conditions-days-value>${state.conditionsForecastDays}d</span>
-          </div>
-        </label>
       </div>
       ${renderConditionsTimeline(state, forecast, astronomy)}
       ${renderConditionsHourlyTable(state, forecast, astronomy)}
-    </article>
+      </div>
+    </details>
   `;
 }
 
@@ -3394,15 +3396,6 @@ function renderObservingWindowConditions(
 
   return `
     <div class="conditions-timeline__conditions">
-      <div class="conditions-overall">
-        <div class="conditions-overall__header">
-          <span class="conditions-timeline__summary-label">Overall assessment</span>
-          <span class="conditions-overall__status conditions-overall__status--${assessment.overall.status.toLowerCase()}">
-            ${escapeHtml(assessment.overall.status)}
-          </span>
-        </div>
-        <p class="conditions-overall__reason">${escapeHtml(assessment.overall.reason)}</p>
-      </div>
       <span class="conditions-timeline__summary-label">Observing conditions</span>
       <div class="conditions-grid conditions-grid--window">
         ${renderConditionCard('Moon illumination', formatValueRange(points.map((point) => point.moonIlluminationPct), (value) => `${value.toFixed(0)}%`))}

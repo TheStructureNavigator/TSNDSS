@@ -19,6 +19,16 @@ from typing import Any
 
 DEFAULT_FORECAST_DAYS = 1
 MAX_FORECAST_DAYS = 16
+CLIENT_DISCONNECT_EXCEPTIONS = (ConnectionAbortedError, BrokenPipeError, ConnectionResetError)
+
+
+def _write_response_body(wfile: Any, body: bytes) -> bool:
+    """Write a prepared response body; return False when the client is already gone."""
+    try:
+        wfile.write(body)
+    except CLIENT_DISCONNECT_EXCEPTIONS:
+        return False
+    return True
 
 try:
     from PIL import Image, ImageOps
@@ -1394,7 +1404,7 @@ def _build_handler(context: ApiContext) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile, body)
 
         def _send_cors_headers(self) -> None:
             self.send_header("Access-Control-Allow-Origin", "*")
