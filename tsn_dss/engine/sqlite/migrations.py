@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 6 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 7 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 
 class SchemaVersionError(RuntimeError):
@@ -581,6 +581,29 @@ GROUP BY
     o.finished_at;
 """
 
+_MIGRATION_7_PROJECT_SESSIONS_SQL = """
+CREATE TABLE project_sessions (
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+
+    PRIMARY KEY (project_id, session_id),
+
+    FOREIGN KEY (project_id)
+        REFERENCES projects(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (session_id)
+        REFERENCES sessions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX idx_project_sessions_session
+ON project_sessions (session_id);
+"""
+
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -610,6 +633,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         description="canonical observation session membership",
         sql=_MIGRATION_6_OBSERVATION_SESSIONS_SQL,
         foreign_keys_off=True,
+    ),
+    Migration(
+        version=7,
+        description="canonical project session association",
+        sql=_MIGRATION_7_PROJECT_SESSIONS_SQL,
     ),
 )
 

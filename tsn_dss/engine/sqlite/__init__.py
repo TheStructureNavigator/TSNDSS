@@ -17,6 +17,7 @@ from .observation import ObservationRepository
 from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
 from .project_repository import ProjectInUseError, ProjectRepository
+from .project_sessions import ProjectSessionRepository
 from .sessions import SessionRepository, new_session_id
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "PlanningRepository",
     "CatalogRepository",
     "ProjectRepository",
+    "ProjectSessionRepository",
     "ProjectInUseError",
     "ObservationRepository",
     "FrameRepository",

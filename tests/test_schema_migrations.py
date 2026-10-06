@@ -358,8 +358,8 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 6)
-        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5, 6])
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 7)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5, 6, 7])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
 
@@ -367,7 +367,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6))
+        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7))
         self.assertIsNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.backups(), [])
@@ -387,14 +387,14 @@ class VersionBehaviourTests(TempDirTestCase):
         schema = describe_schema(connection)
         for table in ("targets", "sites", "site_horizon_profile_points", "mosaic_plans", "mosaic_panels",
                       "frames", "datasets", "processing_runs", "catalog_objects", "catalog_object_aliases",
-                      "sessions"):
+                      "sessions", "project_sessions"):
             self.assertIn(table, schema["tables"])
         self.assertIn("lp_data_kind", schema["tables"]["sites"]["columns"])
         self.assertIn("filter", schema["tables"]["mosaic_plans"]["columns"])
         self.assertIn("v_observation_summary", schema["views"])
 
     def test_v6_observation_session_migration_preserves_and_backfills_legacy_observations(self) -> None:
-        connection, result = self.initialize(migrations=MIGRATIONS[:-1])
+        connection, result = self.initialize(migrations=MIGRATIONS[:-2])
         connection.row_factory = sqlite3.Row
         self.assertEqual(result.final_version, 5)
         PlanningRepository(connection).create_target(
@@ -412,7 +412,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         connection.row_factory = sqlite3.Row
 
-        self.assertEqual(result.applied_migrations, (6,))
+        self.assertEqual(result.applied_migrations, (6, 7))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         observation_columns = {row[1] for row in connection.execute("PRAGMA table_info(observations);").fetchall()}
         self.assertIn("session_id", observation_columns)

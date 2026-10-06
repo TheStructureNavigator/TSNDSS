@@ -149,7 +149,10 @@ Contracts:
 DSS-CTR-001, DSS-CTR-008.
 
 Status:
-READY / HUMAN ADJUDICATION REQUIRED
+COMPLETE
+
+Completion note:
+Wave 3 delivered canonical optional many-to-many Project <-> Session association through additive schema v7, a pure `project_sessions(project_id, session_id)` relation, and a dedicated ProjectSessionRepository. The relation has no ownership in either direction, performs no migration backfill or fabricated association, and preserves Session ownership of Observations plus Project/Capture ownership of Capture/Frame provenance. Conformance and migration verification passed in the combined closure set: 156 tests passed.
 
 ### Wave 4 — SessionPlan
 
@@ -163,7 +166,7 @@ Preserve:
 SessionPlan != AcquisitionPlan != MosaicPlan != PlannedPointing.
 
 Status:
-BLOCKED BY WAVE 1
+READY
 
 ### Wave 5 — SessionContext
 
@@ -264,8 +267,8 @@ For every future implementation wave:
 |---|---|---|---|---|---|
 | 1 | Session Foundation | DSS-CTR-001 | None | COMPLETE | Medium |
 | 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | COMPLETE | HIGH |
-| 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | READY / HUMAN ADJUDICATION REQUIRED | Medium |
-| 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
+| 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | COMPLETE | Medium |
+| 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | READY | Medium |
 | 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | PLANNED / PARTIALLY INDEPENDENT | Medium |
@@ -290,8 +293,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 3 — Project <-> Session association planning / human adjudication
+NEXT: Wave 4 — SessionPlan planning / implementation planning
 
-Next work is planning and human adjudication for explicit Project <-> Session association without ownership.
+Next work is planning and implementation planning for operational SessionPlan while preserving SessionPlan != AcquisitionPlan != MosaicPlan != PlannedPointing.
 
-Do not begin Wave 3 implementation now.
+Do not begin Wave 4 implementation now.

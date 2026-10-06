@@ -169,12 +169,22 @@ class SessionRepositoryTests(unittest.TestCase):
             self.connection.execute("SELECT COUNT(*) FROM observations WHERE id = 'obs:1';").fetchone()[0],
             1,
         )
+        session_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(sessions);").fetchall()}
+        project_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(projects);").fetchall()}
+        capture_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(captures);").fetchall()}
+        frame_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(frames);").fetchall()}
         observation_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(observations);").fetchall()}
+        project_session_columns = [
+            row[1] for row in self.connection.execute("PRAGMA table_info(project_sessions);").fetchall()
+        ]
+
+        self.assertNotIn("project_id", session_columns)
+        self.assertNotIn("session_id", project_columns)
+        self.assertNotIn("session_id", capture_columns)
+        self.assertNotIn("session_id", frame_columns)
         self.assertIn("session_id", observation_columns)
-        for table in ("captures", "frames", "projects"):
-            columns = {row[1] for row in self.connection.execute(f"PRAGMA table_info({table});").fetchall()}
-            self.assertNotIn("session_id", columns)
-        for table in ("project_sessions", "session_members", "session_plans", "session_context", "session_events"):
+        self.assertEqual(project_session_columns, ["project_id", "session_id"])
+        for table in ("session_members", "session_plans", "session_context", "session_events"):
             self.assertIsNone(
                 self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?;",
