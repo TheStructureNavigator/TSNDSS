@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 4 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 5 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 class SchemaVersionError(RuntimeError):
@@ -348,6 +348,41 @@ CREATE INDEX idx_catalog_object_aliases_object
 ON catalog_object_aliases (catalog_object_id);
 """
 
+_MIGRATION_5_SESSIONS_SQL = """
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    state TEXT NOT NULL DEFAULT 'planned'
+        CHECK (state IN ('planned', 'preparing', 'active', 'closing', 'completed', 'aborted')),
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    final_state TEXT
+        CHECK (final_state IS NULL OR final_state IN ('completed', 'aborted')),
+    operator_id TEXT,
+    site_id TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id),
+    CHECK (state NOT IN ('active', 'closing', 'completed', 'aborted') OR operator_id IS NOT NULL),
+    CHECK (
+        (state IN ('completed', 'aborted') AND ended_at IS NOT NULL)
+        OR (state NOT IN ('completed', 'aborted') AND ended_at IS NULL)
+    ),
+    CHECK (
+        (state IN ('completed', 'aborted') AND final_state = state)
+        OR (state NOT IN ('completed', 'aborted') AND final_state IS NULL)
+    ),
+    CHECK (ended_at IS NULL OR ended_at >= started_at)
+);
+
+CREATE INDEX idx_sessions_state
+ON sessions (state);
+
+CREATE INDEX idx_sessions_site_id
+ON sessions (site_id);
+"""
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -366,6 +401,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=4,
         description="canonical astronomical catalog objects",
         sql=_MIGRATION_4_CATALOG_SQL,
+    ),
+    Migration(
+        version=5,
+        description="canonical sessions",
+        sql=_MIGRATION_5_SESSIONS_SQL,
     ),
 )
 

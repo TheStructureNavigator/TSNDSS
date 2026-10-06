@@ -17,6 +17,7 @@ from .observation import ObservationRepository
 from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
 from .project_repository import ProjectInUseError, ProjectRepository
+from .sessions import SessionRepository, new_session_id
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
@@ -33,10 +34,12 @@ __all__ = [
     "MosaicRepository",
     "DatasetRepository",
     "ProcessingRunRepository",
+    "SessionRepository",
     "ValidationError",
     "connect_database",
     "foreign_key_violations",
     "initialize_database",
     "integrity_check",
+    "new_session_id",
     "transaction",
 ]

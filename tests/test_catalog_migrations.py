@@ -15,17 +15,17 @@ V3_ONLY = MIGRATIONS[:2]
 
 
 class CatalogMigrationTests(TempDirTestCase):
-    def test_fresh_database_reaches_version_four_with_catalog_tables(self) -> None:
+    def test_fresh_database_reaches_current_schema_with_catalog_tables(self) -> None:
         connection, result = self.initialize()
 
         self.assertEqual(result.final_version, CURRENT_SCHEMA_VERSION)
-        self.assertEqual(result.applied_migrations, (2, 3, 4))
-        self.assertEqual(get_user_version(connection), 4)
+        self.assertEqual(result.applied_migrations, (2, 3, 4, 5))
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         tables = describe_schema(connection)["tables"]
         self.assertIn("catalog_objects", tables)
         self.assertIn("catalog_object_aliases", tables)
 
-    def test_v3_to_v4_preserves_existing_data(self) -> None:
+    def test_v3_to_current_schema_preserves_existing_data(self) -> None:
         before, _ = self.initialize(migrations=V3_ONLY)
         before.execute(
             """
@@ -38,8 +38,8 @@ class CatalogMigrationTests(TempDirTestCase):
 
         connection, result = self.initialize()
 
-        self.assertEqual(result.applied_migrations, (4,))
-        self.assertEqual(get_user_version(connection), 4)
+        self.assertEqual(result.applied_migrations, (4, 5))
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(
             tuple(connection.execute("SELECT id, catalog_id, name FROM targets").fetchone()),
             ("target:m42", "M42", "Orion Nebula"),

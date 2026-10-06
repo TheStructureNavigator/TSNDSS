@@ -47,14 +47,16 @@ class McpBootstrapTests(unittest.TestCase):
         self.assertFalse(self.db_path.exists())
 
     def test_old_schema_is_refused_without_migration_or_backup(self) -> None:
+        old_schema_migrations = MIGRATIONS[:2]
+        old_schema_version = old_schema_migrations[-1].version
         connection = connect_database(self.db_path)
         try:
             initialize_schema(
                 connection,
                 baseline_path=DEFAULT_SCHEMA_PATH,
-                migrations=MIGRATIONS[:2],
+                migrations=old_schema_migrations,
             )
-            self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION - 1)
+            self.assertEqual(get_user_version(connection), old_schema_version)
         finally:
             connection.close()
 
@@ -67,7 +69,7 @@ class McpBootstrapTests(unittest.TestCase):
         self.assertEqual(after_files, before_files)
         verifier = connect_database(self.db_path)
         try:
-            self.assertEqual(get_user_version(verifier), CURRENT_SCHEMA_VERSION - 1)
+            self.assertEqual(get_user_version(verifier), old_schema_version)
         finally:
             verifier.close()
 

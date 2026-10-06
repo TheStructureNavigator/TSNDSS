@@ -105,7 +105,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
 
         connection, result = self.initialize()
         self.assertEqual((result.initial_version, result.final_version), (2, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (3, 4))
+        self.assertEqual(result.applied_migrations, (3, 4, 5))
         self.assertIsNotNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
 

@@ -111,6 +111,20 @@ class Project:
 
 
 @dataclass(slots=True)
+class Session:
+    """A bounded operational field period governed by DSS-CTR-001."""
+    id: str
+    started_at: str
+    state: str = "planned"
+    title: str | None = None
+    ended_at: str | None = None
+    final_state: str | None = None
+    operator_id: str | None = None
+    site_id: str | None = None
+    notes: str | None = None
+
+
+@dataclass(slots=True)
 class Equipment:
     """A single equipment asset such as a camera, mount, filter, or scope."""
     id: str
