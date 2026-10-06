@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 7 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 8 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 class SchemaVersionError(RuntimeError):
@@ -604,6 +604,60 @@ ON project_sessions (session_id);
 """
 
 
+_MIGRATION_8_SESSION_PLANS_SQL = """
+CREATE TABLE session_plans (
+    session_id TEXT PRIMARY KEY,
+    FOREIGN KEY (session_id)
+        REFERENCES sessions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE session_plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    item_order INTEGER
+        CHECK (item_order IS NULL OR item_order >= 0),
+    target_id TEXT,
+    acquisition_plan_id TEXT,
+    mosaic_panel_id TEXT,
+    FOREIGN KEY (session_id)
+        REFERENCES session_plans(session_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (target_id)
+        REFERENCES targets(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (acquisition_plan_id)
+        REFERENCES acquisition_plans(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (mosaic_panel_id)
+        REFERENCES mosaic_panels(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    CHECK (
+        target_id IS NOT NULL
+        OR acquisition_plan_id IS NOT NULL
+        OR mosaic_panel_id IS NOT NULL
+    )
+);
+
+CREATE INDEX idx_session_plan_items_session
+ON session_plan_items (session_id, item_order, id);
+
+CREATE INDEX idx_session_plan_items_target
+ON session_plan_items (target_id);
+
+CREATE INDEX idx_session_plan_items_acquisition_plan
+ON session_plan_items (acquisition_plan_id);
+
+CREATE INDEX idx_session_plan_items_mosaic_panel
+ON session_plan_items (mosaic_panel_id);
+"""
+
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -638,6 +692,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=7,
         description="canonical project session association",
         sql=_MIGRATION_7_PROJECT_SESSIONS_SQL,
+    ),
+    Migration(
+        version=8,
+        description="canonical session plans",
+        sql=_MIGRATION_8_SESSION_PLANS_SQL,
     ),
 )
 

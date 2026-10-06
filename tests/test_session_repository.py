@@ -184,7 +184,18 @@ class SessionRepositoryTests(unittest.TestCase):
         self.assertNotIn("session_id", frame_columns)
         self.assertIn("session_id", observation_columns)
         self.assertEqual(project_session_columns, ["project_id", "session_id"])
-        for table in ("session_members", "session_plans", "session_context", "session_events"):
+        session_plan_columns = [
+            row[1] for row in self.connection.execute("PRAGMA table_info(session_plans);").fetchall()
+        ]
+        session_plan_item_columns = [
+            row[1] for row in self.connection.execute("PRAGMA table_info(session_plan_items);").fetchall()
+        ]
+        self.assertEqual(session_plan_columns, ["session_id"])
+        self.assertEqual(
+            session_plan_item_columns,
+            ["id", "session_id", "item_order", "target_id", "acquisition_plan_id", "mosaic_panel_id"],
+        )
+        for table in ("session_members", "session_context", "session_events"):
             self.assertIsNone(
                 self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?;",

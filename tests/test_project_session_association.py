@@ -241,7 +241,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
         result = self._initialize(connection)
 
         self.assertEqual(result.final_version, CURRENT_SCHEMA_VERSION)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 7)
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 8)
         columns, fks, indexes = self._relation_schema(connection)
         self.assertEqual([column[1] for column in columns], ["project_id", "session_id"])
         self.assertEqual([column[5] for column in columns], [1, 2])
@@ -252,7 +252,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
 
     def test_v6_to_v7_preserves_existing_data_and_creates_no_associations(self) -> None:
         connection = self._connect("upgrade.db")
-        result = self._initialize(connection, migrations=MIGRATIONS[:-1])
+        result = self._initialize(connection, migrations=MIGRATIONS[:-2])
         self.assertEqual(result.final_version, 6)
         connection.executescript(
             """
@@ -293,9 +293,11 @@ class ProjectSessionMigrationTests(unittest.TestCase):
         self.addCleanup(connection.close)
         result = self._initialize(connection)
 
-        self.assertEqual(result.applied_migrations, (7,))
-        self.assertEqual(get_user_version(connection), 7)
+        self.assertEqual(result.applied_migrations, (7, 8))
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM project_sessions;").fetchone()[0], 0)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plans;").fetchone()[0], 0)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plan_items;").fetchone()[0], 0)
         for table in (
             "projects", "sessions", "observations", "captures", "frames", "datasets",
             "dataset_observations", "dataset_frames", "processing_runs", "mosaic_plans",
@@ -304,7 +306,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
                 self.assertEqual(connection.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0], 1)
         self.assertEqual(foreign_key_violations(connection), [])
 
-    def test_fresh_and_upgraded_v7_project_session_schemas_converge(self) -> None:
+    def test_fresh_and_upgraded_v8_project_session_schemas_converge(self) -> None:
         fresh = self._connect("fresh.db")
         upgraded = self._connect("upgraded.db")
         self.addCleanup(fresh.close)

@@ -124,6 +124,25 @@ class Session:
     notes: str | None = None
 
 
+
+
+@dataclass(slots=True)
+class SessionPlanItem:
+    """One planned activity owned by a SessionPlan."""
+    id: int | None = None
+    item_order: int | None = None
+    target_id: str | None = None
+    acquisition_plan_id: str | None = None
+    mosaic_panel_id: str | None = None
+
+
+@dataclass(slots=True)
+class SessionPlan:
+    """Canonical operational intent for one Session."""
+    session_id: str
+    items: list[SessionPlanItem] = field(default_factory=list)
+
+
 @dataclass(slots=True)
 class Equipment:
     """A single equipment asset such as a camera, mount, filter, or scope."""

@@ -18,6 +18,7 @@ from .planning import PlanningRepository, ValidationError
 from .processing import ProcessingRunRepository
 from .project_repository import ProjectInUseError, ProjectRepository
 from .project_sessions import ProjectSessionRepository
+from .session_plans import SessionPlanRepository
 from .sessions import SessionRepository, new_session_id
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "DatasetRepository",
     "ProcessingRunRepository",
     "SessionRepository",
+    "SessionPlanRepository",
     "ValidationError",
     "connect_database",
     "foreign_key_violations",

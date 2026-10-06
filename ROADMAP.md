@@ -166,7 +166,10 @@ Preserve:
 SessionPlan != AcquisitionPlan != MosaicPlan != PlannedPointing.
 
 Status:
-READY
+COMPLETE
+
+Completion note:
+Wave 4 delivered the canonical SessionPlan foundation through additive schema v8. Session owns zero or one SessionPlan identified by `session_id`; SessionPlan owns SessionPlanItems with optional Target, AcquisitionPlan, MosaicPanel references and optional ordering. Planning remains intent and does not create Observation. No legacy backfill was performed, existing ownership boundaries were preserved, independent acceptance completed, and the 182-test acceptance suite passed.
 
 ### Wave 5 — SessionContext
 
@@ -177,7 +180,7 @@ Contracts:
 DSS-CTR-005, DSS-CTR-003.
 
 Status:
-BLOCKED BY WAVE 1
+READY
 
 ### Wave 6 — SessionEvent
 
@@ -268,8 +271,8 @@ For every future implementation wave:
 | 1 | Session Foundation | DSS-CTR-001 | None | COMPLETE | Medium |
 | 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | COMPLETE | HIGH |
 | 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | COMPLETE | Medium |
-| 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | READY | Medium |
-| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
+| 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | COMPLETE | Medium |
+| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | READY | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | PLANNED / PARTIALLY INDEPENDENT | Medium |
 | 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | PLANNED / LEGACY COMPATIBILITY | Medium |
@@ -293,8 +296,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 4 — SessionPlan planning / implementation planning
+NEXT: Wave 5 — SessionContext + Observation snapshot boundary planning / implementation planning
 
-Next work is planning and implementation planning for operational SessionPlan while preserving SessionPlan != AcquisitionPlan != MosaicPlan != PlannedPointing.
+Next work is planning and implementation planning for SessionContext and the Observation snapshot boundary.
 
-Do not begin Wave 4 implementation now.
+Do not begin Wave 5 implementation now.
