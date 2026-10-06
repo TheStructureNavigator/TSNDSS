@@ -18,11 +18,22 @@ from tsn_dss.engine.sqlite.observation import ObservationRepository
 from tsn_dss.engine.sqlite.planning import PlanningRepository, ValidationError
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class ObservationRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "observation.db"
         self.connection = initialize_database(self.db_path)
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.planning = PlanningRepository(self.connection)
         self.observations = ObservationRepository(self.connection)
         self._seed_planning_graph()
@@ -33,7 +44,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_create_observation_with_equipment_assignments(self) -> None:
         created = self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:1001",
                 observation_number=1001,
                 target_id="target:m42",
@@ -54,10 +65,10 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_list_observations_can_filter_by_target_and_status(self) -> None:
         self.observations.create_observation(
-            Observation(id="obs:m42", observation_number=1, target_id="target:m42", status="planned")
+            Observation(session_id=TEST_SESSION_ID, id="obs:m42", observation_number=1, target_id="target:m42", status="planned")
         )
         self.observations.create_observation(
-            Observation(id="obs:m31", observation_number=2, target_id="target:m31", status="completed")
+            Observation(session_id=TEST_SESSION_ID, id="obs:m31", observation_number=2, target_id="target:m31", status="completed")
         )
 
         filtered = self.observations.list_observations(target_id="target:m42", status="planned")
@@ -66,7 +77,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_valid_status_lifecycle_progression(self) -> None:
         self.observations.create_observation(
-            Observation(id="obs:lifecycle", observation_number=3, target_id="target:m42", status="planned")
+            Observation(session_id=TEST_SESSION_ID, id="obs:lifecycle", observation_number=3, target_id="target:m42", status="planned")
         )
 
         preparing = self.observations.set_observation_status("obs:lifecycle", "preparing")
@@ -87,7 +98,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_invalid_status_transition_is_rejected(self) -> None:
         self.observations.create_observation(
-            Observation(id="obs:invalid-transition", observation_number=4, target_id="target:m42")
+            Observation(session_id=TEST_SESSION_ID, id="obs:invalid-transition", observation_number=4, target_id="target:m42")
         )
 
         with self.assertRaises(ValidationError):
@@ -96,7 +107,7 @@ class ObservationRepositoryTests(unittest.TestCase):
     def test_observation_target_must_match_plan_target(self) -> None:
         with self.assertRaises(ValidationError):
             self.observations.create_observation(
-                Observation(
+                Observation(session_id=TEST_SESSION_ID,
                     id="obs:wrong-target",
                     observation_number=5,
                     target_id="target:m31",
@@ -107,7 +118,7 @@ class ObservationRepositoryTests(unittest.TestCase):
     def test_equipment_role_must_match_equipment_type(self) -> None:
         with self.assertRaises(ValidationError):
             self.observations.create_observation(
-                Observation(
+                Observation(session_id=TEST_SESSION_ID,
                     id="obs:wrong-role",
                     observation_number=6,
                     target_id="target:m42",
@@ -128,7 +139,7 @@ class ObservationRepositoryTests(unittest.TestCase):
             )
         )
         self.observations.create_observation(
-            Observation(id="obs:equipment-upsert", observation_number=7, target_id="target:m42")
+            Observation(session_id=TEST_SESSION_ID, id="obs:equipment-upsert", observation_number=7, target_id="target:m42")
         )
 
         self.observations.assign_equipment("obs:equipment-upsert", "camera:canon600d-001", "main_camera")
@@ -141,7 +152,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_update_observation_replaces_equipment_assignments(self) -> None:
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:update",
                 observation_number=8,
                 target_id="target:m42",
@@ -153,7 +164,7 @@ class ObservationRepositoryTests(unittest.TestCase):
         )
 
         updated = self.observations.update_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:update",
                 observation_number=8,
                 target_id="target:m42",
@@ -170,7 +181,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_remove_equipment_assignment(self) -> None:
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:remove-assignment",
                 observation_number=9,
                 target_id="target:m42",
@@ -187,7 +198,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def test_delete_observation_cascades_equipment_assignments(self) -> None:
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:delete",
                 observation_number=10,
                 target_id="target:m42",
@@ -209,7 +220,7 @@ class ObservationRepositoryTests(unittest.TestCase):
     def test_finished_before_started_is_rejected(self) -> None:
         with self.assertRaises(ValidationError):
             self.observations.create_observation(
-                Observation(
+                Observation(session_id=TEST_SESSION_ID,
                     id="obs:bad-time",
                     observation_number=11,
                     target_id="target:m42",

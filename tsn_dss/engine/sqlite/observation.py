@@ -72,6 +72,7 @@ class ObservationRepository:
                 INSERT INTO observations (
                     id,
                     observation_number,
+                    session_id,
                     target_id,
                     site_id,
                     acquisition_plan_id,
@@ -81,11 +82,12 @@ class ObservationRepository:
                     operator_notes,
                     weather_notes,
                     moon_illumination_pct
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     observation.id,
                     observation.observation_number,
+                    observation.session_id,
                     observation.target_id,
                     observation.site_id,
                     observation.acquisition_plan_id,
@@ -109,6 +111,7 @@ class ObservationRepository:
             SELECT
                 id,
                 observation_number,
+                session_id,
                 target_id,
                 site_id,
                 acquisition_plan_id,
@@ -134,6 +137,7 @@ class ObservationRepository:
             SELECT
                 id,
                 observation_number,
+                session_id,
                 target_id,
                 site_id,
                 acquisition_plan_id,
@@ -181,6 +185,7 @@ class ObservationRepository:
                 UPDATE observations
                 SET
                     observation_number = ?,
+                    session_id = ?,
                     target_id = ?,
                     site_id = ?,
                     acquisition_plan_id = ?,
@@ -195,6 +200,7 @@ class ObservationRepository:
                 """,
                 (
                     observation.observation_number,
+                    observation.session_id,
                     observation.target_id,
                     observation.site_id,
                     observation.acquisition_plan_id,
@@ -234,6 +240,7 @@ class ObservationRepository:
         updated = Observation(
             id=current.id,
             observation_number=current.observation_number,
+            session_id=current.session_id,
             target_id=current.target_id,
             site_id=current.site_id,
             acquisition_plan_id=current.acquisition_plan_id,
@@ -289,6 +296,10 @@ class ObservationRepository:
             self.connection.execute("DELETE FROM observations WHERE id = ?;", (observation_id,))
 
     def _validate_observation_domain_consistency(self, observation: Observation) -> None:
+        session = self.connection.execute("SELECT 1 FROM sessions WHERE id = ?;", (observation.session_id,)).fetchone()
+        if session is None:
+            raise sqlite3.IntegrityError(f"Missing session for observation: {observation.session_id}")
+
         target = self.planning_repository.get_target(observation.target_id)
         if target is None:
             raise sqlite3.IntegrityError(f"Missing target for observation: {observation.target_id}")
@@ -377,6 +388,8 @@ class ObservationRepository:
 def _validate_observation_payload(observation: Observation) -> None:
     if not observation.id:
         raise ValidationError("Observation id is required.")
+    if not observation.session_id:
+        raise ValidationError("Observation session_id is required.")
     if not observation.target_id:
         raise ValidationError("Observation target_id is required.")
     if observation.status not in ALLOWED_OBSERVATION_STATUSES:
@@ -401,6 +414,7 @@ def _row_to_observation(
     return Observation(
         id=row["id"],
         observation_number=row["observation_number"],
+        session_id=row["session_id"],
         target_id=row["target_id"],
         site_id=row["site_id"],
         acquisition_plan_id=row["acquisition_plan_id"],

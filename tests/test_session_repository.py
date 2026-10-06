@@ -20,6 +20,8 @@ STARTED = "2026-10-05T20:00:00+00:00"
 ENDED = "2026-10-05T23:00:00+00:00"
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class SessionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -155,11 +157,11 @@ class SessionRepositoryTests(unittest.TestCase):
         PlanningRepository(self.connection).create_target(
             Target(id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)
         )
+        session = self.sessions.register_session(started_at=STARTED)
         ObservationRepository(self.connection).create_observation(
-            Observation(id="obs:1", target_id="target:m42", status="planned")
+            Observation(session_id=session.id, id="obs:1", target_id="target:m42", status="planned")
         )
 
-        session = self.sessions.register_session(started_at=STARTED)
 
         self.assertEqual(self.sessions.get_session(session.id), session)
         self.assertEqual(FrameRepository(self.connection).get_frame(frame.id).capture_id, capture.id)
@@ -167,7 +169,9 @@ class SessionRepositoryTests(unittest.TestCase):
             self.connection.execute("SELECT COUNT(*) FROM observations WHERE id = 'obs:1';").fetchone()[0],
             1,
         )
-        for table in ("observations", "captures", "frames", "projects"):
+        observation_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(observations);").fetchall()}
+        self.assertIn("session_id", observation_columns)
+        for table in ("captures", "frames", "projects"):
             columns = {row[1] for row in self.connection.execute(f"PRAGMA table_info({table});").fetchall()}
             self.assertNotIn("session_id", columns)
         for table in ("project_sessions", "session_members", "session_plans", "session_context", "session_events"):

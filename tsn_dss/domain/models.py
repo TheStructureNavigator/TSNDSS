@@ -176,8 +176,9 @@ class ObservationEquipmentAssignment:
 
 @dataclass(slots=True)
 class Observation:
-    """A concrete observing session for one target, optionally linked to a plan."""
+    """A concrete observing attempt for one target within exactly one Session."""
     id: str
+    session_id: str
     target_id: str
     status: str = "planned"
     observation_number: int | None = None

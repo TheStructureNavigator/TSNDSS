@@ -36,6 +36,8 @@ from tsn_dss.engine.sqlite.planning import PlanningRepository
 from tsn_dss.engine.sqlite.processing import ProcessingRunRepository
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class ProjectStorageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -181,6 +183,15 @@ class SirilRunnerAndServiceTests(unittest.TestCase):
 
         self.db_path = self.temp_path / "processing.db"
         self.connection = initialize_database(self.db_path)
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.planning = PlanningRepository(self.connection)
         self.observations = ObservationRepository(self.connection)
         self.frames = FrameRepository(self.connection)
@@ -402,7 +413,7 @@ class SirilRunnerAndServiceTests(unittest.TestCase):
         )
         plan = self.planning.get_acquisition_plan("plan:m42:first-light")
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:0001",
                 observation_number=1,
                 target_id="target:m42",

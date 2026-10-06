@@ -357,15 +357,23 @@ class DatabaseFoundationTests(unittest.TestCase):
             )
             connection.execute(
                 """
+                INSERT INTO sessions (id, title, state, started_at)
+                VALUES (?, ?, ?, ?);
+                """,
+                ("session:test", "Test Session", "planned", "2026-08-21T20:00:00+00:00"),
+            )
+            connection.execute(
+                """
                 INSERT INTO observations (
                     id,
                     observation_number,
+                    session_id,
                     target_id,
                     acquisition_plan_id,
                     status
-                ) VALUES (?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                ("obs:test", 1, "target:test", "plan:test", "planned"),
+                ("obs:test", 1, "session:test", "target:test", "plan:test", "planned"),
             )
 
 

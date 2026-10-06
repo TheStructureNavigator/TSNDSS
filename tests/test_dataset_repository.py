@@ -25,11 +25,22 @@ from tsn_dss.engine.sqlite.observation import ObservationRepository
 from tsn_dss.engine.sqlite.planning import PlanningRepository, ValidationError
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class DatasetRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "datasets.db"
         self.connection = initialize_database(self.db_path)
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.planning = PlanningRepository(self.connection)
         self.observations = ObservationRepository(self.connection)
         self.frames = FrameRepository(self.connection)
@@ -312,7 +323,7 @@ class DatasetRepositoryTests(unittest.TestCase):
         self.m31_seq_60_id = m31_plan.sequences[0].id
 
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:0001",
                 observation_number=1,
                 target_id="target:m42",
@@ -322,7 +333,7 @@ class DatasetRepositoryTests(unittest.TestCase):
             )
         )
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:1001",
                 observation_number=2,
                 target_id="target:m31",

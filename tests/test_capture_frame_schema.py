@@ -63,6 +63,8 @@ SHA_B = "b" * 64
 # ---------------------------------------------------------------------------
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class CaptureFrameMigrationTests(TempDirTestCase):
     def build_v2(self, *, legacy_frame: bool = False) -> None:
         """A realistic v2 database: Sites with horizon, mosaic plans linked to a project, and observation-domain rows."""
@@ -105,7 +107,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
 
         connection, result = self.initialize()
         self.assertEqual((result.initial_version, result.final_version), (2, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (3, 4, 5))
+        self.assertEqual(result.applied_migrations, (3, 4, 5, 6))
         self.assertIsNotNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
 
@@ -364,6 +366,15 @@ class FrameRepositoryS3Tests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.connection = self.open_initialized()
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.frames = FrameRepository(self.connection)
 
@@ -498,7 +509,7 @@ class FrameRepositoryS3Tests(TempDirTestCase):
     def test_deleting_an_observation_keeps_its_frames(self) -> None:
         planning = PlanningRepository(self.connection)
         planning.create_target(Target(id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
-        ObservationRepository(self.connection).create_observation(Observation(id="obs:1", target_id="target:m42"))
+        ObservationRepository(self.connection).create_observation(Observation(session_id=TEST_SESSION_ID, id="obs:1", target_id="target:m42"))
         frame = self.frames.create_frame(self.frame("lit.fit", frame_type="light", observation_id="obs:1"))
         ObservationRepository(self.connection).delete_observation("obs:1")
         self.assertIsNone(self.frames.get_frame(frame.id).observation_id)  # SET NULL, the frame record survives
@@ -513,6 +524,15 @@ class AcquisitionPlanResaveTests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.connection = self.open_initialized()
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning = PlanningRepository(self.connection)
         self.frames = FrameRepository(self.connection)
@@ -525,7 +545,7 @@ class AcquisitionPlanResaveTests(TempDirTestCase):
             ]))
         self.light_id, self.dark_id = (sequence.id for sequence in self.plan.sequences)
         ObservationRepository(self.connection).create_observation(
-            Observation(id="obs:1", target_id="target:m42", acquisition_plan_id="plan:1"))
+            Observation(session_id=TEST_SESSION_ID, id="obs:1", target_id="target:m42", acquisition_plan_id="plan:1"))
         self.frame = self.frames.create_frame(Frame(
             project_id=self.project_id, capture_id=self.capture_id, rel_path="captures/Night1/l.fit",
             observation_id="obs:1", sequence_id=self.light_id, frame_type="light"))

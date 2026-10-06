@@ -27,11 +27,22 @@ from tsn_dss.engine.sqlite.planning import PlanningRepository, ValidationError
 from tsn_dss.engine.sqlite.processing import ProcessingRunRepository
 
 
+TEST_SESSION_ID = "session:test-observation"
+
 class ProcessingRunRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "processing.db"
         self.connection = initialize_database(self.db_path)
+        self.connection.execute(
+            """
+            INSERT INTO sessions (id, title, state, started_at, notes)
+            VALUES (?, 'Test Observation Session', 'planned', '2026-08-21T20:00:00+00:00', 'Test fixture Session.')
+            ON CONFLICT(id) DO NOTHING;
+            """,
+            (TEST_SESSION_ID,),
+        )
+        self.connection.commit()
         self.planning = PlanningRepository(self.connection)
         self.observations = ObservationRepository(self.connection)
         self.frames = FrameRepository(self.connection)
@@ -331,7 +342,7 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         m31_plan = self.planning.get_acquisition_plan("plan:m31:first-light")
 
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:0001",
                 observation_number=1,
                 target_id="target:m42",
@@ -341,7 +352,7 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
             )
         )
         self.observations.create_observation(
-            Observation(
+            Observation(session_id=TEST_SESSION_ID,
                 id="obs:1001",
                 observation_number=2,
                 target_id="target:m31",

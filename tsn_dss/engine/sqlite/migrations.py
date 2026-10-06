@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 5 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 6 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 class SchemaVersionError(RuntimeError):
@@ -383,6 +383,204 @@ CREATE INDEX idx_sessions_site_id
 ON sessions (site_id);
 """
 
+_MIGRATION_6_OBSERVATION_SESSIONS_SQL = """
+CREATE TABLE IF NOT EXISTS observations (
+    id TEXT PRIMARY KEY,
+    observation_number INTEGER UNIQUE,
+    target_id TEXT NOT NULL,
+    site_id TEXT,
+    acquisition_plan_id TEXT,
+    status TEXT NOT NULL DEFAULT 'planned'
+        CHECK (
+            status IN (
+                'planned',
+                'preparing',
+                'running',
+                'paused',
+                'completed',
+                'aborted',
+                'failed'
+            )
+        ),
+    started_at TEXT,
+    finished_at TEXT,
+    operator_notes TEXT,
+    weather_notes TEXT,
+    moon_illumination_pct REAL
+        CHECK (
+            moon_illumination_pct IS NULL OR
+            moon_illumination_pct BETWEEN 0 AND 100
+        ),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (target_id) REFERENCES targets(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (site_id) REFERENCES sites(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    FOREIGN KEY (acquisition_plan_id) REFERENCES acquisition_plans(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    CHECK (
+        finished_at IS NULL OR
+        started_at IS NULL OR
+        finished_at >= started_at
+    )
+);
+
+INSERT INTO sessions (id, title, state, started_at, ended_at, final_state, operator_id, site_id, notes)
+SELECT
+    'session:legacy-development-observations',
+    'Legacy development Observation compatibility bucket',
+    'planned',
+    '1970-01-01T00:00:00+00:00',
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    'Synthetic compatibility Session for pre-Wave-2 development/test Observations. Not historical field-session provenance.'
+WHERE EXISTS (SELECT 1 FROM observations)
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE id = 'session:legacy-development-observations');
+
+CREATE TABLE observations_new (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    observation_number INTEGER UNIQUE,
+    target_id TEXT NOT NULL,
+    site_id TEXT,
+    acquisition_plan_id TEXT,
+    status TEXT NOT NULL DEFAULT 'planned'
+        CHECK (
+            status IN (
+                'planned',
+                'preparing',
+                'running',
+                'paused',
+                'completed',
+                'aborted',
+                'failed'
+            )
+        ),
+    started_at TEXT,
+    finished_at TEXT,
+    operator_notes TEXT,
+    weather_notes TEXT,
+    moon_illumination_pct REAL
+        CHECK (
+            moon_illumination_pct IS NULL OR
+            moon_illumination_pct BETWEEN 0 AND 100
+        ),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (target_id) REFERENCES targets(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY (site_id) REFERENCES sites(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    FOREIGN KEY (acquisition_plan_id) REFERENCES acquisition_plans(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+    CHECK (
+        finished_at IS NULL OR
+        started_at IS NULL OR
+        finished_at >= started_at
+    )
+);
+
+INSERT INTO observations_new (
+    id,
+    session_id,
+    observation_number,
+    target_id,
+    site_id,
+    acquisition_plan_id,
+    status,
+    started_at,
+    finished_at,
+    operator_notes,
+    weather_notes,
+    moon_illumination_pct,
+    created_at,
+    updated_at
+)
+SELECT
+    id,
+    'session:legacy-development-observations',
+    observation_number,
+    target_id,
+    site_id,
+    acquisition_plan_id,
+    status,
+    started_at,
+    finished_at,
+    operator_notes,
+    weather_notes,
+    moon_illumination_pct,
+    created_at,
+    updated_at
+FROM observations;
+
+DROP VIEW IF EXISTS v_observation_summary;
+
+DROP TABLE observations;
+ALTER TABLE observations_new RENAME TO observations;
+
+CREATE INDEX idx_observations_session
+ON observations (session_id);
+
+CREATE INDEX idx_observations_target
+ON observations (target_id);
+
+CREATE INDEX idx_observations_site
+ON observations (site_id);
+
+CREATE INDEX idx_observations_status
+ON observations (status);
+
+CREATE INDEX idx_observations_started_at
+ON observations (started_at);
+
+CREATE INDEX idx_observations_acquisition_plan
+ON observations (acquisition_plan_id);
+
+CREATE VIEW v_observation_summary AS
+SELECT
+    o.id AS observation_id,
+    o.observation_number,
+    o.status,
+    t.catalog_id AS target_catalog_id,
+    t.name AS target_name,
+    s.name AS site_name,
+    o.started_at,
+    o.finished_at,
+    COUNT(f.id) AS frame_count,
+    SUM(
+        CASE
+            WHEN f.frame_type = 'light' AND f.accepted = 1
+            THEN COALESCE(f.exposure_s, 0)
+            ELSE 0
+        END
+    ) AS accepted_light_integration_s
+FROM observations o
+JOIN targets t ON t.id = o.target_id
+LEFT JOIN sites s ON s.id = o.site_id
+LEFT JOIN frames f ON f.observation_id = o.id
+GROUP BY
+    o.id,
+    o.observation_number,
+    o.status,
+    t.catalog_id,
+    t.name,
+    s.name,
+    o.started_at,
+    o.finished_at;
+"""
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -406,6 +604,12 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=5,
         description="canonical sessions",
         sql=_MIGRATION_5_SESSIONS_SQL,
+    ),
+    Migration(
+        version=6,
+        description="canonical observation session membership",
+        sql=_MIGRATION_6_OBSERVATION_SESSIONS_SQL,
+        foreign_keys_off=True,
     ),
 )
 

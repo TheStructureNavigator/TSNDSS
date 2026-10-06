@@ -117,13 +117,28 @@ INSERT OR IGNORE INTO acquisition_sequences (
     5, 40, 800, 'filter:l-pro-001'
 );
 
+
+INSERT OR IGNORE INTO sessions (
+    id, title, state, started_at, operator_id, site_id, notes
+) VALUES
+(
+    'session:seed-m42-first-light',
+    'Seed M42 first light session',
+    'planned',
+    '2026-01-14 20:00:00+00:00',
+    NULL,
+    'site:tsn-01',
+    'Seed/demo Session for obs:0001. This is not the legacy compatibility bucket.'
+);
+
 INSERT OR IGNORE INTO observations (
-    id, observation_number, target_id, site_id,
+    id, observation_number, session_id, target_id, site_id,
     acquisition_plan_id, status, started_at, finished_at, operator_notes
 ) VALUES
 (
     'obs:0001',
     1,
+    'session:seed-m42-first-light',
     'target:m42',
     'site:tsn-01',
     'plan:m42:first-light',

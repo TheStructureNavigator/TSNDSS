@@ -135,7 +135,10 @@ Risk:
 HIGH due legacy Observation compatibility.
 
 Status:
-READY / HUMAN ADJUDICATION REQUIRED
+COMPLETE
+
+Completion note:
+Wave 2 makes canonical Observation belong to exactly one Session. Schema v6 enforces required Observation -> Session membership, preserves legacy development Observations through the explicit non-historical compatibility Session, and leaves Capture/Frame provenance semantics unchanged. Lifecycle vocabulary was not broadly refactored; `paused` remains an ACTIVE implementation substate. Targeted acceptance verification passed, and stale current-schema migration tests were maintained.
 
 ### Wave 3 — Project <-> Session Association
 
@@ -146,7 +149,7 @@ Contracts:
 DSS-CTR-001, DSS-CTR-008.
 
 Status:
-BLOCKED BY WAVE 1
+READY / HUMAN ADJUDICATION REQUIRED
 
 ### Wave 4 — SessionPlan
 
@@ -260,8 +263,8 @@ For every future implementation wave:
 | Wave | Objective | Contracts | Dependency | Status | Risk |
 |---|---|---|---|---|---|
 | 1 | Session Foundation | DSS-CTR-001 | None | COMPLETE | Medium |
-| 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | READY / HUMAN ADJUDICATION REQUIRED | HIGH |
-| 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
+| 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | COMPLETE | HIGH |
+| 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | READY / HUMAN ADJUDICATION REQUIRED | Medium |
 | 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
@@ -287,8 +290,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 2 — Canonical Observation -> Session planning / human adjudication
+NEXT: Wave 3 — Project <-> Session association planning / human adjudication
 
-Next work is planning and human adjudication for existing Observation records without Session, canonical Observation -> exactly one Session, and Observation lifecycle reconciliation.
+Next work is planning and human adjudication for explicit Project <-> Session association without ownership.
 
-Do not begin Wave 2 implementation now.
+Do not begin Wave 3 implementation now.

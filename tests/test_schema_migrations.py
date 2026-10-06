@@ -358,8 +358,8 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 5)
-        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5])
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 6)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5, 6])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
 
@@ -367,7 +367,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (2, 3, 4, 5))
+        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6))
         self.assertIsNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.backups(), [])
@@ -393,28 +393,43 @@ class VersionBehaviourTests(TempDirTestCase):
         self.assertIn("filter", schema["tables"]["mosaic_plans"]["columns"])
         self.assertIn("v_observation_summary", schema["views"])
 
-    def test_v5_session_migration_preserves_observations_without_session_links(self) -> None:
+    def test_v6_observation_session_migration_preserves_and_backfills_legacy_observations(self) -> None:
         connection, result = self.initialize(migrations=MIGRATIONS[:-1])
         connection.row_factory = sqlite3.Row
-        self.assertEqual(result.final_version, 4)
+        self.assertEqual(result.final_version, 5)
         PlanningRepository(connection).create_target(
             Target(id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)
         )
-        ObservationRepository(connection).create_observation(
-            Observation(id="obs:legacy", target_id="target:m42", status="planned")
+        connection.execute(
+            """
+            INSERT INTO observations (id, observation_number, target_id, status, started_at, operator_notes)
+            VALUES ('obs:legacy', 7, 'target:m42', 'planned', '2026-01-01T00:00:00+00:00', 'legacy note');
+            """
         )
+        connection.commit()
         connection.close()
 
         connection, result = self.initialize()
         connection.row_factory = sqlite3.Row
 
-        self.assertEqual(result.applied_migrations, (5,))
+        self.assertEqual(result.applied_migrations, (6,))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
-        self.assertIn("sessions", describe_schema(connection)["tables"])
-        self.assertEqual(connection.execute("SELECT COUNT(*) FROM sessions;").fetchone()[0], 0)
-        self.assertIsNotNone(ObservationRepository(connection).get_observation("obs:legacy"))
         observation_columns = {row[1] for row in connection.execute("PRAGMA table_info(observations);").fetchall()}
-        self.assertNotIn("session_id", observation_columns)
+        self.assertIn("session_id", observation_columns)
+        session = connection.execute(
+            "SELECT id, title, state, started_at, operator_id, site_id, notes FROM sessions WHERE id = ?;",
+            ("session:legacy-development-observations",),
+        ).fetchone()
+        self.assertIsNotNone(session)
+        self.assertEqual(session["state"], "planned")
+        self.assertIsNone(session["operator_id"])
+        self.assertIsNone(session["site_id"])
+        self.assertIn("Not historical field-session provenance", session["notes"])
+        observation = ObservationRepository(connection).get_observation("obs:legacy")
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.session_id, "session:legacy-development-observations")
+        self.assertEqual(observation.observation_number, 7)
+        self.assertEqual(observation.operator_notes, "legacy note")
 
     def test_reopening_current_v1_is_a_no_op(self) -> None:
         self.open_initialized().close()
