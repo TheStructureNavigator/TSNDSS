@@ -292,7 +292,7 @@ class SessionPlanSchemaMigrationTests(unittest.TestCase):
 
     def test_v7_to_v8_migration_creates_empty_session_plan_tables_and_preserves_data(self) -> None:
         connection = self._connect("upgrade.db")
-        result = self._initialize(connection, migrations=MIGRATIONS[:-1])
+        result = self._initialize(connection, migrations=MIGRATIONS[:-2])
         self.assertEqual(result.final_version, 7)
         connection.executescript(
             """
@@ -324,7 +324,7 @@ class SessionPlanSchemaMigrationTests(unittest.TestCase):
         connection = self._connect("upgrade.db")
         result = self._initialize(connection)
 
-        self.assertEqual(result.applied_migrations, (8,))
+        self.assertEqual(result.applied_migrations, (8, 9))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plans;").fetchone()[0], 0)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plan_items;").fetchone()[0], 0)

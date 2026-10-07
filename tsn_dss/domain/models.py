@@ -126,6 +126,23 @@ class Session:
 
 
 
+
+
+@dataclass(slots=True)
+class SessionContextFact:
+    """One canonical contextual fact associated with exactly one Session."""
+    session_id: str
+    fact_name: str
+    epistemic_kind: str
+    id: int | None = None
+    number_value: float | None = None
+    text_value: str | None = None
+    unit: str | None = None
+    recorded_at: str | None = None
+    valid_from: str | None = None
+    source: str | None = None
+
+
 @dataclass(slots=True)
 class SessionPlanItem:
     """One planned activity owned by a SessionPlan."""

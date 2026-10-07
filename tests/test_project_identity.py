@@ -164,7 +164,7 @@ class ProjectSchemaMigrationTests(TempDirTestCase):
                 populate_legacy_data(path, variant)
                 connection, result = self.initialize(path=path)
                 self.assertTrue(result.normalized_legacy)
-                self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8))
+                self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9))
                 self.assertEqual(describe_schema(connection), expected)
                 connection.close()
 

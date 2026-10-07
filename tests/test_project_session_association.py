@@ -241,7 +241,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
         result = self._initialize(connection)
 
         self.assertEqual(result.final_version, CURRENT_SCHEMA_VERSION)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 8)
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 9)
         columns, fks, indexes = self._relation_schema(connection)
         self.assertEqual([column[1] for column in columns], ["project_id", "session_id"])
         self.assertEqual([column[5] for column in columns], [1, 2])
@@ -252,7 +252,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
 
     def test_v6_to_v7_preserves_existing_data_and_creates_no_associations(self) -> None:
         connection = self._connect("upgrade.db")
-        result = self._initialize(connection, migrations=MIGRATIONS[:-2])
+        result = self._initialize(connection, migrations=MIGRATIONS[:5])
         self.assertEqual(result.final_version, 6)
         connection.executescript(
             """
@@ -293,7 +293,7 @@ class ProjectSessionMigrationTests(unittest.TestCase):
         self.addCleanup(connection.close)
         result = self._initialize(connection)
 
-        self.assertEqual(result.applied_migrations, (7, 8))
+        self.assertEqual(result.applied_migrations, (7, 8, 9))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM project_sessions;").fetchone()[0], 0)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plans;").fetchone()[0], 0)

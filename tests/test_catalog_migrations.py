@@ -19,7 +19,7 @@ class CatalogMigrationTests(TempDirTestCase):
         connection, result = self.initialize()
 
         self.assertEqual(result.final_version, CURRENT_SCHEMA_VERSION)
-        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8))
+        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         tables = describe_schema(connection)["tables"]
         self.assertIn("catalog_objects", tables)
@@ -38,7 +38,7 @@ class CatalogMigrationTests(TempDirTestCase):
 
         connection, result = self.initialize()
 
-        self.assertEqual(result.applied_migrations, (4, 5, 6, 7, 8))
+        self.assertEqual(result.applied_migrations, (4, 5, 6, 7, 8, 9))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(
             tuple(connection.execute("SELECT id, catalog_id, name FROM targets").fetchone()),

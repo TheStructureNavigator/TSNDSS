@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 8 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 9 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 class SchemaVersionError(RuntimeError):
@@ -658,6 +658,46 @@ ON session_plan_items (mosaic_panel_id);
 """
 
 
+_MIGRATION_9_SESSION_CONTEXT_SQL = """
+CREATE TABLE session_context_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    fact_name TEXT NOT NULL
+        CHECK (length(trim(fact_name)) > 0),
+    epistemic_kind TEXT NOT NULL
+        CHECK (epistemic_kind IN ('forecast', 'observed', 'derived', 'declared')),
+    number_value REAL,
+    text_value TEXT,
+    unit TEXT,
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    valid_from TEXT,
+    source TEXT,
+    FOREIGN KEY (session_id)
+        REFERENCES sessions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CHECK (
+        (number_value IS NOT NULL AND text_value IS NULL)
+        OR
+        (number_value IS NULL AND text_value IS NOT NULL AND length(trim(text_value)) > 0)
+    ),
+    CHECK (
+        (number_value IS NOT NULL AND unit IS NOT NULL AND length(trim(unit)) > 0)
+        OR
+        (number_value IS NULL AND unit IS NULL)
+    ),
+    CHECK (source IS NULL OR length(trim(source)) > 0),
+    CHECK (epistemic_kind <> 'forecast' OR valid_from IS NOT NULL)
+);
+
+CREATE INDEX idx_session_context_facts_session
+ON session_context_facts (session_id, valid_from, recorded_at, id);
+
+CREATE INDEX idx_session_context_facts_session_name
+ON session_context_facts (session_id, fact_name, valid_from, recorded_at, id);
+"""
+
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -697,6 +737,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=8,
         description="canonical session plans",
         sql=_MIGRATION_8_SESSION_PLANS_SQL,
+    ),
+    Migration(
+        version=9,
+        description="canonical session context facts",
+        sql=_MIGRATION_9_SESSION_CONTEXT_SQL,
     ),
 )
 

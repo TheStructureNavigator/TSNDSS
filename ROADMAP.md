@@ -180,7 +180,26 @@ Contracts:
 DSS-CTR-005, DSS-CTR-003.
 
 Status:
-READY
+Wave 5A COMPLETE; Wave 5B BLOCKED / HUMAN ADJUDICATION REQUIRED
+
+#### Wave 5A — Minimal Canonical SessionContext Foundation
+
+Status:
+COMPLETE
+
+Completion note:
+Wave 5A delivered schema v9 and the canonical SessionContextFact foundation: Session-owned append-only contextual facts with no SessionContext parent table. Facts preserve the forecast / observed / derived / declared distinction, numeric/text value semantics, units for numeric facts, temporal fields `recorded_at` / `valid_from`, and optional minimal source provenance. The implementation has no Observation coupling, context backfill, provider integration, or Observation snapshot persistence. Fresh and upgraded schemas converge, independent acceptance completed, and the 204-test required acceptance suite passed.
+
+#### Wave 5B — Observation Context Snapshot Boundary
+
+Status:
+BLOCKED / HUMAN ADJUDICATION REQUIRED
+
+Blocking questions:
+
+- snapshot representation
+- snapshot timing
+- snapshot content
 
 ### Wave 6 — SessionEvent
 
@@ -245,6 +264,7 @@ These decisions are not permission for implementation agents to decide silently.
 - HUMAN ADJUDICATION REQUIRED: legacy events: migrate/archive/leave legacy
 - HUMAN ADJUDICATION REQUIRED: unresolved MosaicPlan project_slug handling
 - HUMAN ADJUDICATION REQUIRED: generated/stacked artifact semantics
+- HUMAN ADJUDICATION REQUIRED: Observation context snapshot boundary representation, timing, and content
 
 ## 7. Wave Execution Protocol
 
@@ -272,7 +292,7 @@ For every future implementation wave:
 | 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | COMPLETE | HIGH |
 | 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | COMPLETE | Medium |
 | 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | COMPLETE | Medium |
-| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | READY | Medium |
+| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | 5A COMPLETE; 5B BLOCKED / HUMAN ADJUDICATION REQUIRED | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | PLANNED / PARTIALLY INDEPENDENT | Medium |
 | 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | PLANNED / LEGACY COMPATIBILITY | Medium |
@@ -296,8 +316,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 5 — SessionContext + Observation snapshot boundary planning / implementation planning
+NEXT: Wave 5B — Observation context snapshot boundary human adjudication
 
-Next work is planning and implementation planning for SessionContext and the Observation snapshot boundary.
+Next work is human adjudication for the Observation context snapshot boundary.
 
-Do not begin Wave 5 implementation now.
+Do not begin Wave 5B implementation now. Do not advance to Wave 6 while Wave 5B remains unresolved.
