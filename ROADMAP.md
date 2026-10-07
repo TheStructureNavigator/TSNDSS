@@ -180,7 +180,7 @@ Contracts:
 DSS-CTR-005, DSS-CTR-003.
 
 Status:
-Wave 5A COMPLETE; Wave 5B BLOCKED / HUMAN ADJUDICATION REQUIRED
+COMPLETE — NO SNAPSHOT ENTITY REQUIRED
 
 #### Wave 5A — Minimal Canonical SessionContext Foundation
 
@@ -193,13 +193,13 @@ Wave 5A delivered schema v9 and the canonical SessionContextFact foundation: Ses
 #### Wave 5B — Observation Context Snapshot Boundary
 
 Status:
-BLOCKED / HUMAN ADJUDICATION REQUIRED
+COMPLETE — NO SNAPSHOT ENTITY REQUIRED
 
-Blocking questions:
+Completion note:
+Pass 12 found no canonical need for persisted ObservationContext or ObservationContextSnapshot. Session-owned append-only SessionContextFact remains the canonical context history; Observation remains valid with zero context. No Observation-to-context persistence, copied snapshot values, snapshot parent/header, ContextSelectionPolicy, context_as_of / policy version, or decision-provenance mechanism is introduced. Context may be reconstructed from SessionContextFact history according to the semantics of a future concrete use case. Operational knowledge, environmental truth, forecast context, analytical reconstruction, and decision evidence are not collapsed into one generic Observation context. Future exact decision-evidence preservation requires new human/contract adjudication.
 
-- snapshot representation
-- snapshot timing
-- snapshot content
+Conformance status:
+CONFORMING_WITHOUT_NEW_PERSISTENCE
 
 ### Wave 6 — SessionEvent
 
@@ -210,7 +210,7 @@ Contracts:
 DSS-CTR-006.
 
 Status:
-BLOCKED BY WAVE 1
+READY
 
 ### Wave 7 — Target Reconciliation
 
@@ -264,7 +264,6 @@ These decisions are not permission for implementation agents to decide silently.
 - HUMAN ADJUDICATION REQUIRED: legacy events: migrate/archive/leave legacy
 - HUMAN ADJUDICATION REQUIRED: unresolved MosaicPlan project_slug handling
 - HUMAN ADJUDICATION REQUIRED: generated/stacked artifact semantics
-- HUMAN ADJUDICATION REQUIRED: Observation context snapshot boundary representation, timing, and content
 
 ## 7. Wave Execution Protocol
 
@@ -292,8 +291,8 @@ For every future implementation wave:
 | 2 | Canonical Observation -> Session | DSS-CTR-003, DSS-CTR-001 | Wave 1 | COMPLETE | HIGH |
 | 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | COMPLETE | Medium |
 | 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | COMPLETE | Medium |
-| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | 5A COMPLETE; 5B BLOCKED / HUMAN ADJUDICATION REQUIRED | Medium |
-| 6 | SessionEvent | DSS-CTR-006 | Wave 1 | BLOCKED BY WAVE 1 | Medium |
+| 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | COMPLETE — NO SNAPSHOT ENTITY REQUIRED | Medium |
+| 6 | SessionEvent | DSS-CTR-006 | Wave 1 | READY | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | PLANNED / PARTIALLY INDEPENDENT | Medium |
 | 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | PLANNED / LEGACY COMPATIBILITY | Medium |
 | 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8 | Low |
@@ -316,8 +315,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 5B — Observation context snapshot boundary human adjudication
+NEXT: Wave 6 — SessionEvent planning / implementation planning
 
-Next work is human adjudication for the Observation context snapshot boundary.
+Next work is planning and implementation planning for SessionEvent.
 
-Do not begin Wave 5B implementation now. Do not advance to Wave 6 while Wave 5B remains unresolved.
+Do not begin Wave 6 implementation now.
