@@ -210,7 +210,10 @@ Contracts:
 DSS-CTR-006.
 
 Status:
-READY
+COMPLETE
+
+Completion note:
+Wave 6 delivered schema v10 and the minimal canonical SessionEvent foundation: Session-owned zero-or-more historical events with opaque identity, required type and occurrence time, optional same-Session Observation association, and optional opaque source. Persistence is additive through `session_events`; legacy `events` is preserved unchanged with no backfill or mapping. Repository authority is append-only add/list with deterministic occurrence-time ordering. No automatic lifecycle emission, event sourcing, SessionMember persistence, payload, notes, severity, sequence, or API/MCP surface was introduced. Independent acceptance completed and the required Wave 6 verification suites passed.
 
 ### Wave 7 — Target Reconciliation
 
@@ -221,7 +224,7 @@ Contracts:
 DSS-CTR-004.
 
 Status:
-PLANNED / PARTIALLY INDEPENDENT
+READY
 
 ### Wave 8 — Mosaic Project Canonicalization
 
@@ -292,8 +295,8 @@ For every future implementation wave:
 | 3 | Project <-> Session Association | DSS-CTR-001, DSS-CTR-008 | Wave 2 | COMPLETE | Medium |
 | 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | COMPLETE | Medium |
 | 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | COMPLETE — NO SNAPSHOT ENTITY REQUIRED | Medium |
-| 6 | SessionEvent | DSS-CTR-006 | Wave 1 | READY | Medium |
-| 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | PLANNED / PARTIALLY INDEPENDENT | Medium |
+| 6 | SessionEvent | DSS-CTR-006 | Wave 1 | COMPLETE | Medium |
+| 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | READY | Medium |
 | 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | PLANNED / LEGACY COMPATIBILITY | Medium |
 | 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8 | Low |
 
@@ -315,8 +318,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 6 — SessionEvent planning / implementation planning
+NEXT: Wave 7 — Target Reconciliation planning / implementation planning
 
-Next work is planning and implementation planning for SessionEvent.
+Next work is planning and implementation planning for Target Reconciliation.
 
-Do not begin Wave 6 implementation now.
+Do not begin Wave 7 implementation now.

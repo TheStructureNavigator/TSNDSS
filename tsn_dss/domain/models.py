@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import uuid
 
 
 @dataclass(slots=True)
@@ -125,7 +126,20 @@ class Session:
 
 
 
+def new_session_event_id() -> str:
+    """Opaque stable SessionEvent identity."""
+    return f"event:{uuid.uuid4().hex[:12]}"
 
+
+@dataclass(slots=True)
+class SessionEvent:
+    """One immutable historical fact associated with exactly one Session."""
+    id: str
+    session_id: str
+    event_type: str
+    occurred_at: str
+    observation_id: str | None = None
+    source: str | None = None
 
 
 @dataclass(slots=True)

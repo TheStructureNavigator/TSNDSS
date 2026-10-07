@@ -19,6 +19,7 @@ from .processing import ProcessingRunRepository
 from .project_repository import ProjectInUseError, ProjectRepository
 from .project_sessions import ProjectSessionRepository
 from .session_context import SessionContextRepository
+from .session_events import SessionEventRepository
 from .session_plans import SessionPlanRepository
 from .sessions import SessionRepository, new_session_id
 
@@ -40,6 +41,7 @@ __all__ = [
     "ProcessingRunRepository",
     "SessionRepository",
     "SessionContextRepository",
+    "SessionEventRepository",
     "SessionPlanRepository",
     "ValidationError",
     "connect_database",

@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 9 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 10 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 class SchemaVersionError(RuntimeError):
@@ -698,6 +698,35 @@ ON session_context_facts (session_id, fact_name, valid_from, recorded_at, id);
 """
 
 
+_MIGRATION_10_SESSION_EVENTS_SQL = """
+CREATE TABLE session_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    event_type TEXT NOT NULL
+        CHECK (length(trim(event_type)) > 0),
+    occurred_at TEXT NOT NULL
+        CHECK (length(trim(occurred_at)) > 0),
+    observation_id TEXT,
+    source TEXT
+        CHECK (source IS NULL OR length(trim(source)) > 0),
+    FOREIGN KEY (session_id)
+        REFERENCES sessions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (observation_id)
+        REFERENCES observations(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
+CREATE INDEX idx_session_events_session_time
+ON session_events (session_id, occurred_at, id);
+
+CREATE INDEX idx_session_events_observation
+ON session_events (observation_id);
+"""
+
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -742,6 +771,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=9,
         description="canonical session context facts",
         sql=_MIGRATION_9_SESSION_CONTEXT_SQL,
+    ),
+    Migration(
+        version=10,
+        description="canonical session events",
+        sql=_MIGRATION_10_SESSION_EVENTS_SQL,
     ),
 )
 

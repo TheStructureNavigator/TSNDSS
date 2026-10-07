@@ -270,7 +270,7 @@ class SessionContextSchemaMigrationTests(unittest.TestCase):
 
     def test_v8_to_v9_migration_creates_zero_context_facts_and_preserves_data(self) -> None:
         connection = self._connect("upgrade.db")
-        result = self._initialize(connection, migrations=MIGRATIONS[:-1])
+        result = self._initialize(connection, migrations=MIGRATIONS[:7])
         self.assertEqual(result.final_version, 8)
         connection.executescript(
             """
@@ -292,7 +292,7 @@ class SessionContextSchemaMigrationTests(unittest.TestCase):
         connection = self._connect("upgrade.db")
         result = self._initialize(connection)
 
-        self.assertEqual(result.applied_migrations, (9,))
+        self.assertEqual(result.applied_migrations, (9, 10))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_context_facts;").fetchone()[0], 0)
         for table in ("targets", "sites", "sessions", "observations", "telemetry"):
@@ -307,14 +307,14 @@ class SessionContextSchemaMigrationTests(unittest.TestCase):
         fresh = self._connect("fresh.db")
         upgraded = self._connect("upgraded.db")
         self._initialize(fresh)
-        self._initialize(upgraded, migrations=MIGRATIONS[:-1])
+        self._initialize(upgraded, migrations=MIGRATIONS[:7])
         upgraded.close()
         self._connections.remove(upgraded)
         upgraded = self._connect("upgraded.db")
         self._initialize(upgraded)
 
-        self.assertEqual(get_user_version(fresh), 9)
-        self.assertEqual(get_user_version(upgraded), 9)
+        self.assertEqual(get_user_version(fresh), 10)
+        self.assertEqual(get_user_version(upgraded), 10)
         self.assertEqual(self._context_schema(upgraded), self._context_schema(fresh))
         self.assertEqual(
             [column[1] for column in self._context_schema(fresh)["columns"]],

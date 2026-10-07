@@ -195,13 +195,18 @@ class SessionRepositoryTests(unittest.TestCase):
             session_plan_item_columns,
             ["id", "session_id", "item_order", "target_id", "acquisition_plan_id", "mosaic_panel_id"],
         )
-        for table in ("session_members", "session_context", "session_events"):
+        for table in ("session_members", "session_context"):
             self.assertIsNone(
                 self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?;",
                     (table,),
                 ).fetchone()
             )
+        self.assertIsNotNone(
+            self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_events';"
+            ).fetchone()
+        )
 
     def test_raw_database_constraints_match_repository_contract(self) -> None:
         with self.assertRaises(sqlite3.IntegrityError):
