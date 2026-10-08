@@ -231,7 +231,7 @@ class ObservationRepositoryTests(unittest.TestCase):
 
     def _seed_planning_graph(self) -> None:
         self.planning.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m42",
                 catalog="MESSIER",
                 catalog_id="M42",
@@ -241,7 +241,7 @@ class ObservationRepositoryTests(unittest.TestCase):
             )
         )
         self.planning.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m31",
                 catalog="MESSIER",
                 catalog_id="M31",

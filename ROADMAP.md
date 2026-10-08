@@ -224,7 +224,10 @@ Contracts:
 DSS-CTR-004.
 
 Status:
-READY
+COMPLETE
+
+Completion note:
+Wave 7 introduced canonical `Target.target_type` and schema v11 as an additive semantic reconciliation through a `targets` table rebuild. New Target creation supports `fixed_coordinate`; pre-v11 Targets are classified as `legacy_catalog_coordinate` without inventing historical intent. The legacy type is migration-only for new creation, while existing legacy rows remain readable, updatable, and resolvable through stored RA/Dec. `catalog` and `catalog_id` are now optional paired reference metadata, `UNIQUE(catalog,catalog_id)` was removed, and `Target.id` remains the canonical identity. Target IDs and dependent foreign keys are preserved. Existing RA/Dec resolution remains unchanged. No CatalogObject ownership, resolver redesign, API/MCP/UI expansion, or deferred Target types were introduced.
 
 ### Wave 8 — Mosaic Project Canonicalization
 
@@ -235,7 +238,7 @@ Contracts:
 DSS-CTR-011, DSS-CTR-008.
 
 Status:
-PLANNED / LEGACY COMPATIBILITY
+READY
 
 ### Wave 9 — Contract Conformance Suite
 
@@ -296,8 +299,8 @@ For every future implementation wave:
 | 4 | SessionPlan | DSS-CTR-007, DSS-CTR-004, DSS-CTR-010, DSS-CTR-011 | Wave 1 | COMPLETE | Medium |
 | 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | COMPLETE — NO SNAPSHOT ENTITY REQUIRED | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | COMPLETE | Medium |
-| 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | READY | Medium |
-| 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | PLANNED / LEGACY COMPATIBILITY | Medium |
+| 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | COMPLETE | Medium |
+| 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | READY | Medium |
 | 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8 | Low |
 
 ## 9. Definition of Done
@@ -318,8 +321,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 7 — Target Reconciliation planning / implementation planning
+NEXT: Wave 8 — Mosaic Project Canonicalization planning / implementation planning
 
-Next work is planning and implementation planning for Target Reconciliation.
+Next work is planning and implementation planning for Mosaic Project Canonicalization.
 
-Do not begin Wave 7 implementation now.
+Do not begin Wave 8 implementation now.

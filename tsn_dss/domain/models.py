@@ -8,13 +8,14 @@ import uuid
 
 @dataclass(slots=True)
 class Target:
-    """A durable sky target identified by catalog coordinates and optional metadata."""
+    """A durable DSS observing intent or astronomical reference."""
     id: str
-    catalog: str
-    catalog_id: str
+    target_type: str
     name: str
     ra_deg: float
     dec_deg: float
+    catalog: str | None = None
+    catalog_id: str | None = None
     object_type: str | None = None
     angular_major_arcmin: float | None = None
     angular_minor_arcmin: float | None = None

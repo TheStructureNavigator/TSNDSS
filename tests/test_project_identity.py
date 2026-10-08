@@ -164,7 +164,7 @@ class ProjectSchemaMigrationTests(TempDirTestCase):
                 populate_legacy_data(path, variant)
                 connection, result = self.initialize(path=path)
                 self.assertTrue(result.normalized_legacy)
-                self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9, 10))
+                self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
                 self.assertEqual(describe_schema(connection), expected)
                 connection.close()
 
@@ -265,14 +265,14 @@ class ProjectRepositoryTests(TempDirTestCase):
 
     def test_unknown_target_stays_null_even_when_a_matching_target_exists(self) -> None:
         PlanningRepository(self.connection).create_target(
-            Target(id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
+            Target(target_type="fixed_coordinate", id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
         )
         project = self.repo.register_project(dir_key="M31", target_label="M31")
         self.assertIsNone(project.target_id)
 
     def test_a_linked_target_cannot_be_deleted(self) -> None:
         PlanningRepository(self.connection).create_target(
-            Target(id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
+            Target(target_type="fixed_coordinate", id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
         )
         self.connection.execute("INSERT INTO projects (id, display_name, dir_key, target_id) "
                                 "VALUES ('project:x', 'M31', 'M31', 'target:m31')")
@@ -662,7 +662,7 @@ class DualWriteTests(RegistryTestCase):
 
     def test_set_target_label_keeps_other_project_json_keys_and_never_touches_target_id(self) -> None:
         PlanningRepository(self.connection).create_target(
-            Target(id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
+            Target(target_type="fixed_coordinate", id="target:m31", catalog="M", catalog_id="31", name="M31", ra_deg=10.68, dec_deg=41.27)
         )
         self.make_project("M31", '{"sky_target": "old", "extra": {"keep": true}}', layout=True)
         self.registry.register_existing()

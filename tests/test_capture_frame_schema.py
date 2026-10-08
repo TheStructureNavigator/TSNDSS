@@ -107,7 +107,7 @@ class CaptureFrameMigrationTests(TempDirTestCase):
 
         connection, result = self.initialize()
         self.assertEqual((result.initial_version, result.final_version), (2, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (3, 4, 5, 6, 7, 8, 9, 10))
+        self.assertEqual(result.applied_migrations, (3, 4, 5, 6, 7, 8, 9, 10, 11))
         self.assertIsNotNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
 
@@ -433,7 +433,7 @@ class FrameRepositoryS3Tests(TempDirTestCase):
 
     def test_a_sequence_requires_an_observation(self) -> None:
         planning = PlanningRepository(self.connection)
-        planning.create_target(Target(id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
+        planning.create_target(Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
         plan = planning.save_acquisition_plan(AcquisitionPlan(
             id="plan:1", target_id="target:m42", name="p",
             sequences=[AcquisitionSequence(sequence_order=1, frame_type="light", exposure_s=30, frame_count=3)]))
@@ -494,7 +494,7 @@ class FrameRepositoryS3Tests(TempDirTestCase):
     def test_datasets_accept_frames_that_have_no_observation(self) -> None:
         # The minimum downstream adaptation: a calibration/legacy frame simply skips the target checks.
         PlanningRepository(self.connection).create_target(
-            Target(id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
+            Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
         dark = self.frames.create_frame(self.frame("dark.fit", frame_type="dark", exposure_s=30.0))
         dataset = DatasetRepository(self.connection).create_dataset(
             Dataset(id="dataset:1", target_id="target:m42", name="With dark", frame_ids=[dark.id]))
@@ -508,7 +508,7 @@ class FrameRepositoryS3Tests(TempDirTestCase):
 
     def test_deleting_an_observation_keeps_its_frames(self) -> None:
         planning = PlanningRepository(self.connection)
-        planning.create_target(Target(id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
+        planning.create_target(Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
         ObservationRepository(self.connection).create_observation(Observation(session_id=TEST_SESSION_ID, id="obs:1", target_id="target:m42"))
         frame = self.frames.create_frame(self.frame("lit.fit", frame_type="light", observation_id="obs:1"))
         ObservationRepository(self.connection).delete_observation("obs:1")
@@ -536,7 +536,7 @@ class AcquisitionPlanResaveTests(TempDirTestCase):
         self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning = PlanningRepository(self.connection)
         self.frames = FrameRepository(self.connection)
-        self.planning.create_target(Target(id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
+        self.planning.create_target(Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion", ra_deg=83.8, dec_deg=-5.4))
         self.plan = self.planning.save_acquisition_plan(AcquisitionPlan(
             id="plan:1", target_id="target:m42", name="First light",
             sequences=[

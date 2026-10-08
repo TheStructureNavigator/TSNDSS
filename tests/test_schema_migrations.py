@@ -358,8 +358,8 @@ class SchemaDescriptionTests(unittest.TestCase):
 class VersionBehaviourTests(TempDirTestCase):
     def test_production_registry_is_valid_and_matches_current_version(self) -> None:
         validate_migration_registry(MIGRATIONS)
-        self.assertEqual(CURRENT_SCHEMA_VERSION, 10)
-        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5, 6, 7, 8, 9, 10])
+        self.assertEqual(CURRENT_SCHEMA_VERSION, 11)
+        self.assertEqual([migration.version for migration in MIGRATIONS], [2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
         self.assertEqual(latest_schema_version(MIGRATIONS), CURRENT_SCHEMA_VERSION)
         self.assertEqual(EXPECTED_USER_VERSION, CURRENT_SCHEMA_VERSION)
 
@@ -367,7 +367,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         self.assertTrue(result.created)
         self.assertEqual((result.initial_version, result.final_version), (1, CURRENT_SCHEMA_VERSION))
-        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9, 10))
+        self.assertEqual(result.applied_migrations, (2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
         self.assertIsNone(result.backup_path)
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.backups(), [])
@@ -387,8 +387,11 @@ class VersionBehaviourTests(TempDirTestCase):
         schema = describe_schema(connection)
         for table in ("targets", "sites", "site_horizon_profile_points", "mosaic_plans", "mosaic_panels",
                       "frames", "datasets", "processing_runs", "catalog_objects", "catalog_object_aliases",
-                      "sessions", "project_sessions", "session_plans", "session_plan_items", "session_context_facts"):
+                      "sessions", "project_sessions", "session_plans", "session_plan_items",
+                      "session_context_facts", "session_events"):
             self.assertIn(table, schema["tables"])
+        target_columns = schema["tables"]["targets"]["columns"]
+        self.assertIn("target_type", target_columns)
         self.assertIn("lp_data_kind", schema["tables"]["sites"]["columns"])
         self.assertIn("filter", schema["tables"]["mosaic_plans"]["columns"])
         self.assertIn("v_observation_summary", schema["views"])
@@ -397,8 +400,11 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize(migrations=MIGRATIONS[:4])
         connection.row_factory = sqlite3.Row
         self.assertEqual(result.final_version, 5)
-        PlanningRepository(connection).create_target(
-            Target(id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)
+        connection.execute(
+            """
+            INSERT INTO targets (id, catalog, catalog_id, name, ra_deg, dec_deg)
+            VALUES ('target:m42', 'M', '42', 'Orion Nebula', 83.8, -5.4);
+            """
         )
         connection.execute(
             """
@@ -412,7 +418,7 @@ class VersionBehaviourTests(TempDirTestCase):
         connection, result = self.initialize()
         connection.row_factory = sqlite3.Row
 
-        self.assertEqual(result.applied_migrations, (6, 7, 8, 9, 10))
+        self.assertEqual(result.applied_migrations, (6, 7, 8, 9, 10, 11))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         observation_columns = {row[1] for row in connection.execute("PRAGMA table_info(observations);").fetchall()}
         self.assertIn("session_id", observation_columns)
@@ -430,6 +436,65 @@ class VersionBehaviourTests(TempDirTestCase):
         self.assertEqual(observation.session_id, "session:legacy-development-observations")
         self.assertEqual(observation.observation_number, 7)
         self.assertEqual(observation.operator_notes, "legacy note")
+
+    def test_v11_target_reconciliation_rebuilds_targets_without_catalog_uniqueness(self) -> None:
+        connection, result = self.initialize(migrations=MIGRATIONS[:-1])
+        connection.row_factory = sqlite3.Row
+        self.assertEqual(result.final_version, 10)
+        connection.execute(
+            """
+            INSERT INTO targets (id, catalog, catalog_id, name, ra_deg, dec_deg, notes)
+            VALUES ('target:m31', 'MESSIER', 'M31', 'Andromeda', 10.68, 41.27, 'legacy row');
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        connection, result = self.initialize()
+        connection.row_factory = sqlite3.Row
+
+        self.assertEqual(result.applied_migrations, (11,))
+        self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
+        target = connection.execute(
+            "SELECT id, target_type, catalog, catalog_id, name, ra_deg, dec_deg, notes FROM targets WHERE id = ?;",
+            ("target:m31",),
+        ).fetchone()
+        self.assertEqual(
+            tuple(target),
+            ("target:m31", "legacy_catalog_coordinate", "MESSIER", "M31", "Andromeda", 10.68, 41.27, "legacy row"),
+        )
+
+        schema = describe_schema(connection)
+        columns = schema["tables"]["targets"]["columns"]
+        self.assertTrue(columns["target_type"]["notnull"])
+        self.assertFalse(columns["catalog"]["notnull"])
+        self.assertFalse(columns["catalog_id"]["notnull"])
+        self.assertTrue(columns["name"]["notnull"])
+        self.assertTrue(columns["ra_deg"]["notnull"])
+        self.assertTrue(columns["dec_deg"]["notnull"])
+        self.assertIn(("index", "idx_targets_radec", False, ("ra_deg", "dec_deg")), schema["tables"]["targets"]["indexes"])
+        self.assertNotIn(("u", True, ("catalog", "catalog_id")), schema["tables"]["targets"]["indexes"])
+
+        connection.execute(
+            """
+            INSERT INTO targets (id, target_type, catalog, catalog_id, name, ra_deg, dec_deg)
+            VALUES ('target:m31-copy', 'fixed_coordinate', 'MESSIER', 'M31', 'Andromeda Copy', 10.69, 41.28);
+            """
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO targets (id, target_type, catalog, name, ra_deg, dec_deg)
+                VALUES ('target:incomplete', 'fixed_coordinate', 'MESSIER', 'Incomplete', 1.0, 2.0);
+                """
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO targets (id, target_type, catalog, catalog_id, name, ra_deg, dec_deg)
+                VALUES ('target:blank-type', '', NULL, NULL, 'Blank Type', 1.0, 2.0);
+                """
+            )
 
     def test_reopening_current_v1_is_a_no_op(self) -> None:
         self.open_initialized().close()

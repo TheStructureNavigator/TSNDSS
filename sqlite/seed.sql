@@ -6,22 +6,22 @@ PRAGMA foreign_keys = ON;
 -- ============================================================
 
 INSERT OR IGNORE INTO targets (
-    id, catalog, catalog_id, name, object_type,
+    id, target_type, catalog, catalog_id, name, object_type,
     ra_deg, dec_deg, angular_major_arcmin, angular_minor_arcmin,
     distance_ly, constellation
 ) VALUES
 (
-    'target:m31', 'MESSIER', 'M31', 'Andromeda Galaxy', 'galaxy',
+    'target:m31', 'legacy_catalog_coordinate', 'MESSIER', 'M31', 'Andromeda Galaxy', 'galaxy',
     10.6847, 41.2692, 190.0, 60.0,
     2537000, 'Andromeda'
 ),
 (
-    'target:m42', 'MESSIER', 'M42', 'Orion Nebula', 'emission_nebula',
+    'target:m42', 'legacy_catalog_coordinate', 'MESSIER', 'M42', 'Orion Nebula', 'emission_nebula',
     83.8221, -5.3911, 85.0, 60.0,
     1344, 'Orion'
 ),
 (
-    'target:m45', 'MESSIER', 'M45', 'Pleiades', 'open_cluster_reflection_nebula',
+    'target:m45', 'legacy_catalog_coordinate', 'MESSIER', 'M45', 'Pleiades', 'open_cluster_reflection_nebula',
     56.75, 24.1167, 110.0, 110.0,
     444, 'Taurus'
 );

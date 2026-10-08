@@ -25,6 +25,9 @@ ALLOWED_EQUIPMENT_TYPES = {
 
 ALLOWED_PLAN_STATUSES = {"draft", "ready", "archived"}
 ALLOWED_FRAME_TYPES = {"light", "dark", "flat", "bias", "dark_flat"}
+TARGET_TYPE_FIXED_COORDINATE = "fixed_coordinate"
+TARGET_TYPE_LEGACY_CATALOG_COORDINATE = "legacy_catalog_coordinate"
+SUPPORTED_TARGET_TYPES = {TARGET_TYPE_FIXED_COORDINATE, TARGET_TYPE_LEGACY_CATALOG_COORDINATE}
 
 
 class ValidationError(ValueError):
@@ -36,40 +39,45 @@ class PlanningRepository:
         self.connection = connection
 
     def create_target(self, target: Target) -> Target:
-        _validate_target(target)
+        _validate_target(target, creating=True)
         with transaction(self.connection):
-            self.connection.execute(
-                """
-                INSERT INTO targets (
-                    id,
-                    catalog,
-                    catalog_id,
-                    name,
-                    object_type,
-                    ra_deg,
-                    dec_deg,
-                    angular_major_arcmin,
-                    angular_minor_arcmin,
-                    distance_ly,
-                    constellation,
-                    notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    target.id,
-                    target.catalog,
-                    target.catalog_id,
-                    target.name,
-                    target.object_type,
-                    target.ra_deg,
-                    target.dec_deg,
-                    target.angular_major_arcmin,
-                    target.angular_minor_arcmin,
-                    target.distance_ly,
-                    target.constellation,
-                    target.notes,
-                ),
-            )
+            try:
+                self.connection.execute(
+                    """
+                    INSERT INTO targets (
+                        id,
+                        target_type,
+                        catalog,
+                        catalog_id,
+                        name,
+                        object_type,
+                        ra_deg,
+                        dec_deg,
+                        angular_major_arcmin,
+                        angular_minor_arcmin,
+                        distance_ly,
+                        constellation,
+                        notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        target.id,
+                        target.target_type,
+                        target.catalog,
+                        target.catalog_id,
+                        target.name,
+                        target.object_type,
+                        target.ra_deg,
+                        target.dec_deg,
+                        target.angular_major_arcmin,
+                        target.angular_minor_arcmin,
+                        target.distance_ly,
+                        target.constellation,
+                        target.notes,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ValidationError(f"Target id already exists: {target.id}") from error
         return self.get_target(target.id)
 
     def get_target(self, target_id: str) -> Target | None:
@@ -77,6 +85,7 @@ class PlanningRepository:
             """
             SELECT
                 id,
+                target_type,
                 catalog,
                 catalog_id,
                 name,
@@ -100,6 +109,7 @@ class PlanningRepository:
             """
             SELECT
                 id,
+                target_type,
                 catalog,
                 catalog_id,
                 name,
@@ -112,7 +122,7 @@ class PlanningRepository:
                 constellation,
                 notes
             FROM targets
-            ORDER BY catalog, catalog_id;
+            ORDER BY name, id;
             """
         ).fetchall()
         return [_row_to_target(row) for row in rows]
@@ -126,6 +136,7 @@ class PlanningRepository:
             """
             SELECT
                 id,
+                target_type,
                 catalog,
                 catalog_id,
                 name,
@@ -139,8 +150,12 @@ class PlanningRepository:
                 notes
             FROM targets
             WHERE lower(name) = lower(?)
-               OR lower(catalog_id) = lower(?)
-               OR lower(catalog || ' ' || catalog_id) = lower(?)
+               OR (catalog_id IS NOT NULL AND lower(catalog_id) = lower(?))
+               OR (
+                    catalog IS NOT NULL
+                    AND catalog_id IS NOT NULL
+                    AND lower(catalog || ' ' || catalog_id) = lower(?)
+               )
             ORDER BY
                 CASE
                     WHEN lower(name) = lower(?) THEN 0
@@ -162,12 +177,16 @@ class PlanningRepository:
         return _row_to_target(row) if row else None
 
     def update_target(self, target: Target) -> Target:
-        _validate_target(target)
+        existing = self.get_target(target.id)
+        if existing is None:
+            raise KeyError(f"Target not found: {target.id}")
+        _validate_target(target, existing=existing)
         with transaction(self.connection):
             cursor = self.connection.execute(
                 """
                 UPDATE targets
                 SET
+                    target_type = ?,
                     catalog = ?,
                     catalog_id = ?,
                     name = ?,
@@ -183,6 +202,7 @@ class PlanningRepository:
                 WHERE id = ?;
                 """,
                 (
+                    target.target_type,
                     target.catalog,
                     target.catalog_id,
                     target.name,
@@ -712,15 +732,42 @@ class PlanningRepository:
             self.connection.execute("DELETE FROM acquisition_plans WHERE id = ?;", (plan_id,))
 
 
-def _validate_target(target: Target) -> None:
-    if not target.id:
+def _validate_target(
+    target: Target,
+    *,
+    creating: bool = False,
+    existing: Target | None = None,
+) -> None:
+    if not _is_nonblank(target.id):
         raise ValidationError("Target id is required.")
-    if not target.catalog or not target.catalog_id or not target.name:
-        raise ValidationError("Target catalog, catalog_id and name are required.")
+    if not _is_nonblank(target.target_type):
+        raise ValidationError("Target target_type is required.")
+    if target.target_type not in SUPPORTED_TARGET_TYPES:
+        raise ValidationError(f"Unsupported target_type: {target.target_type}")
+    if not _is_nonblank(target.name):
+        raise ValidationError("Target name is required.")
     if not 0 <= target.ra_deg < 360:
         raise ValidationError("Target ra_deg must be in [0, 360).")
     if not -90 <= target.dec_deg <= 90:
         raise ValidationError("Target dec_deg must be in [-90, 90].")
+    has_catalog = _is_nonblank(target.catalog)
+    has_catalog_id = _is_nonblank(target.catalog_id)
+    if has_catalog != has_catalog_id:
+        raise ValidationError("Target catalog and catalog_id must be both provided or both omitted.")
+    if target.catalog is not None and not has_catalog:
+        raise ValidationError("Target catalog cannot be blank.")
+    if target.catalog_id is not None and not has_catalog_id:
+        raise ValidationError("Target catalog_id cannot be blank.")
+    if creating and target.target_type != TARGET_TYPE_FIXED_COORDINATE:
+        raise ValidationError("New targets must use target_type fixed_coordinate.")
+    if target.target_type == TARGET_TYPE_LEGACY_CATALOG_COORDINATE and not (has_catalog and has_catalog_id):
+        raise ValidationError("Legacy catalog-coordinate targets require catalog and catalog_id.")
+    if existing is not None and existing.target_type != target.target_type:
+        raise ValidationError("Target target_type cannot be changed.")
+
+
+def _is_nonblank(value: str | None) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _validate_site(site: Site) -> None:
@@ -832,6 +879,7 @@ def _validate_sequence(sequence: AcquisitionSequence) -> None:
 def _row_to_target(row: sqlite3.Row) -> Target:
     return Target(
         id=row["id"],
+        target_type=row["target_type"],
         catalog=row["catalog"],
         catalog_id=row["catalog_id"],
         name=row["name"],

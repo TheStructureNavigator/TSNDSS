@@ -23,7 +23,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_target_crud_round_trip(self) -> None:
         created = self.repository.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:ngc7000",
                 catalog="NGC",
                 catalog_id="7000",
@@ -38,7 +38,7 @@ class PlanningRepositoryTests(unittest.TestCase):
         self.assertEqual(created.name, "North America Nebula")
 
         updated = self.repository.update_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:ngc7000",
                 catalog="NGC",
                 catalog_id="7000",
@@ -60,7 +60,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_find_target_by_query_matches_name_and_catalog_id(self) -> None:
         self.repository.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m31",
                 catalog="Messier",
                 catalog_id="M31",
@@ -77,6 +77,154 @@ class PlanningRepositoryTests(unittest.TestCase):
         assert by_catalog_id is not None
         self.assertEqual(by_name.id, "target:m31")
         self.assertEqual(by_catalog_id.id, "target:m31")
+
+    def test_create_target_accepts_fixed_coordinate_without_catalog_pair(self) -> None:
+        created = self.repository.create_target(
+            Target(
+                target_type="fixed_coordinate",
+                id="target:custom",
+                name="Custom Field",
+                ra_deg=12.5,
+                dec_deg=-3.25,
+            )
+        )
+
+        self.assertIsNone(created.catalog)
+        self.assertIsNone(created.catalog_id)
+
+    def test_create_target_allows_duplicate_catalog_pair_for_different_ids(self) -> None:
+        first = self.repository.create_target(
+            Target(
+                target_type="fixed_coordinate",
+                id="target:first-m31",
+                catalog="MESSIER",
+                catalog_id="M31",
+                name="M31 Wide",
+                ra_deg=10.68,
+                dec_deg=41.27,
+            )
+        )
+        second = self.repository.create_target(
+            Target(
+                target_type="fixed_coordinate",
+                id="target:second-m31",
+                catalog="MESSIER",
+                catalog_id="M31",
+                name="M31 Core",
+                ra_deg=10.69,
+                dec_deg=41.28,
+            )
+        )
+
+        self.assertEqual((first.catalog, first.catalog_id), ("MESSIER", "M31"))
+        self.assertEqual((second.catalog, second.catalog_id), ("MESSIER", "M31"))
+
+    def test_create_target_rejects_legacy_and_unsupported_target_types(self) -> None:
+        for target_type in ("legacy_catalog_coordinate", "catalog_backed"):
+            with self.subTest(target_type=target_type):
+                with self.assertRaises(ValidationError):
+                    self.repository.create_target(
+                        Target(
+                            target_type=target_type,
+                            id=f"target:{target_type}",
+                            catalog="MESSIER",
+                            catalog_id="M31",
+                            name="Andromeda",
+                            ra_deg=10.68,
+                            dec_deg=41.27,
+                        )
+                    )
+
+    def test_create_target_rejects_blank_required_fields_and_incomplete_catalog_pair(self) -> None:
+        invalid_targets = [
+            Target(target_type="", id="target:blank-type", name="Blank", ra_deg=1.0, dec_deg=2.0),
+            Target(target_type="fixed_coordinate", id="", name="Blank", ra_deg=1.0, dec_deg=2.0),
+            Target(target_type="fixed_coordinate", id="target:blank-name", name=" ", ra_deg=1.0, dec_deg=2.0),
+            Target(
+                target_type="fixed_coordinate",
+                id="target:no-catalog-id",
+                catalog="MESSIER",
+                name="Incomplete",
+                ra_deg=1.0,
+                dec_deg=2.0,
+            ),
+            Target(
+                target_type="fixed_coordinate",
+                id="target:blank-catalog",
+                catalog=" ",
+                catalog_id="M31",
+                name="Blank catalog",
+                ra_deg=1.0,
+                dec_deg=2.0,
+            ),
+        ]
+
+        for target in invalid_targets:
+            with self.subTest(target=target.id):
+                with self.assertRaises(ValidationError):
+                    self.repository.create_target(target)
+
+    def test_create_target_rejects_duplicate_target_id(self) -> None:
+        self.repository.create_target(
+            Target(
+                target_type="fixed_coordinate",
+                id="target:duplicate",
+                name="Original",
+                ra_deg=1.0,
+                dec_deg=2.0,
+            )
+        )
+
+        with self.assertRaises(ValidationError):
+            self.repository.create_target(
+                Target(
+                    target_type="fixed_coordinate",
+                    id="target:duplicate",
+                    name="Duplicate",
+                    ra_deg=3.0,
+                    dec_deg=4.0,
+                )
+            )
+
+    def test_legacy_catalog_coordinate_target_can_be_read_and_updated_without_type_conversion(self) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO targets (id, target_type, catalog, catalog_id, name, ra_deg, dec_deg)
+            VALUES ('target:legacy-m31', 'legacy_catalog_coordinate', 'MESSIER', 'M31', 'Andromeda', 10.68, 41.27);
+            """
+        )
+        self.connection.commit()
+
+        legacy = self.repository.get_target("target:legacy-m31")
+        assert legacy is not None
+        self.assertEqual(legacy.target_type, "legacy_catalog_coordinate")
+
+        updated = self.repository.update_target(
+            Target(
+                target_type="legacy_catalog_coordinate",
+                id="target:legacy-m31",
+                catalog="MESSIER",
+                catalog_id="M31",
+                name="Andromeda Revised",
+                ra_deg=10.69,
+                dec_deg=41.28,
+            )
+        )
+        self.assertEqual(updated.name, "Andromeda Revised")
+        self.assertEqual(updated.target_type, "legacy_catalog_coordinate")
+
+        with self.assertRaises(ValidationError):
+            self.repository.update_target(
+                Target(
+                    target_type="fixed_coordinate",
+                    id="target:legacy-m31",
+                    catalog="MESSIER",
+                    catalog_id="M31",
+                    name="Andromeda Converted",
+                    ra_deg=10.69,
+                    dec_deg=41.28,
+                )
+            )
 
     def test_site_crud_round_trip(self) -> None:
         created = self.repository.create_site(
@@ -95,7 +243,7 @@ class PlanningRepositoryTests(unittest.TestCase):
                 lp_dataset_name="New World Atlas",
                 lp_provider_name="local-raster",
                 lp_source="Falchi et al. 2016",
-                lp_source_unit="mcd/m²",
+                lp_source_unit="mcd/mÂ˛",
                 lp_data_kind="modeled",
                 lp_updated_at="2026-09-20T19:00:00Z",
             )
@@ -123,7 +271,7 @@ class PlanningRepositoryTests(unittest.TestCase):
                 lp_dataset_name="New World Atlas",
                 lp_provider_name="local-raster",
                 lp_source="Falchi et al. 2016",
-                lp_source_unit="mcd/m²",
+                lp_source_unit="mcd/mÂ˛",
                 lp_data_kind="modeled",
                 lp_updated_at="2026-09-20T20:00:00Z",
                 notes="Backup location",
@@ -250,7 +398,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_save_acquisition_plan_persists_sequences_in_order(self) -> None:
         self.repository.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m42",
                 catalog="MESSIER",
                 catalog_id="M42",
@@ -302,7 +450,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_update_acquisition_plan_replaces_sequence_set(self) -> None:
         self.repository.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m45",
                 catalog="MESSIER",
                 catalog_id="M45",
@@ -344,10 +492,10 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_list_acquisition_plans_can_filter_by_target(self) -> None:
         self.repository.create_target(
-            Target(id="target:m31", catalog="MESSIER", catalog_id="M31", name="Andromeda", ra_deg=10.6847, dec_deg=41.2692)
+            Target(target_type="fixed_coordinate", id="target:m31", catalog="MESSIER", catalog_id="M31", name="Andromeda", ra_deg=10.6847, dec_deg=41.2692)
         )
         self.repository.create_target(
-            Target(id="target:m33", catalog="MESSIER", catalog_id="M33", name="Triangulum", ra_deg=23.4621, dec_deg=30.6602)
+            Target(target_type="fixed_coordinate", id="target:m33", catalog="MESSIER", catalog_id="M33", name="Triangulum", ra_deg=23.4621, dec_deg=30.6602)
         )
 
         self.repository.save_acquisition_plan(
@@ -373,7 +521,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_delete_acquisition_plan_cascades_sequences(self) -> None:
         self.repository.create_target(
-            Target(id="target:ic1805", catalog="IC", catalog_id="1805", name="Heart Nebula", ra_deg=38.5, dec_deg=61.5)
+            Target(target_type="fixed_coordinate", id="target:ic1805", catalog="IC", catalog_id="1805", name="Heart Nebula", ra_deg=38.5, dec_deg=61.5)
         )
         self.repository.save_acquisition_plan(
             AcquisitionPlan(
@@ -398,7 +546,7 @@ class PlanningRepositoryTests(unittest.TestCase):
     def test_invalid_target_is_rejected_before_sqlite_write(self) -> None:
         with self.assertRaises(ValidationError):
             self.repository.create_target(
-                Target(
+                Target(target_type="fixed_coordinate",
                     id="target:bad",
                     catalog="TEST",
                     catalog_id="BAD",
@@ -410,7 +558,7 @@ class PlanningRepositoryTests(unittest.TestCase):
 
     def test_invalid_sequence_is_rejected_before_sqlite_write(self) -> None:
         self.repository.create_target(
-            Target(id="target:test", catalog="TEST", catalog_id="T1", name="Test", ra_deg=1.0, dec_deg=2.0)
+            Target(target_type="fixed_coordinate", id="target:test", catalog="TEST", catalog_id="T1", name="Test", ra_deg=1.0, dec_deg=2.0)
         )
 
         with self.assertRaises(ValidationError):

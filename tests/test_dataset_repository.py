@@ -238,7 +238,7 @@ class DatasetRepositoryTests(unittest.TestCase):
     def _seed_domain_graph(self) -> None:
         self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m42",
                 catalog="MESSIER",
                 catalog_id="M42",
@@ -248,7 +248,7 @@ class DatasetRepositoryTests(unittest.TestCase):
             )
         )
         self.planning.create_target(
-            Target(
+            Target(target_type="fixed_coordinate",
                 id="target:m31",
                 catalog="MESSIER",
                 catalog_id="M31",

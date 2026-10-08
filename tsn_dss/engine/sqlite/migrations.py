@@ -7,7 +7,7 @@ assume the schema already exists and never run DDL.
 
 Versioning
     ``PRAGMA user_version`` is the schema version. The current production
-    schema is version 10 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
+    schema is version 11 (``CURRENT_SCHEMA_VERSION``): the v1 baseline plus the
     registered migrations. Downgrades are not
     supported, and opening a database newer than this build supports fails
     with ``SchemaVersionError``.
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Sequence
 
 BASELINE_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 class SchemaVersionError(RuntimeError):
@@ -727,6 +727,128 @@ ON session_events (observation_id);
 """
 
 
+_MIGRATION_11_TARGET_RECONCILIATION_SQL = """
+DROP VIEW IF EXISTS v_observation_summary;
+
+CREATE TABLE IF NOT EXISTS targets (
+    id TEXT PRIMARY KEY,
+    catalog TEXT NOT NULL,
+    catalog_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    object_type TEXT,
+    ra_deg REAL NOT NULL CHECK (ra_deg >= 0 AND ra_deg < 360),
+    dec_deg REAL NOT NULL CHECK (dec_deg >= -90 AND dec_deg <= 90),
+    angular_major_arcmin REAL CHECK (angular_major_arcmin IS NULL OR angular_major_arcmin > 0),
+    angular_minor_arcmin REAL CHECK (angular_minor_arcmin IS NULL OR angular_minor_arcmin > 0),
+    distance_ly REAL CHECK (distance_ly IS NULL OR distance_ly > 0),
+    constellation TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (catalog, catalog_id)
+);
+
+CREATE TABLE targets_new (
+    id TEXT PRIMARY KEY,
+    target_type TEXT NOT NULL
+        CHECK (length(trim(target_type)) > 0),
+    catalog TEXT
+        CHECK (catalog IS NULL OR length(trim(catalog)) > 0),
+    catalog_id TEXT
+        CHECK (catalog_id IS NULL OR length(trim(catalog_id)) > 0),
+    name TEXT NOT NULL
+        CHECK (length(trim(name)) > 0),
+    object_type TEXT,
+    ra_deg REAL NOT NULL CHECK (ra_deg >= 0 AND ra_deg < 360),
+    dec_deg REAL NOT NULL CHECK (dec_deg >= -90 AND dec_deg <= 90),
+    angular_major_arcmin REAL CHECK (angular_major_arcmin IS NULL OR angular_major_arcmin > 0),
+    angular_minor_arcmin REAL CHECK (angular_minor_arcmin IS NULL OR angular_minor_arcmin > 0),
+    distance_ly REAL CHECK (distance_ly IS NULL OR distance_ly > 0),
+    constellation TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+        (catalog IS NULL AND catalog_id IS NULL)
+        OR (catalog IS NOT NULL AND catalog_id IS NOT NULL)
+    )
+);
+
+INSERT INTO targets_new (
+    id,
+    target_type,
+    catalog,
+    catalog_id,
+    name,
+    object_type,
+    ra_deg,
+    dec_deg,
+    angular_major_arcmin,
+    angular_minor_arcmin,
+    distance_ly,
+    constellation,
+    notes,
+    created_at,
+    updated_at
+)
+SELECT
+    id,
+    'legacy_catalog_coordinate',
+    catalog,
+    catalog_id,
+    name,
+    object_type,
+    ra_deg,
+    dec_deg,
+    angular_major_arcmin,
+    angular_minor_arcmin,
+    distance_ly,
+    constellation,
+    notes,
+    created_at,
+    updated_at
+FROM targets;
+
+DROP TABLE targets;
+
+ALTER TABLE targets_new RENAME TO targets;
+
+CREATE INDEX idx_targets_radec ON targets (ra_deg, dec_deg);
+
+CREATE VIEW v_observation_summary AS
+SELECT
+    o.id AS observation_id,
+    o.observation_number,
+    o.status,
+    t.catalog_id AS target_catalog_id,
+    t.name AS target_name,
+    s.name AS site_name,
+    o.started_at,
+    o.finished_at,
+    COUNT(f.id) AS frame_count,
+    SUM(
+        CASE
+            WHEN f.frame_type = 'light' AND f.accepted = 1
+            THEN COALESCE(f.exposure_s, 0)
+            ELSE 0
+        END
+    ) AS accepted_light_integration_s
+FROM observations o
+JOIN targets t ON t.id = o.target_id
+LEFT JOIN sites s ON s.id = o.site_id
+LEFT JOIN frames f ON f.observation_id = o.id
+GROUP BY
+    o.id,
+    o.observation_number,
+    o.status,
+    t.catalog_id,
+    t.name,
+    s.name,
+    o.started_at,
+    o.finished_at;
+"""
+
+
 # Production registry: ordered, forward-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -776,6 +898,12 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=10,
         description="canonical session events",
         sql=_MIGRATION_10_SESSION_EVENTS_SQL,
+    ),
+    Migration(
+        version=11,
+        description="minimal canonical target reconciliation",
+        sql=_MIGRATION_11_TARGET_RECONCILIATION_SQL,
+        foreign_keys_off=True,
     ),
 )
 

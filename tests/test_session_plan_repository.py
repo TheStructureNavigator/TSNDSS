@@ -43,10 +43,10 @@ class SessionPlanRepositoryTests(unittest.TestCase):
         self.project_sessions = ProjectSessionRepository(self.connection)
         self.session = self.sessions.create_session(Session(id="session:test", started_at=STARTED))
         self.target = self.planning.create_target(
-            Target(id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)
+            Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)
         )
         self.other_target = self.planning.create_target(
-            Target(id="target:m31", catalog="M", catalog_id="31", name="Andromeda", ra_deg=10.7, dec_deg=41.3)
+            Target(target_type="fixed_coordinate", id="target:m31", catalog="M", catalog_id="31", name="Andromeda", ra_deg=10.7, dec_deg=41.3)
         )
         self.acquisition_plan = self.planning.save_acquisition_plan(
             AcquisitionPlan(
@@ -324,7 +324,7 @@ class SessionPlanSchemaMigrationTests(unittest.TestCase):
         connection = self._connect("upgrade.db")
         result = self._initialize(connection)
 
-        self.assertEqual(result.applied_migrations, (8, 9, 10))
+        self.assertEqual(result.applied_migrations, (8, 9, 10, 11))
         self.assertEqual(get_user_version(connection), CURRENT_SCHEMA_VERSION)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plans;").fetchone()[0], 0)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM session_plan_items;").fetchone()[0], 0)
