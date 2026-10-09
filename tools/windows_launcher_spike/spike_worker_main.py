@@ -20,6 +20,23 @@ def adopt(handle):
     return Connection(handle)
 
 
+def own_handle_count():
+    """Informational: how many OS handles this (child) process holds. None if unavailable."""
+    try:
+        if WINDOWS:
+            import ctypes
+            from ctypes import wintypes
+            k = ctypes.WinDLL("kernel32", use_last_error=True)
+            k.GetCurrentProcess.restype = wintypes.HANDLE
+            k.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            k.GetProcessHandleCount.restype = wintypes.BOOL
+            count = wintypes.DWORD(0)
+            return int(count.value) if k.GetProcessHandleCount(k.GetCurrentProcess(), ctypes.byref(count)) else None
+        return len(os.listdir("/proc/self/fd"))
+    except Exception:
+        return None
+
+
 def main():
     if len(sys.argv) != 3 or sys.argv[1] != "--ctl":
         sys.exit(64)
@@ -49,6 +66,7 @@ def main():
                 "secret_probe_visible": os.environ.get("SPIKE_SECRET_PROBE") is not None,
                 "argv_is_numeric_only": all(a == "--ctl" or a.isdigit() for a in sys.argv[1:]),
                 "has_systemroot": (os.environ.get("SYSTEMROOT") is not None) if WINDOWS else True,
+                "child_handle_count": own_handle_count(),
             }
             ctl.send_bytes(("HELLO:" + repr(info)).encode("utf-8"))
         elif msg == b"PING":

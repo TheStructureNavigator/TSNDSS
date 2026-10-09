@@ -12,7 +12,18 @@ Checks, with no OpenCV, no RTSP, no shared memory, no network and no real addres
   C9  lifeline: closing the parent's end makes a worker with a stuck main thread exit by itself
   C10a the handle counter itself works (typed Win32 call, reacts to one extra handle, rejects an invalid handle)
   C10 handles are released: process handle/fd count returns to baseline after 5 full cycles
-       (UNVERIFIED, never PASS, when the counter cannot be trusted)
+       (UNVERIFIED, never PASS, when the counter cannot be trusted). Each cycle prints the PARENT process's handle
+       count after every stage (pipe, Popen, child end closed, handshake, containment, pipe closed, released, scope exit).
+  C11 steady state: over 10 further cycles the count after every cycle equals the count after the first one
+
+NOTE - private CPython API, spike only: Worker.release() reads Popen._handle and calls subprocess.Handle.Close().
+Both are undocumented CPython internals (they exist in 3.13; they may change). They are allowed here, in this
+diagnostic tool, to make ownership of the child's process handle explicit. Nothing in TSN DSS may depend on them; a
+production launcher must either avoid them or isolate and test them (decision pending the Windows results).
+
+NOTE - status of the leak explanation: that Workers left in local variables keep one process handle each (hypothesis
+H1) is NOT confirmed until a real Windows run shows it. The per-stage lines printed for every cycle exist to confirm or
+refute it. gc.collect() is called once, after the C10 verdict, for diagnostics only; no verdict depends on it.
 
 Run:   py spike_launcher.py            (or: python spike_launcher.py)
 Opts:  --report FILE   also write the report to FILE
@@ -188,8 +199,11 @@ def counter_self_check():
 
 
 class Worker:
-    def __init__(self, debug_stderr=False):
+    def __init__(self, debug_stderr=False, trace=None):
+        self.exit_code = None
         self.parent_end, child_end = Pipe(duplex=True)
+        if trace:
+            trace("pipe")
         self.stderr_path = None
         stderr = subprocess.DEVNULL
         if debug_stderr:
@@ -206,11 +220,15 @@ class Worker:
             kwargs["pass_fds"] = (handle,)
         try:
             self.popen = subprocess.Popen(argv, **kwargs)
+            if trace:
+                trace("popen")
         finally:
             child_end.close()                 # the parent MUST drop its copy of the child's end
             if debug_stderr:
                 stderr.close()
         self.child_end_closed = child_end.closed
+        if trace:
+            trace("child_end_closed")
 
     def request(self, payload, deadline):
         self.parent_end.send_bytes(payload)
@@ -241,6 +259,32 @@ class Worker:
             self.parent_end.close()
         except Exception:
             pass
+
+    def release(self):
+        """End this Worker's ownership of its OS resources, explicitly.
+
+        subprocess keeps the child's process handle open for as long as the Popen object is alive (Windows:
+        Popen._handle, a subprocess.Handle whose finalizer closes it; the Handle is an int subclass and cannot be
+        watched with a weak reference). A Worker left in a local variable therefore keeps one kernel handle per child
+        until it is garbage (read from the CPython source; the link to the observed +5 is hypothesis H1, unconfirmed).
+        release() contains the child if needed, closes the pipe end, remembers the exit code,
+        drops the Popen and closes the process handle itself (Handle.Close() is idempotent, so the later finalizer
+        is a no-op). Returns a short text saying what it did.
+        """
+        state = "already released" if self.popen is None else "n/a (POSIX has no process handle)"
+        if self.popen is not None:
+            if self.popen.poll() is None:
+                self.contain()
+            self.exit_code = self.popen.returncode
+            handle = getattr(self.popen, "_handle", None)   # PRIVATE CPython API (spike only, see module docstring)
+            self.popen = None
+            if handle is not None and hasattr(handle, "Close"):
+                was_open = not getattr(handle, "closed", False)
+                handle.Close()                              # PRIVATE CPython API (subprocess.Handle.Close), spike only
+                state = "process handle closed explicitly (was still open: %s)" % was_open
+            handle = None
+        self.close()
+        return state
 
 
 def parse_hello(raw):
@@ -338,6 +382,8 @@ def run(args):
         w.contain()
     finally:
         w.close()
+        w.release()
+        w = None
 
     # C9: lifeline
     try:
@@ -359,6 +405,8 @@ def run(args):
             record("C9 lifeline watchdog", code == 3,
                    "worker exit code %r (3 = left by itself when the pipe closed; None/other = orphan risk)" % (code,))
         w2.close()
+        w2.release()
+        w2 = None
     except Exception as exc:
         record("C9 lifeline watchdog", False, "%s: %s" % (type(exc).__name__, exc))
 
@@ -366,16 +414,15 @@ def run(args):
     status, detail = counter_self_check()
     record_status("C10a handle counter self-check", status, detail)
 
-    # C10: handle release over 5 cycles
+    # C10: handle release over 5 cycles (criterion unchanged: growth <= 2 against the baseline taken above)
     try:
-        for _ in range(5):
-            wc = Worker(args.debug_stderr)
-            if parse_hello(wc.request(b"INIT:cycle", 15.0)) is None:
-                raise RuntimeError("cycle worker did not start")
-            wc.contain()
-            wc.close()
+        table = []
+        for k in range(1, 6):
+            table.append(one_cycle(k, args))
         time.sleep(0.3)
         after = read_handle_count()
+        for line in table:
+            say("   " + line)
         if status != "PASS" or baseline.count is None or after.count is None:
             record_status("C10 handles released", "UNVERIFIED",
                           "no usable measurement (counter self-check %s; before %s, after %s). "
@@ -385,8 +432,66 @@ def run(args):
             record("C10 handles released", growth <= 2,
                    "open handle/fd count before %d, after 5 cycles %d (growth %d, allowed <= 2; method %s)"
                    % (baseline.count, after.count, growth, after.method))
+        # Diagnostic only, NEVER used for a verdict or to obtain a PASS: would collecting garbage change anything?
+        import gc
+        gc.collect()
+        collected = read_handle_count()
+        say("   diagnostic only (not used for the verdict): count after gc.collect() = %s" % (collected.count,))
     except Exception as exc:
         record("C10 handles released", False, "%s: %s" % (type(exc).__name__, exc))
+
+    # C11: steady state over 10 cycles, independent of any baseline
+    try:
+        counts = []
+        for k in range(1, 11):
+            one_cycle(k, args, quiet=True)
+            counts.append(read_handle_count().count)
+        if status != "PASS" or None in counts:
+            record_status("C11 steady state over 10 cycles", "UNVERIFIED", "no usable measurement (counts %s)" % (counts,))
+        else:
+            drift = [c - counts[0] for c in counts]
+            record("C11 steady state over 10 cycles", all(d == 0 for d in drift[1:]),
+                   "count after each cycle %s (every later cycle must equal the first; drift %s)" % (counts, drift))
+    except Exception as exc:
+        record("C11 steady state over 10 cycles", False, "%s: %s" % (type(exc).__name__, exc))
+
+
+def one_cycle(k, args, quiet=False):
+    """One full launch/close cycle in its own scope. Returns a one-line stage table of the PARENT's handle count."""
+    stages = []
+    last = [read_handle_count().count]
+    start = last[0]
+
+    def trace(name):
+        now = read_handle_count().count
+        stages.append((name, None if now is None or last[0] is None else now - last[0]))
+        last[0] = now
+
+    def cycle():
+        wc = Worker(args.debug_stderr, trace=trace)
+        hello = parse_hello(wc.request(b"INIT:cycle", 15.0))
+        if hello is None:
+            raise RuntimeError("cycle worker did not start")
+        trace("handshake")
+        wc.contain()
+        trace("contained")
+        wc.close()
+        trace("pipe_closed")
+        note = wc.release()
+        trace("released")
+        return hello, note
+
+    hello, note = cycle()
+    trace("scope_exit")
+    end = last[0]
+    if quiet:
+        return None
+    child = hello.get("child_handle_count")
+    line = "cycle %d (parent handle count %s): " % (k, start) + " | ".join(
+        "%s %s" % (name, ("%+d" % d) if d is not None else "?") for name, d in stages)
+    line += " | net %s | %s | child's own count at start (other process, informational) %s" % (
+        ("%+d" % (end - start)) if None not in (end, start) else "?", note, child)
+    return line
 
 
 def main():
