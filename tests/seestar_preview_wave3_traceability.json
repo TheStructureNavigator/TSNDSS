@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "stage": "DB-03",
+  "wave": 3,
+  "title": "Seestar preview integration (offline)",
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "note": "Wave 3 verifies the Seestar preview integration against the DB-02 provider running on a fake transport and against fake decoders. Every test is offline and every fixture is synthetic. No hardware, no RTSP connection, no decoder library and no S30Lab code is involved. The app-state shape used for readiness comes from DB-02 fixtures and from the DB-02 mapping code; it has not been observed on a device with an active camera (DB-02 limitation L2).",
+  "evidence_classes": {
+    "offline": "Deterministic tests against DB-02 over a fake transport, and fake decoders.",
+    "hardware": "None. Wave 3 makes no hardware claim; hardware validation is Wave 5."
+  },
+  "hardware_claims": [],
+  "not_claimed": {
+    "REQ-058": "Concerns Telemetry samples only (decision D3).",
+    "REQ-057": "Fresh-evidence enforcement for safety-sensitive Commands belongs to DB-04.",
+    "REQ-060": "Same as REQ-057.",
+    "REQ-030": "Simulator Provider obligations are verified by the DB-01 simulator and Wave 2; a fake decoder is not a Simulator Provider.",
+    "REQ-031": "Same as REQ-030.",
+    "REQ-063": "Same as REQ-030.",
+    "hardware": "No hardware evidence of any kind is claimed.",
+    "REQ-054": "Outside the DB-03 roadmap coverage (a DB-01/DB-02 boundary). The separation of vendor code from the neutral runtime is recorded as PRV-S3-013."
+  },
+  "local_semantics": [
+    {
+      "id": "PRV-S3-001",
+      "text": "Configuration is validated; cameras are a subset of main/wide; the stream address is built in one place from the fixed DB-02 ports and path and cannot be overridden.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_config.ConfigTests.test_defaults_and_endpoints",
+        "tests.test_seestar_preview_config.ConfigTests.test_hosts_that_could_alter_the_address_are_rejected",
+        "tests.test_seestar_preview_config.ConfigTests.test_camera_validation",
+        "tests.test_seestar_preview_config.ConfigTests.test_ports_and_path_cannot_be_configured",
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_stream_address_is_built_in_one_place_from_fixed_ports"
+      ]
+    },
+    {
+      "id": "PRV-S3-002",
+      "text": "The host and stream address are redacted in representations, errors and every manager output.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_config.RedactionTests.test_host_never_appears_in_representations",
+        "tests.test_seestar_preview_config.RedactionTests.test_errors_never_contain_the_offending_host",
+        "tests.test_seestar_preview_source.RedactionTests.test_repr_hides_the_address",
+        "tests.test_seestar_preview_integration.RedactionTests.test_host_and_address_never_leak_through_any_output"
+      ]
+    },
+    {
+      "id": "PRV-S3-003",
+      "text": "Readiness is mapped per camera from DB-02 runtime telemetry; main and wide never share evidence.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_readiness.MappingTests.test_ready_fixture_is_available_for_both_cameras",
+        "tests.test_seestar_preview_readiness.MappingTests.test_cameras_are_mapped_independently",
+        "tests.test_seestar_preview_readiness.MappingTests.test_missing_block_for_one_camera_is_unknown_for_that_camera_only"
+      ]
+    },
+    {
+      "id": "PRV-S3-004",
+      "text": "AVAILABLE is granted only when the DB-02 availability rule also grants it; partial, stale or malformed replies can only withhold it.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_readiness.MappingTests.test_equivalence_with_db02_availability_rule",
+        "tests.test_seestar_preview_readiness.MappingTests.test_stale_items_never_count_as_available"
+      ]
+    },
+    {
+      "id": "PRV-S3-005",
+      "text": "Evidence is bound to the Connection id, device reference and provider of its Connection; its time is host time; no device timestamp is read or invented; Connection state is not an input.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_readiness.BindingTests.test_evidence_is_bound_to_connection_device_and_provider",
+        "tests.test_seestar_preview_readiness.BindingTests.test_observation_time_is_host_time_never_the_device_timestamp",
+        "tests.test_seestar_preview_readiness.BindingTests.test_sample_for_another_connection_is_rejected",
+        "tests.test_seestar_preview_readiness.BindingTests.test_a_different_device_at_the_endpoint_gives_no_evidence",
+        "tests.test_seestar_preview_readiness.FailureTests.test_connection_ready_state_is_not_an_input"
+      ]
+    },
+    {
+      "id": "PRV-S3-006",
+      "text": "Missing, failed, stale, ambiguous or unconfigured evidence blocks opening, and no decoder is even created.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_integration.RefusalTests.test_no_fresh_available_means_no_decoder_is_even_created",
+        "tests.test_seestar_preview_integration.RefusalTests.test_connection_ready_does_not_open_anything",
+        "tests.test_seestar_preview_integration.RefusalTests.test_evidence_read_failure_blocks_opening",
+        "tests.test_seestar_preview_integration.RefusalTests.test_retained_stale_values_do_not_open_anything",
+        "tests.test_seestar_preview_integration.RefusalTests.test_cached_evidence_older_than_the_limit_is_refused",
+        "tests.test_seestar_preview_readiness.FailureTests.test_total_read_failure_gives_no_evidence"
+      ]
+    },
+    {
+      "id": "PRV-S3-007",
+      "text": "The source is a neutral PreviewSource over an injected decoder: decoder faults become fixed categories, no message is kept, the decoder is released exactly once, and no time is invented.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_source.LifecycleTests.test_open_read_close",
+        "tests.test_seestar_preview_source.LifecycleTests.test_no_time_is_ever_invented",
+        "tests.test_seestar_preview_source.LifecycleTests.test_close_is_idempotent_and_releases_once",
+        "tests.test_seestar_preview_source.DecoderFaultTests.test_open_failure_releases_the_decoder_once_and_keeps_only_the_category",
+        "tests.test_seestar_preview_source.DecoderFaultTests.test_unexpected_open_exception_is_sanitised",
+        "tests.test_seestar_preview_source.DecoderFaultTests.test_read_faults",
+        "tests.test_seestar_preview_source.DecoderFaultTests.test_close_failure_is_reported_once_and_never_retried"
+      ]
+    },
+    {
+      "id": "PRV-S3-008",
+      "text": "Offline flow DB-02 evidence -> gate -> manager -> fake decoder -> pixels and evidence, for main and wide, each on its own fixed endpoint.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_integration.FullFlowTests.test_both_cameras_flow_from_device_evidence_to_pixels",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_each_camera_reads_its_own_endpoint",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_main_alone_and_wide_alone"
+      ]
+    },
+    {
+      "id": "PRV-S3-009",
+      "text": "A fault in one camera's decoder never stops the other.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_integration.IsolationAndRecoveryTests.test_decoder_fault_on_one_camera_leaves_the_other_running",
+        "tests.test_seestar_preview_integration.IsolationAndRecoveryTests.test_open_failure_of_one_decoder_is_contained"
+      ]
+    },
+    {
+      "id": "PRV-S3-010",
+      "text": "Recovery happens only through a new stream after new positive evidence; disconnect closes every decoder once.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_integration.IsolationAndRecoveryTests.test_recovery_only_after_new_positive_evidence",
+        "tests.test_seestar_preview_integration.IsolationAndRecoveryTests.test_disconnect_closes_every_decoder_once_and_blocks_reopening",
+        "tests.test_seestar_preview_integration.IsolationAndRecoveryTests.test_stalled_decoder_is_never_presented_as_fresh"
+      ]
+    },
+    {
+      "id": "PRV-S3-011",
+      "text": "No command surface and no device access beyond allow-listed reads; building, polling and viewing start nothing.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_command_vocabulary_in_any_identifier",
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_state_changing_rpc_method_names_appear",
+        "tests.test_seestar_preview_source.ProtocolTests.test_decoder_protocol_has_no_command_surface",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_only_allow_listed_device_reads_happen_during_the_whole_flow",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_building_the_manager_touches_neither_device_nor_decoder",
+        "tests.test_seestar_preview_readiness.FailureTests.test_reads_are_allow_listed_read_requests_only"
+      ]
+    },
+    {
+      "id": "PRV-S3-012",
+      "text": "No OpenCV, no seestarpy, no network or file primitives, no DB-02 transport or auth, no S30Lab; importing loads no decoder library.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_imports_are_stdlib_subset_or_the_two_allowed_sibling_packages",
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_no_forbidden_module_is_imported_anywhere",
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_transport_and_auth_of_db02_are_never_imported",
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_importing_the_package_loads_no_decoder_or_third_party_code",
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_print_eval_file_access_or_dynamic_import"
+      ]
+    },
+    {
+      "id": "PRV-S3-013",
+      "text": "Vendor-specific behavior (ports, camera names, stream address) lives only in seestar_preview; the neutral runtime and DB-02 do not reference it.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_neutral_runtime_and_db02_do_not_know_this_package"
+      ]
+    }
+  ],
+  "requirements": {
+    "REQ-016": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Preview half: the integration exposes read-only runtime evidence; all device access is allow-listed reads.",
+      "tests": [
+        "tests.test_seestar_preview_integration.FullFlowTests.test_only_allow_listed_device_reads_happen_during_the_whole_flow",
+        "tests.test_seestar_preview_readiness.BindingTests.test_every_call_reads_the_device_anew"
+      ]
+    },
+    "REQ-018": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Preview data does not automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state: a full offline Seestar flow leaves a canonical database and its directory untouched and no integration type carries a domain identity.",
+      "tests": [
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_full_flow_leaves_the_canonical_database_and_directory_untouched",
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_integration_types_carry_no_domain_identity_or_claim",
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_a_stream_proves_nothing_about_domain_facts"
+      ]
+    },
+    "REQ-022": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Passive preview reads and stream open/read/close submit no Commands: no command vocabulary, only allow-listed reads, and a denied gate creates no decoder.",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_command_vocabulary_in_any_identifier",
+        "tests.test_seestar_preview_integration.RefusalTests.test_no_fresh_available_means_no_decoder_is_even_created",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_only_allow_listed_device_reads_happen_during_the_whole_flow"
+      ]
+    },
+    "REQ-059": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Reading preview evidence or images alters no device state: reads are allow-listed, the decoder seam has open/read/close only, and nothing opens without a positive gate.",
+      "tests": [
+        "tests.test_seestar_preview_source.ProtocolTests.test_decoder_protocol_has_no_command_surface",
+        "tests.test_seestar_preview_integration.FullFlowTests.test_building_the_manager_touches_neither_device_nor_decoder",
+        "tests.test_seestar_preview_integration.RefusalTests.test_connection_ready_does_not_open_anything"
+      ]
+    },
+    "REQ-032": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No canonical domain identity is created or replaced by the integration.",
+      "tests": [
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_full_flow_leaves_the_canonical_database_and_directory_untouched",
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_integration_types_carry_no_domain_identity_or_claim"
+      ]
+    },
+    "REQ-033": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Preview images never become a Capture or Frame; pixels stay in memory and nothing is persisted.",
+      "tests": [
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_full_flow_leaves_the_canonical_database_and_directory_untouched",
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_pixel_or_record_persistence"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "The integration imports no domain, storage, GUI or legacy-adapter code and owns no domain semantics.",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports",
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_integration_types_carry_no_domain_identity_or_claim"
+      ]
+    },
+    "REQ-064": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "A stream, evidence object or readiness decision does not by itself prove that a Session, Observation, Capture, Frame, Dataset or ProcessingRun occurred or exists.",
+      "tests": [
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_integration_types_carry_no_domain_identity_or_claim",
+        "tests.test_seestar_preview_integration.EvidenceOnlyTests.test_a_stream_proves_nothing_about_domain_facts"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No Acquisition Execution surface: no acquisition, capture or session vocabulary in the package.",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_command_vocabulary_in_any_identifier"
+      ]
+    }
+  }
+}
