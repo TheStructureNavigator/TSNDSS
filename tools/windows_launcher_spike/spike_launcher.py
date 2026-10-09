@@ -10,11 +10,14 @@ Checks, with no OpenCV, no RTSP, no shared memory, no network and no real addres
   C7  terminate -> bounded wait -> kill -> bounded wait ends the stuck worker
   C8  after the worker is gone the parent sees EOF (never a hang) on the pipe
   C9  lifeline: closing the parent's end makes a worker with a stuck main thread exit by itself
+  C10a the handle counter itself works (typed Win32 call, reacts to one extra handle, rejects an invalid handle)
   C10 handles are released: process handle/fd count returns to baseline after 5 full cycles
+       (UNVERIFIED, never PASS, when the counter cannot be trusted)
 
 Run:   py spike_launcher.py            (or: python spike_launcher.py)
 Opts:  --report FILE   also write the report to FILE
        --debug-stderr  keep the worker's stderr in a temp file and print it when a worker fails to start
+       --counter-only  run only the handle-counter self-check (C10a) and exit
 """
 import argparse
 import os
@@ -53,8 +56,13 @@ def say(text=""):
 
 
 def record(name, ok, detail=""):
-    RESULTS.append((name, ok))
-    say("[%s] %s%s" % ("PASS" if ok else "FAIL", name, (" - " + detail) if detail else ""))
+    record_status(name, "PASS" if ok else "FAIL", detail)
+
+
+def record_status(name, status, detail=""):
+    """status is PASS, FAIL or UNVERIFIED (the check could not be carried out; never counted as PASS)."""
+    RESULTS.append((name, status))
+    say("[%s] %s%s" % (status, name, (" - " + detail) if detail else ""))
 
 
 def child_env():
@@ -64,13 +72,119 @@ def child_env():
     return env
 
 
-def open_handle_count():
+class Reading:
+    """One handle-count measurement. ``count`` is None when the counter is unavailable; there is no sentinel number."""
+
+    def __init__(self, count, method, errors):
+        self.count, self.method, self.errors = count, method, errors
+
+
+def _win_api():
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)          # private binding: no shared argtypes with other code
+    k.GetCurrentProcess.argtypes = []
+    k.GetCurrentProcess.restype = wintypes.HANDLE               # a pseudo-handle (-1) must not be truncated to a 32-bit int
+    k.GetCurrentProcessId.argtypes = []
+    k.GetCurrentProcessId.restype = wintypes.DWORD
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k.GetProcessHandleCount.restype = wintypes.BOOL
+    k.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    k.CreateEventW.restype = wintypes.HANDLE
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    k.CloseHandle.restype = wintypes.BOOL
+    return k, ctypes, wintypes
+
+
+def win_query(handle):
+    """GetProcessHandleCount for ``handle``. Returns (count, 0) or (None, GetLastError()); a failure is never a number."""
+    k, ct, wt = _win_api()
+    count = wt.DWORD(0)
+    ct.set_last_error(0)
+    ok = k.GetProcessHandleCount(handle, ct.byref(count))
+    if not ok:
+        return None, ct.get_last_error()
+    return int(count.value), 0
+
+
+def read_handle_count():
+    errors = []
     if WINDOWS:
+        k, ct, wt = _win_api()
+        # Method 1: the current-process pseudo-handle, correctly typed.
+        count, err = win_query(k.GetCurrentProcess())
+        if count is not None:
+            return Reading(count, "pseudo-handle", errors)
+        errors.append("pseudo-handle: error %d" % err)
+        # Method 2: a real handle to this process (query-limited access). Closed again before returning.
+        real = k.OpenProcess(0x1000, False, k.GetCurrentProcessId())
+        if not real:
+            errors.append("OpenProcess: error %d" % ct.get_last_error())
+            return Reading(None, "none", errors)
+        try:
+            count, err = win_query(real)
+        finally:
+            k.CloseHandle(real)
+        if count is not None:
+            return Reading(count, "OpenProcess handle (the query handle itself is included in the count)", errors)
+        errors.append("OpenProcess handle: error %d" % err)
+        return Reading(None, "none", errors)
+    if os.path.isdir("/proc/self/fd"):
+        return Reading(len(os.listdir("/proc/self/fd")), "/proc/self/fd", errors)
+    errors.append("no /proc/self/fd on this platform")
+    return Reading(None, "none", errors)
+
+
+def legacy_counter_probe():
+    """The call exactly as the first spike version made it. Informational: shows what that call returned."""
+    if not WINDOWS:
+        return "n/a (not Windows)"
+    try:
         import ctypes
         count = ctypes.c_ulong(0)
         ok = ctypes.windll.kernel32.GetProcessHandleCount(ctypes.windll.kernel32.GetCurrentProcess(), ctypes.byref(count))
-        return count.value if ok else -1
-    return len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else -1
+        return "returned %r, count %d, GetLastError %d" % (ok, count.value, ctypes.GetLastError())
+    except Exception as exc:
+        return "raised %s" % type(exc).__name__
+
+
+def counter_self_check():
+    """Returns (status, detail). PASS only when the counter is shown to work; otherwise UNVERIFIED or FAIL."""
+    first = read_handle_count()
+    if first.count is None or first.count <= 0:
+        return "UNVERIFIED", "counter unavailable (%s); legacy call: %s" % ("; ".join(first.errors) or "no reading", legacy_counter_probe())
+    notes = ["method %s, reading %d" % (first.method, first.count), "legacy call: %s" % legacy_counter_probe()]
+    # Sensitivity: one extra handle must be visible, and closing it must bring the count back.
+    if WINDOWS:
+        k, ct, wt = _win_api()
+        extra = k.CreateEventW(None, True, False, None)
+        if not extra:
+            return "UNVERIFIED", "could not create a test handle (error %d); " % ct.get_last_error() + "; ".join(notes)
+        raised = read_handle_count().count
+        k.CloseHandle(extra)
+    else:
+        extra = os.open(os.devnull, os.O_RDONLY)
+        raised = read_handle_count().count
+        os.close(extra)
+    restored = read_handle_count().count
+    if raised is None or restored is None:
+        return "UNVERIFIED", "counter became unavailable during the sensitivity test; " + "; ".join(notes)
+    if raised < first.count + 1 or restored != first.count:
+        return "FAIL", "counter does not react to one extra handle (before %d, with extra %s, after close %s); " % (
+            first.count, raised, restored) + "; ".join(notes)
+    notes.append("one extra handle: %d -> %d -> %d" % (first.count, raised, restored))
+    # Invalid-handle control (Windows): a bad handle must be reported as an error, never as a number.
+    if WINDOWS:
+        k, ct, wt = _win_api()
+        bad, err = win_query(wt.HANDLE(0))
+        if bad is not None:
+            return "FAIL", "an invalid handle was answered with a count (%r): the wrapper cannot tell failures from values; " % (bad,) + "; ".join(notes)
+        notes.append("invalid handle rejected (GetLastError %d, expected 6)" % err)
+    else:
+        notes.append("invalid-handle control: n/a on POSIX")
+    return "PASS", "; ".join(notes)
 
 
 class Worker:
@@ -154,7 +268,7 @@ def run(args):
         record("C1 environment and pipe creation", False, "%s: %s" % (type(exc).__name__, exc))
         return
 
-    baseline = open_handle_count()
+    baseline = read_handle_count()
 
     # C2/C3/C4/C5 on one worker
     try:
@@ -248,6 +362,10 @@ def run(args):
     except Exception as exc:
         record("C9 lifeline watchdog", False, "%s: %s" % (type(exc).__name__, exc))
 
+    # C10a: is the counter itself trustworthy?
+    status, detail = counter_self_check()
+    record_status("C10a handle counter self-check", status, detail)
+
     # C10: handle release over 5 cycles
     try:
         for _ in range(5):
@@ -257,10 +375,16 @@ def run(args):
             wc.contain()
             wc.close()
         time.sleep(0.3)
-        after = open_handle_count()
-        growth = after - baseline
-        record("C10 handles released", baseline >= 0 and growth <= 2,
-               "open handle/fd count before %d, after 5 cycles %d (growth %d, allowed <= 2)" % (baseline, after, growth))
+        after = read_handle_count()
+        if status != "PASS" or baseline.count is None or after.count is None:
+            record_status("C10 handles released", "UNVERIFIED",
+                          "no usable measurement (counter self-check %s; before %s, after %s). "
+                          "This is NOT evidence that handles are released." % (status, baseline.count, after.count))
+        else:
+            growth = after.count - baseline.count
+            record("C10 handles released", growth <= 2,
+                   "open handle/fd count before %d, after 5 cycles %d (growth %d, allowed <= 2; method %s)"
+                   % (baseline.count, after.count, growth, after.method))
     except Exception as exc:
         record("C10 handles released", False, "%s: %s" % (type(exc).__name__, exc))
 
@@ -269,6 +393,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--report")
     parser.add_argument("--debug-stderr", action="store_true")
+    parser.add_argument("--counter-only", action="store_true")
     args = parser.parse_args()
 
     def too_long():
@@ -282,11 +407,22 @@ def main():
     # the marker file was truncated after this module already wrote its own line; write it again for a clean count
     with open(MARKER, "a", encoding="ascii") as fh:
         fh.write("parent-main-executed pid=%d name=%s\n" % (os.getpid(), __name__))
-    run(args)
-    passed = sum(1 for _, ok in RESULTS if ok)
+    if args.counter_only:
+        status, detail = counter_self_check()
+        record_status("C10a handle counter self-check", status, detail)
+    else:
+        run(args)
+    passed = sum(1 for _, st in RESULTS if st == "PASS")
+    failed = sum(1 for _, st in RESULTS if st == "FAIL")
+    unverified = sum(1 for _, st in RESULTS if st == "UNVERIFIED")
     say()
-    verdict = "PASS" if RESULTS and passed == len(RESULTS) else "FAIL"
-    say("RESULT: %s (%d/%d checks passed)" % (verdict, passed, len(RESULTS)))
+    if failed:
+        verdict = "FAIL"
+    elif unverified or not RESULTS:
+        verdict = "UNVERIFIED"
+    else:
+        verdict = "PASS"
+    say("RESULT: %s (%d/%d checks passed, %d failed, %d unverified)" % (verdict, passed, len(RESULTS), failed, unverified))
     if args.report:
         with open(args.report, "w", encoding="utf-8") as fh:
             fh.write("\n".join(LINES) + "\n")
