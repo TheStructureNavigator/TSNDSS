@@ -8,11 +8,25 @@ Package: `tsn_dss/engine/seestar_preview/`. It depends only on `device_runtime` 
 
 ```
 DB-02 provider (read-only) -> ProviderRuntime.read_telemetry -> SeestarReadinessEvidenceProvider
-   -> ReadinessGate (Wave 2) -> PreviewStreamManager (Wave 2) -> RtspPreviewSource -> injected ImageDecoder
+   -> ReadinessGate (Wave 2) -> PreviewStreamManager (Wave 2) -> (internal) RtspPreviewSource -> injected ImageDecoder
    -> PreviewStream -> pixels and PreviewImageEvidence
 ```
 
 `build_preview_manager(...)` wires this. Building it reads nothing and creates no decoder.
+
+## Official API and its limits
+
+A preview stream is opened one way: `build_preview_manager(...)` returns a `PreviewStreamManager`, and `open_stream(camera)` opens a stream only after the readiness gate allowed it. The package exports a configuration, a read-only evidence provider, the `ImageDecoder` interface that adapters implement, and the builder. `RtspPreviewSource` and `make_source_factory` live in the internal module `source` and are not exported; tests and the builder import them from there. Official results (`OpenOutcome`, `PollResult`, `PreviewView`, `CloseReport`, pixels) never hand out a stream, source or decoder.
+
+**This is an API boundary, not a security boundary.** Known ways around the gate, all of which require deliberately leaving the official API:
+
+1. importing `seestar_preview.source` and opening a `RtspPreviewSource` directly;
+2. constructing a `PreviewStream` from `device_runtime.preview_stream` with any source (a neutral Wave 1 building block);
+3. reaching private attributes of the manager (`_factory`, `_streams`);
+4. building a `PreviewStreamManager` by hand with a permissive evidence provider, since the gate is only as strict as the evidence it is given (the official builder always supplies the DB-02 provider);
+5. calling an adapter's own `open` (a Wave 4 decoder is ordinary code).
+
+Two limits remain even on the official path: the gate decision and the actual open are not atomic, so the device state can change between them; and nothing verifies that opening the stream of an active camera has no side effect on the device (open question since Research Wave 1). Tests pin the boundary (exports, construction sites, ordering of gate before factory and open) and fail if it is widened by accident; they do not prevent a determined caller.
 
 ## Configuration
 

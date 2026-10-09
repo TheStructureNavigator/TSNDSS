@@ -165,6 +165,19 @@
       "tests": [
         "tests.test_seestar_preview_boundaries.ImportBoundaryTests.test_neutral_runtime_and_db02_do_not_know_this_package"
       ]
+    },
+    {
+      "id": "PRV-S3-014",
+      "text": "The manager is the only official way to open a preview stream: the package exports no source or source factory, the official builder wires the DB-02 evidence provider through the readiness gate, streams and sources are constructed in one place each, and official results never hand out a stream, source or decoder. This is a documented API boundary, not a security boundary (see the limitations in docs/DB-03_SEESTAR_PREVIEW_INTEGRATION.md).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_exact_public_names",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_source_building_blocks_are_not_part_of_the_package_namespace",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_no_public_name_opens_a_source",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_official_entry_point_builds_a_manager_wired_through_the_gate",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_streams_and_sources_are_constructed_and_opened_in_one_place",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_official_api_results_never_hand_out_a_stream_source_or_decoder"
+      ]
     }
   ],
   "requirements": {
@@ -204,7 +217,8 @@
       "tests": [
         "tests.test_seestar_preview_source.ProtocolTests.test_decoder_protocol_has_no_command_surface",
         "tests.test_seestar_preview_integration.FullFlowTests.test_building_the_manager_touches_neither_device_nor_decoder",
-        "tests.test_seestar_preview_integration.RefusalTests.test_connection_ready_does_not_open_anything"
+        "tests.test_seestar_preview_integration.RefusalTests.test_connection_ready_does_not_open_anything",
+        "tests.test_seestar_preview_boundaries.PublicApiBoundaryTests.test_official_entry_point_builds_a_manager_wired_through_the_gate"
       ]
     },
     "REQ-032": {
@@ -251,5 +265,6 @@
         "tests.test_seestar_preview_boundaries.SafetyBoundaryTests.test_no_command_vocabulary_in_any_identifier"
       ]
     }
-  }
+  },
+  "correction_note": "Correction Wave: RtspPreviewSource and make_source_factory are no longer exported from the package (internal building blocks); PRV-S3-014 and its tests were added. No requirement claim was widened."
 }

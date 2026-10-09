@@ -7,13 +7,8 @@ import unittest
 from tsn_dss.engine.device_runtime.preview_models import PixelFormat, PreviewPixels, PreviewSourceError, SourceImage
 from tsn_dss.engine.device_runtime.preview_simulator import make_pixels
 from tsn_dss.engine.device_runtime.preview_stream import PreviewSource
-from tsn_dss.engine.seestar_preview import (
-    DecoderError,
-    ImageDecoder,
-    RtspPreviewSource,
-    SeestarPreviewConfig,
-    make_source_factory,
-)
+from tsn_dss.engine.seestar_preview import DecoderError, ImageDecoder, SeestarPreviewConfig
+from tsn_dss.engine.seestar_preview.source import RtspPreviewSource, make_source_factory  # internal building blocks
 from tsn_dss.engine.seestar_provider.errors import SeestarConfigError
 
 try:

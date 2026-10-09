@@ -143,5 +143,119 @@ class SafetyBoundaryTests(unittest.TestCase):
                 self.assertNotIn(banned, text, (path.name, banned))
 
 
+PUBLIC_API = {
+    "SeestarPreviewConfig", "StreamEndpoint", "build_preview_manager", "SeestarReadinessEvidenceProvider",
+    "camera_availability", "DecoderError", "ImageDecoder",
+}
+
+
+class PublicApiBoundaryTests(unittest.TestCase):
+    """The manager is the only official way to open a preview stream (a documented boundary, not a lock)."""
+
+    def test_exact_public_names(self) -> None:
+        self.assertEqual(set(seestar_preview.__all__), PUBLIC_API)
+
+    def test_source_building_blocks_are_not_part_of_the_package_namespace(self) -> None:
+        for name in ("RtspPreviewSource", "make_source_factory"):
+            self.assertFalse(hasattr(seestar_preview, name), name)
+            self.assertNotIn(name, seestar_preview.__all__)
+            self.assertNotIn(name, dir(seestar_preview))
+        from tsn_dss.engine.seestar_preview import source  # still importable for direct tests
+
+        self.assertTrue(callable(source.RtspPreviewSource) and callable(source.make_source_factory))
+        self.assertIn("INTERNAL", source.__doc__)
+
+    def test_no_public_name_opens_a_source(self) -> None:
+        import inspect
+
+        for name in seestar_preview.__all__:
+            obj = getattr(seestar_preview, name)
+            if name == "ImageDecoder":  # the interface an adapter implements; not something that opens by itself
+                continue
+            if inspect.isclass(obj):
+                self.assertFalse({"open", "read", "close"} & set(dir(obj)), name)
+            if inspect.isfunction(obj):
+                params = set(inspect.signature(obj).parameters)
+                self.assertFalse(params & {"source", "stream", "source_factory"}, name)
+
+    def test_official_entry_point_builds_a_manager_wired_through_the_gate(self) -> None:
+        from tsn_dss.engine.device_runtime.preview_manager import PreviewStreamManager
+        from tsn_dss.engine.device_runtime.preview_readiness import ReadinessGate
+
+        try:
+            from seestar_preview_support import Flow
+        except ModuleNotFoundError:  # pragma: no cover
+            from tests.seestar_preview_support import Flow
+
+        manager = Flow().manager
+        self.assertIsInstance(manager, PreviewStreamManager)
+        self.assertIsInstance(manager._gate, ReadinessGate)
+        self.assertIsInstance(manager._gate._provider, seestar_preview.SeestarReadinessEvidenceProvider)
+        text = (PACKAGE / "integration.py").read_text(encoding="utf-8")
+        self.assertIn("ReadinessGate(", text)
+        self.assertIn("gate=gate", text)
+
+    def test_streams_and_sources_are_constructed_and_opened_in_one_place(self) -> None:
+        engine = ROOT / "tsn_dss"
+        constructions = {
+            "PreviewStream(": [], "RtspPreviewSource(": [], "make_source_factory(": [],
+        }
+        for path in engine.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for needle, hits in constructions.items():
+                for line in text.splitlines():
+                    if needle in line and not line.lstrip().startswith(("class ", "def ", "#", '"', "``", "return f")):
+                        hits.append(path.name)
+        self.assertEqual(constructions["PreviewStream("], ["preview_manager.py"])
+        self.assertEqual(constructions["RtspPreviewSource("], ["source.py"])
+        self.assertEqual(constructions["make_source_factory("], ["integration.py"])
+        manager_text = (ROOT / "tsn_dss/engine/device_runtime/preview_manager.py").read_text(encoding="utf-8")
+        self.assertEqual(manager_text.count("stream.open()"), 1)
+        gate_pos = manager_text.index("self._gate.check(")
+        self.assertLess(gate_pos, manager_text.index("self._factory(label)"))
+        self.assertLess(gate_pos, manager_text.index("stream.open()"))
+        for path in SOURCES:
+            if path.name != "source.py":
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"\.open\(", path.name)
+
+    def test_official_api_results_never_hand_out_a_stream_source_or_decoder(self) -> None:
+        from dataclasses import fields, is_dataclass
+
+        from tsn_dss.engine.device_runtime.preview_stream import PreviewSource, PreviewStream
+
+        try:
+            from seestar_preview_support import Flow
+        except ModuleNotFoundError:  # pragma: no cover
+            from tests.seestar_preview_support import Flow
+
+        flow = Flow()
+        results = [flow.manager.open_stream("main"), flow.manager.open_stream("wide"), flow.manager.open_stream("main")]
+        results += list(flow.manager.poll_all())
+        results += [flow.manager.view("main"), flow.manager.fresh_pixels("wide"), flow.manager.states(), flow.manager.stream_id("main")]
+        results += [flow.manager.close_stream("main"), flow.manager.close_all()]
+
+        def walk(value, depth=0):
+            yield value
+            if depth < 3 and is_dataclass(value):
+                for f in fields(value):
+                    yield from walk(getattr(value, f.name), depth + 1)
+            elif depth < 3 and isinstance(value, (tuple, list)):
+                for item in value:
+                    yield from walk(item, depth + 1)
+            elif depth < 3 and isinstance(value, dict):
+                for item in value.values():
+                    yield from walk(item, depth + 1)
+
+        for result in results:
+            for item in walk(result):
+                self.assertNotIsInstance(item, (PreviewStream, PreviewSource, seestar_preview.ImageDecoder))
+        public = [n for n in dir(flow.manager) if not n.startswith("_")]
+        self.assertEqual(
+            sorted(public),
+            sorted(["connection_id", "cameras", "active_labels", "states", "stream_id", "open_stream", "poll", "poll_all",
+                    "view", "fresh_pixels", "close_stream", "close_all"]),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,10 @@
-"""RTSP preview source over an injected decoder seam.
+"""INTERNAL: RTSP preview source over an injected decoder seam.
+
+Not part of the package's public API. A stream is opened through
+``build_preview_manager`` and ``PreviewStreamManager.open_stream`` only, which
+consult the readiness gate first; this module has no gate of its own. Tests and
+``integration`` import it directly. Only ``DecoderError`` and ``ImageDecoder``
+are re-exported by the package, because adapters implement them.
 
 ``RtspPreviewSource`` implements the neutral ``PreviewSource`` protocol. It does
 not decode anything itself: a decoder object is injected and is the only thing
