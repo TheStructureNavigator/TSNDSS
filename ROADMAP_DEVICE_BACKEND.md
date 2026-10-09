@@ -33,6 +33,7 @@ Baseline:
 - PLANNED: future stage with dependencies.
 - BLOCKED: cannot begin until the named dependency is accepted.
 - COMPLETE: not used in this initial roadmap. All stages are initially unimplemented.
+- HARDWARE_VERIFIED (read-only scope): implemented, verified offline, and validated on real hardware within a stated scope. The scope and the limitations are recorded in an acceptance record. This is not production readiness.
 
 ## Dependency graph
 
@@ -102,7 +103,7 @@ Simulator conformance tests pass deterministically, provider runtime concepts ex
 
 ## DB-02 — Seestar Read-Only Integration
 
-**Status:** PLANNED
+**Status:** HARDWARE_VERIFIED (read-only scope). Acceptance record: [docs/DB-02_ACCEPTANCE_RECORD.md](docs/DB-02_ACCEPTANCE_RECORD.md). Scope: one Seestar S30 Pro, firmware 9.31. Not production readiness; limitations L1-L7 apply.
 
 ### Objective
 
@@ -162,6 +163,18 @@ No physical movement, state-changing commands, preview runtime, frontend/API/MCP
 ### Exit criteria
 
 Seestar read-only runtime data conforms to provider-neutral models and hardware validation confirms no physical side effects.
+
+### Acceptance record
+
+Accepted as HARDWARE_VERIFIED (read-only scope) on the evidence summarized in [docs/DB-02_ACCEPTANCE_RECORD.md](docs/DB-02_ACCEPTANCE_RECORD.md): offline tests, static read-only audit, and operator-run hardware sessions on a Seestar S30 Pro, firmware 9.31. The acceptance depends on these recorded limitations:
+
+- L1: no independent confirmation that no camera was started (excluded by construction).
+- L2: names of unavailable items not recorded; preview-available, stale, valid-empty, fatal-discovery and failed-Connection replacement not exercised on hardware.
+- L3: not known whether reads work without the authentication handshake, or whether it ran.
+- L4: loss and recovery shown across validator restarts only, not within one session.
+- L5: reports carry no timestamps; session order relies on file times and the operator's account.
+- L6: one device, firmware 9.31, apparently idle.
+- L7: not production readiness.
 
 ## DB-03 — Preview Runtime
 

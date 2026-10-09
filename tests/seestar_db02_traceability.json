@@ -13,6 +13,64 @@
     "boundary_offline": "Offline tests show DB-02 does not cross the stated ownership or scope boundary. This is not verification of obligations on future work.",
     "deferred": "Not a DB-02 requirement."
   },
+  "acceptance": {
+    "stage_status": "HARDWARE_VERIFIED (read-only scope)",
+    "record": "docs/DB-02_ACCEPTANCE_RECORD.md",
+    "supersession_note": "The top-level 'note' above describes the offline phase at commit 9899cdc and is retained verbatim. Hardware validation has since been performed; its classification is in this block and in each requirement's 'evidence' field. No requirement 'status' was changed.",
+    "scope": {
+      "device": "Seestar S30 Pro",
+      "firmware": "9.31",
+      "devices": 1,
+      "device_state": "believed idle (inferred)",
+      "production_readiness": false
+    },
+    "hardware_sessions": {
+      "reports_total": 4,
+      "full_sessions_passed": 3,
+      "early_stop_reports": 1,
+      "early_stop_cause": "discovery failed with category connect_failed (network class); the hotspot was disconnected deliberately",
+      "full_session_reports_byte_identical": "operator-reported",
+      "reports_contain_timestamps": false,
+      "reports_in_repository": false,
+      "auditor_result": "STRUCTURE_AND_SANITIZATION_OK, violations 0, missing evidence 0"
+    },
+    "validator_steps": {
+      "1": "credential configuration present",
+      "2": "discovery returns one runtime Device Reference",
+      "3": "connection established with identity verified",
+      "4": "evidence refresh reaches ready",
+      "5": "capability report is fresh and read-only",
+      "6": "telemetry sample carries host observation time",
+      "7": "preview availability is evidence only",
+      "8": "mount and view state unchanged across the session",
+      "9": "reconnect uses a new connection identity"
+    },
+    "evidence_classes": {
+      "observed": "A validator step run against the real device asserts it and passed.",
+      "partially_observed": "Part of the requirement was observed on hardware; the rest is offline only (see the note).",
+      "exercised": "The behavior ran in the hardware sessions but no step asserts it.",
+      "by_construction": "Guaranteed by code structure and static audit; the device cannot show it.",
+      "not_applicable": "Structural property with no device-facing behavior.",
+      "not_verified": "Not exercised on hardware; verified offline only."
+    },
+    "limitations": {
+      "L1": "No independent confirmation that no camera was started (excluded by construction).",
+      "L2": "Names of the unavailable items not recorded; preview-available, stale, valid-empty, fatal-discovery and failed-Connection replacement not exercised on hardware.",
+      "L3": "Not known whether reads work without the authentication handshake, or whether the handshake ran.",
+      "L4": "Loss and recovery shown across validator restarts only, not within one session.",
+      "L5": "Reports carry no timestamps; session order relies on file times and the operator's account.",
+      "L6": "One device, firmware 9.31, apparently idle.",
+      "L7": "Not production readiness."
+    },
+    "telemetry_observed": {
+      "items": 31,
+      "known": 19,
+      "unavailable": 10,
+      "unknown": 2,
+      "preview_availability": "unknown"
+    },
+    "telemetry_inferred_not_observed": "The reports contain counts, not field names. The split of the 10 unavailable items between device and app state is inferred, not observed."
+  },
   "requirements": {
     "DSS-CTR-013-REQ-001": {
       "classification": "primary",
@@ -25,7 +83,14 @@
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_satisfies_the_neutral_provider_protocol_and_registers_without_side_effects"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S2"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-002": {
       "classification": "primary",
@@ -37,7 +102,14 @@
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_configuration_status_reflects_operator_input"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S2"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-003": {
       "classification": "primary",
@@ -49,7 +121,12 @@
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_satisfies_the_neutral_provider_protocol_and_registers_without_side_effects",
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched"
       ],
-      "note": "Primary evidence is structural (no database handle); the digest test corroborates."
+      "note": "Primary evidence is structural (no database handle); the digest test corroborates.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "No domain access path exists; structural."
+      }
     },
     "DSS-CTR-013-REQ-004": {
       "classification": "primary",
@@ -62,7 +139,15 @@
         "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset",
         "tests.test_seestar_provider.DiscoveryTests.test_configured_host_that_does_not_answer_degrades_because_a_device_is_required"
       ],
-      "note": "Provider lifecycle is the DB-01 table; DB-02 verifies the Seestar Provider drives it correctly."
+      "note": "Provider lifecycle is the DB-01 table; DB-02 verifies the Seestar Provider drives it correctly.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S2"
+        ],
+        "hardware_note": "A nonfatal discovery failure was observed in the loss report."
+      }
     },
     "DSS-CTR-013-REQ-005": {
       "classification": "primary",
@@ -74,7 +159,12 @@
         "tests.test_seestar_provider.DiscoveryTests.test_unreachable_host_is_a_nonfatal_failure_and_recovers",
         "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset"
       ],
-      "note": "Inherited from DB-01: no device-level state appears at Provider level."
+      "note": "Inherited from DB-01: no device-level state appears at Provider level.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Lifecycle design property."
+      }
     },
     "DSS-CTR-013-REQ-006": {
       "classification": "primary",
@@ -89,7 +179,14 @@
         "tests.test_seestar_provider.DiscoveryTests.test_udp_discovery_is_opt_in_and_never_used_when_a_host_is_configured",
         "tests.test_seestar_protocol.UdpDiscoveryTests.test_probe_targets_and_reply_parsing"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S2"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-007": {
       "classification": "primary",
@@ -104,7 +201,15 @@
         "tests.test_seestar_protocol.AllowListTests.test_every_physical_or_generic_method_is_refused_at_encoding",
         "tests.test_seestar_protocol.AllowListTests.test_transport_public_surface_is_only_typed_reads_and_udp_discovery"
       ],
-      "note": "Read-only is demonstrated for the offline transport boundary. Absence of physical side effects on a real device is a hardware-validation item."
+      "note": "Read-only is demonstrated for the offline transport boundary. Absence of physical side effects on a real device is a hardware-validation item.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "by_construction",
+        "hardware_steps": [
+          "S8"
+        ],
+        "hardware_note": "Static audit; operator observed no physical movement. S8 corroborates only items known in both samples."
+      }
     },
     "DSS-CTR-013-REQ-008": {
       "classification": "primary",
@@ -117,7 +222,12 @@
         "tests.test_seestar_provider.DiscoveryTests.test_device_reference_carries_no_address_or_secret",
         "tests.test_seestar_provider.DiscoveryTests.test_missing_serial_means_no_identity_and_is_not_invented"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-009": {
       "classification": "primary",
@@ -128,7 +238,15 @@
       "tests": [
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_connect_verifies_identity_and_reports_provider_evidence_only"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S9"
+        ],
+        "hardware_note": "A new connection identity within one session."
+      }
     },
     "DSS-CTR-013-REQ-010": {
       "classification": "primary",
@@ -140,7 +258,14 @@
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_connect_verifies_identity_and_reports_provider_evidence_only",
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_a_different_device_at_the_same_address_fails_the_connection_and_it_is_replaced"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S3"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-011": {
       "classification": "primary",
@@ -152,7 +277,12 @@
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_loss_and_recovery_through_refresh",
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_connection_to_an_unreachable_device_fails"
       ],
-      "note": "Connection state only; Command outcomes are DB-04."
+      "note": "Connection state only; Command outcomes are DB-04.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "No Commands exist in DB-02."
+      }
     },
     "DSS-CTR-013-REQ-012": {
       "classification": "primary",
@@ -163,7 +293,12 @@
       "tests": [
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_loss_and_recovery_through_refresh"
       ],
-      "note": "Inherited from DB-01: connection states never include unknown_result."
+      "note": "Inherited from DB-01: connection states never include unknown_result.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-013": {
       "classification": "primary",
@@ -175,7 +310,15 @@
         "tests.test_seestar_provider.CapabilityTests.test_support_is_separate_from_availability_and_physical_operations_are_unsupported",
         "tests.test_seestar_provider.CapabilityTests.test_provider_level_report_has_no_availability_and_makes_no_device_call"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S5"
+        ],
+        "hardware_note": "The step asserts unsupported operations are not available."
+      }
     },
     "DSS-CTR-013-REQ-014": {
       "classification": "primary",
@@ -186,7 +329,15 @@
       "tests": [
         "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S5"
+        ],
+        "hardware_note": "The step asserts the observation time exists."
+      }
     },
     "DSS-CTR-013-REQ-015": {
       "classification": "primary",
@@ -197,7 +348,14 @@
       "tests": [
         "tests.test_seestar_provider.CapabilityTests.test_support_is_separate_from_availability_and_physical_operations_are_unsupported"
       ],
-      "note": "Reads confirm IMPLEMENTED_UNTESTED; hardware confirmation is recorded only in the operator report."
+      "note": "Reads confirm IMPLEMENTED_UNTESTED; hardware confirmation is recorded only in the operator report.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S5"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-016": {
       "classification": "primary",
@@ -209,7 +367,15 @@
         "tests.test_seestar_provider.TelemetryTests.test_sample_has_host_time_and_provider_and_host_sources",
         "tests.test_seestar_provider.TelemetryTests.test_telemetry_reads_submit_no_commands_and_change_no_state"
       ],
-      "note": "Telemetry half only. Preview reading and streaming are DB-03; DB-02 reports availability evidence without opening a stream."
+      "note": "Telemetry half only. Preview reading and streaming are DB-03; DB-02 reports availability evidence without opening a stream.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S6"
+        ],
+        "hardware_note": "Telemetry half only; the preview half is DB-03."
+      }
     },
     "DSS-CTR-013-REQ-017": {
       "classification": "primary",
@@ -221,7 +387,15 @@
       "tests": [
         "tests.test_seestar_provider.TelemetryTests.test_sample_has_host_time_and_provider_and_host_sources"
       ],
-      "note": "The runtime adds the host-observed items; the Provider reports only provider-reported items."
+      "note": "The runtime adds the host-observed items; the Provider reports only provider-reported items.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S6"
+        ],
+        "hardware_note": "The runtime adds the host-observed item; no step asserts the source split."
+      }
     },
     "DSS-CTR-013-REQ-018": {
       "classification": "boundary",
@@ -234,7 +408,15 @@
         "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream",
         "tests.test_seestar_provider.PreviewEvidenceTests.test_idle_device_is_unavailable_and_missing_blocks_are_unknown"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S7"
+        ],
+        "hardware_note": "Availability evidence only; the reported value was unknown."
+      }
     },
     "DSS-CTR-013-REQ-019": {
       "classification": "boundary",
@@ -246,7 +428,12 @@
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields",
         "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-020": {
       "classification": "deferred",
@@ -354,7 +541,12 @@
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched",
         "tests.test_seestar_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-033": {
       "classification": "boundary",
@@ -366,7 +558,12 @@
         "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream",
         "tests.test_seestar_provider.PreviewEvidenceTests.test_wrong_port_or_stage_is_not_available"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-034": {
       "classification": "deferred",
@@ -387,7 +584,15 @@
         "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_address_change_in_udp_mode_keeps_device_ref_and_updates_the_endpoint"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S2",
+          "S3"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-036": {
       "classification": "primary",
@@ -401,7 +606,15 @@
         "tests.test_seestar_provider.DiscoveryTests.test_unreachable_host_is_a_nonfatal_failure_and_recovers",
         "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "partially_observed",
+        "hardware_steps": [
+          "S2"
+        ],
+        "hardware_note": "Observed: a successful discovery and a failed discovery with category connect_failed. Not observed on hardware: valid empty, fatal, refresh from degraded, in-session recovery."
+      }
     },
     "DSS-CTR-013-REQ-037": {
       "classification": "primary",
@@ -413,7 +626,12 @@
         "tests.test_seestar_provider.DiscoveryTests.test_udp_silence_is_valid_empty_discovery",
         "tests.test_seestar_provider.DiscoveryTests.test_configured_host_that_does_not_answer_degrades_because_a_device_is_required"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_verified",
+        "hardware_note": "Offline only."
+      }
     },
     "DSS-CTR-013-REQ-038": {
       "classification": "primary",
@@ -424,7 +642,14 @@
       "tests": [
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S9"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-039": {
       "classification": "deferred",
@@ -453,7 +678,15 @@
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_disconnect_makes_no_device_call",
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
       ],
-      "note": "Repeated-request semantics are the DB-01 runtime table; the Seestar Provider issues one identity read per connect and none on disconnect."
+      "note": "Repeated-request semantics are the DB-01 runtime table; the Seestar Provider issues one identity read per connect and none on disconnect.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S9"
+        ],
+        "hardware_note": "Disconnect and reconnect ran; no step counts Provider calls."
+      }
     },
     "DSS-CTR-013-REQ-042": {
       "classification": "primary",
@@ -464,7 +697,14 @@
       "tests": [
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S9"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-043": {
       "classification": "primary",
@@ -476,7 +716,12 @@
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_a_different_device_at_the_same_address_fails_the_connection_and_it_is_replaced",
         "tests.test_seestar_provider.ConnectionLifecycleTests.test_connection_to_an_unreachable_device_fails"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_verified",
+        "hardware_note": "Offline only."
+      }
     },
     "DSS-CTR-013-REQ-044": {
       "classification": "deferred",
@@ -553,7 +798,12 @@
         "tests.test_seestar_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports",
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-053": {
       "classification": "deferred",
@@ -573,7 +823,12 @@
         "tests.test_seestar_boundaries.ImportBoundaryTests.test_package_location",
         "tests.test_seestar_boundaries.ImportBoundaryTests.test_vendor_neutral_runtime_does_not_know_this_package"
       ],
-      "note": "Vendor code lives only in tsn_dss.engine.seestar_provider; device_runtime is unchanged and vendor-free."
+      "note": "Vendor code lives only in tsn_dss.engine.seestar_provider; device_runtime is unchanged and vendor-free.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-055": {
       "classification": "primary",
@@ -585,7 +840,12 @@
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched",
         "tests.test_seestar_provider.DiscoveryTests.test_discovery_creates_no_persistent_identity_and_no_commands"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "by_construction",
+        "hardware_note": "Static audit."
+      }
     },
     "DSS-CTR-013-REQ-056": {
       "classification": "primary",
@@ -596,7 +856,14 @@
       "tests": [
         "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "exercised",
+        "hardware_steps": [
+          "S5"
+        ]
+      }
     },
     "DSS-CTR-013-REQ-057": {
       "classification": "primary",
@@ -608,7 +875,15 @@
         "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped",
         "tests.test_seestar_provider.CapabilityTests.test_failed_availability_read_is_connection_evidence_not_a_fabricated_report"
       ],
-      "note": "Availability is evidence from a fresh authenticated read, and a failed read yields no report. Enforcing the obligation against safety-sensitive Commands is DB-04 (REQ-051, REQ-060)."
+      "note": "Availability is evidence from a fresh authenticated read, and a failed read yields no report. Enforcing the obligation against safety-sensitive Commands is DB-04 (REQ-051, REQ-060).",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "observed",
+        "hardware_steps": [
+          "S5"
+        ],
+        "hardware_note": "Fresh-read evidence only; enforcement against Commands is DB-04."
+      }
     },
     "DSS-CTR-013-REQ-058": {
       "classification": "primary",
@@ -625,7 +900,15 @@
         "tests.test_seestar_provider.TelemetryTests.test_nothing_known_before_failure_is_unavailable_not_stale",
         "tests.test_seestar_provider.TelemetryTests.test_wide_cam_setting_is_labelled_a_setting_not_live_state"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "partially_observed",
+        "hardware_steps": [
+          "S6"
+        ],
+        "hardware_note": "Observed: unknown and unavailable states preserved in the counts (2 unknown, 10 unavailable) and host observation time asserted. Stale was not observed on hardware."
+      }
     },
     "DSS-CTR-013-REQ-059": {
       "classification": "primary",
@@ -637,7 +920,15 @@
         "tests.test_seestar_provider.TelemetryTests.test_telemetry_reads_submit_no_commands_and_change_no_state",
         "tests.test_seestar_provider.SafetyAndRedactionTests.test_full_session_uses_only_allow_listed_transport_calls"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "by_construction",
+        "hardware_steps": [
+          "S8"
+        ],
+        "hardware_note": "Static audit; operator observed no physical movement. S8 corroborates only items known in both samples."
+      }
     },
     "DSS-CTR-013-REQ-060": {
       "classification": "deferred",
@@ -680,7 +971,12 @@
       "tests": [
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-065": {
       "classification": "boundary",
@@ -692,7 +988,12 @@
       "tests": [
         "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "by_construction",
+        "hardware_note": "No provider-native target data is mapped."
+      }
     },
     "DSS-CTR-013-REQ-066": {
       "classification": "boundary",
@@ -704,7 +1005,12 @@
         "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped",
         "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
       ],
-      "note": ""
+      "note": "",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     },
     "DSS-CTR-013-REQ-067": {
       "classification": "boundary",
@@ -715,7 +1021,12 @@
       "tests": [
         "tests.test_seestar_boundaries.ReadOnlySafetyTests.test_no_acquisition_or_capture_surface"
       ],
-      "note": "DB-02 preserves the boundary by exposing no Acquisition Execution surface."
+      "note": "DB-02 preserves the boundary by exposing no Acquisition Execution surface.",
+      "evidence": {
+        "offline": "tested",
+        "hardware": "not_applicable",
+        "hardware_note": "Structural."
+      }
     }
   }
 }

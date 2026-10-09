@@ -1,6 +1,6 @@
 # DB-02 hardware validation procedure (operator-run, read-only)
 
-This procedure is the hardware acceptance gate for DB-02 (ROADMAP_DEVICE_BACKEND.md). It is run by the operator on their own machine and network. It is **not** run in the cloud environment and has **not** been run yet. Until it is, every DB-02 requirement is verified offline only (`tests/seestar_db02_traceability.json`).
+This procedure is the hardware acceptance gate for DB-02 (ROADMAP_DEVICE_BACKEND.md). It is run by the operator on their own machine and network. It is **not** run in the cloud environment. It was run by the operator on a Seestar S30 Pro (firmware 9.31); the results, the evidence classification and the limitations are recorded in `docs/DB-02_ACCEPTANCE_RECORD.md`.
 
 ## Safety rules (apply to every step)
 
