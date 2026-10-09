@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "stage": "DB-03",
+  "wave": "4B-1",
+  "title": "Decoder process isolation: protocol, state machine, launcher (offline)",
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "note": "4B-1 verifies a versioned binary protocol, the segment-header codec, the worker state machine, a dedicated importable worker entry point and a Popen-based launcher with bounded containment, against real fixture worker processes. There is no decoder, no OpenCV, no shared segment, no image, no network and no hardware. The launcher is exercised on Linux in this repository; its Windows behavior rests on the operator's spike (13/13 at commit 838af69) and on the Windows-run tests of this wave, which the operator still has to run.",
+  "evidence_classes": {
+    "offline": "Deterministic tests against fixture worker processes and in-process units.",
+    "hardware": "None. 4B-1 makes no hardware claim."
+  },
+  "hardware_claims": [],
+  "windows_status": {
+    "spike": "The operator ran the launcher spike on Windows (Python 3.13.15, 64-bit, commit 838af69): 13/13 PASS.",
+    "this_wave": "Not yet run on Windows. The operator must run tests.test_isolated_launcher, tests.test_isolated_handles and the other isolated tests there; until then the production launcher and its handle ownership are UNVERIFIED on Windows."
+  },
+  "not_claimed": {
+    "image_requirements": "REQ-016, REQ-018, REQ-033, REQ-064: no image, no pixels and no preview evidence exist in 4B-1.",
+    "REQ-059": "No preview is read in 4B-1.",
+    "REQ-058": "Telemetry only (decision D3).",
+    "REQ-057": "DB-04.",
+    "REQ-060": "DB-04.",
+    "REQ-030": "Simulator Provider obligations.",
+    "REQ-031": "Same.",
+    "REQ-063": "Same.",
+    "decoder_hard_timeouts": "Deadlines on OPEN/READ and on image copies belong to 4B-2/4B-3.",
+    "shared_memory": "The segment is created, attached and unlinked in 4B-2; 4B-1 has the codec only.",
+    "sandbox": "Process isolation is not a security sandbox (design section 13).",
+    "memory_containment": "No memory cap on the worker.",
+    "windows_production_launcher": "Unverified until the operator runs the Windows tests of this wave.",
+    "hardware": "No hardware evidence of any kind is claimed."
+  },
+  "local_semantics": [
+    {
+      "id": "PRV-ISO-001",
+      "text": "A versioned binary protocol: fixed header, exact payload lengths, size cap, no pickle; every malformed input is a ProtocolError and nothing else is ever raised by decode.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.RoundTripTests.test_every_message_round_trips_and_fits_the_cap",
+        "tests.test_isolated_protocol.MalformedInputTests.test_header_violations",
+        "tests.test_isolated_protocol.MalformedInputTests.test_every_type_rejects_truncation_and_trailing_bytes",
+        "tests.test_isolated_protocol.MalformedInputTests.test_decode_never_raises_anything_but_protocol_error",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_pickle_surface"
+      ]
+    },
+    {
+      "id": "PRV-ISO-002",
+      "text": "Field ranges are enforced on both encode and decode (op ids, timeouts, address, segment name, image geometry).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.MalformedInputTests.test_zero_op_ids_are_reserved",
+        "tests.test_isolated_protocol.MalformedInputTests.test_open_field_rules",
+        "tests.test_isolated_protocol.MalformedInputTests.test_open_wire_rules",
+        "tests.test_isolated_protocol.MalformedInputTests.test_init_rules",
+        "tests.test_isolated_protocol.MalformedInputTests.test_init_wire_name_length_lies",
+        "tests.test_isolated_protocol.MalformedInputTests.test_image_ready_field_rules"
+      ]
+    },
+    {
+      "id": "PRV-ISO-003",
+      "text": "D13 freeze check 1 (mapping): every Wave 4 decoder category has exactly one wire code and code -> category -> code is the identity; categories outside the table become worker_internal.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.StatusTableTests.test_table_is_frozen",
+        "tests.test_isolated_protocol.StatusTableTests.test_mapping_covers_every_wave4_decoder_category",
+        "tests.test_isolated_protocol.StatusTableTests.test_code_category_code_is_the_identity",
+        "tests.test_isolated_protocol.StatusTableTests.test_no_duplicates_and_no_free_text",
+        "tests.test_isolated_protocol.StatusTableTests.test_categories_outside_the_table_become_worker_internal"
+      ]
+    },
+    {
+      "id": "PRV-ISO-004",
+      "text": "D13 freeze check 2 (versioning): protocol and status-table versions are exchanged in INIT/HELLO; a mismatch refuses the handshake.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.StatusTableTests.test_table_is_frozen",
+        "tests.test_isolated_launcher.StartupFailureTests.test_every_startup_failure_has_one_category_and_leaves_nothing_behind"
+      ]
+    },
+    {
+      "id": "PRV-ISO-005",
+      "text": "D13 freeze check 3 (unknown codes): a code outside the table is a protocol violation, never a nearby category, never an uncaught error.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.StatusTableTests.test_unknown_codes_are_a_protocol_violation",
+        "tests.test_isolated_protocol.StatusTableTests.test_unknown_status_survives_the_wire_so_the_parent_can_apply_its_rule",
+        "tests.test_isolated_launcher.StartupFailureTests.test_unknown_status_is_never_mapped_to_a_nearby_category"
+      ]
+    },
+    {
+      "id": "PRV-ISO-006",
+      "text": "D13 freeze check 4 (separation): parent-originated categories have no wire code and cannot be forged by a worker except through the unknown-code rule.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.StatusTableTests.test_parent_categories_have_no_wire_code",
+        "tests.test_isolated_protocol.StatusTableTests.test_a_worker_can_only_cause_a_parent_category_through_the_unknown_code_rule"
+      ]
+    },
+    {
+      "id": "PRV-ISO-007",
+      "text": "The shared-memory segment header codec is exact (offsets, reserved bytes, version, slot size) and rejects every inconsistent header; no segment is created in 4B-1.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_round_trip_and_field_offsets",
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_unpack_rejects_bad_headers",
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_short_buffers_and_slot_expectations",
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_pack_rejects_out_of_range_fields",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_shared_memory_is_not_used_yet"
+      ]
+    },
+    {
+      "id": "PRV-ISO-008",
+      "text": "Image validation (design 7.4 step 3): fences, header/message agreement, geometry-size match, slot and limit bounds, exact boundaries.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.ImageValidationTests.test_a_consistent_frame_is_accepted",
+        "tests.test_isolated_protocol.ImageValidationTests.test_torn_frames_are_rejected",
+        "tests.test_isolated_protocol.ImageValidationTests.test_header_and_message_must_agree",
+        "tests.test_isolated_protocol.ImageValidationTests.test_size_must_match_the_geometry",
+        "tests.test_isolated_protocol.ImageValidationTests.test_slot_and_limits_are_enforced"
+      ]
+    },
+    {
+      "id": "PRV-ISO-009",
+      "text": "The state machine has an explicit table: eight states, FAILED never rests, TERMINATED is terminal, one operation at a time, stop is idempotent.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_states.TransitionTableTests.test_every_pair_is_allowed_or_invalid",
+        "tests.test_isolated_states.TransitionTableTests.test_failed_always_proceeds_to_stopping_and_never_rests",
+        "tests.test_isolated_states.TransitionTableTests.test_terminated_is_terminal_and_never_reused",
+        "tests.test_isolated_states.TransitionTableTests.test_no_second_operation_while_one_is_running",
+        "tests.test_isolated_launcher.LifecycleTests.test_start_ping_stop"
+      ]
+    },
+    {
+      "id": "PRV-ISO-010",
+      "text": "Process started is not worker ready: READY needs INIT/HELLO (versions, status, nonce) and a PING/PONG round trip; every handshake deviation has one category and leaves nothing behind.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_launcher.LifecycleTests.test_start_ping_stop",
+        "tests.test_isolated_launcher.StartupFailureTests.test_every_startup_failure_has_one_category_and_leaves_nothing_behind",
+        "tests.test_isolated_launcher.StartupFailureTests.test_error_text_carries_only_the_category",
+        "tests.test_isolated_launcher.StartupFailureTests.test_a_missing_entry_module_is_a_start_failure_not_a_hang",
+        "tests.test_isolated_launcher.StartupFailureTests.test_spawn_failure_is_reported_and_releases_the_pipe"
+      ]
+    },
+    {
+      "id": "PRV-ISO-011",
+      "text": "Python >= 3.13 is required when a worker is created, not at import; construction starts nothing; OpenCV is never loaded by the handshake.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_launcher.LifecycleTests.test_python_version_gate_is_at_creation_not_at_import",
+        "tests.test_isolated_launcher.LifecycleTests.test_construction_starts_nothing",
+        "tests.test_isolated_launcher.HygieneTests.test_opencv_and_numpy_are_never_loaded_by_the_handshake",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_python_below_the_minimum_is_refused_without_breaking_import"
+      ]
+    },
+    {
+      "id": "PRV-ISO-012",
+      "text": "The parent's global state is not modified and the parent's main module is not executed again; the child gets an allowlisted environment, a numeric-only command line, null stdio and no working directory on its path.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_launcher.HygieneTests.test_parent_process_state_is_not_touched",
+        "tests.test_isolated_launcher.HygieneTests.test_the_parent_main_module_is_not_executed_again_in_the_child",
+        "tests.test_isolated_launcher.HygieneTests.test_the_child_sees_an_explicit_environment_and_a_numeric_only_command_line",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_parents_global_state_is_never_modified",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_worker_receives_only_numbers_on_its_command_line",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_child_environment_is_an_allowlist"
+      ]
+    },
+    {
+      "id": "PRV-ISO-013",
+      "text": "Bounded containment (close -> terminate -> bounded wait -> kill -> bounded wait) against real hung, spinning, signal-ignoring and crashing workers; a worker is ended from any thread; concurrent stops share one containment.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_that_hangs_on_close_is_terminated_within_the_bound",
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_spinning_with_the_gil_held_is_still_ended",
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_that_ignores_terminate_is_killed",
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_stuck_after_ready_is_ended_by_stop",
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_that_dies_after_ready_is_reported_by_the_next_ping",
+        "tests.test_isolated_launcher.ContainmentTests.test_a_worker_that_stops_answering_after_ready_is_ended_by_the_ping_deadline",
+        "tests.test_isolated_launcher.ContainmentTests.test_stop_from_another_thread_interrupts_a_stuck_start",
+        "tests.test_isolated_launcher.ContainmentTests.test_concurrent_stops_share_one_containment"
+      ]
+    },
+    {
+      "id": "PRV-ISO-014",
+      "text": "Lifeline: a worker whose main thread is stuck leaves when the parent disappears.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_launcher.ParentDeathTests.test_a_worker_with_a_stuck_main_thread_leaves_when_the_parent_disappears"
+      ]
+    },
+    {
+      "id": "PRV-ISO-015",
+      "text": "Handle ownership without private CPython API: the launcher drops its only Popen reference once the child is reaped; an unreapable child keeps its Popen in a visible registry; repeated cycles keep the handle/descriptor count steady (Windows counts real process handles).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_handles.PopenOwnershipTests.test_the_popen_is_released_after_a_normal_stop",
+        "tests.test_isolated_handles.PopenOwnershipTests.test_the_popen_is_released_after_a_failed_start",
+        "tests.test_isolated_handles.PopenOwnershipTests.test_the_popen_is_released_after_a_forced_containment",
+        "tests.test_isolated_handles.PopenOwnershipTests.test_an_unreapable_child_keeps_its_popen_and_the_leak_is_visible",
+        "tests.test_isolated_handles.SteadyStateTests.test_successful_cycles_do_not_leak",
+        "tests.test_isolated_handles.SteadyStateTests.test_failed_start_cycles_do_not_leak",
+        "tests.test_isolated_handles.SteadyStateTests.test_forced_containment_cycles_do_not_leak",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_private_cpython_api"
+      ]
+    },
+    {
+      "id": "PRV-ISO-016",
+      "text": "The worker handler: handshake answers, OPEN/READ not available in 4B-1, protocol violations end the worker, bad command lines are refused.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_worker_handler.HandshakeTests.test_init_is_answered_with_matching_versions_and_the_nonce",
+        "tests.test_isolated_worker_handler.HandshakeTests.test_open_and_read_are_not_available_in_this_build",
+        "tests.test_isolated_worker_handler.ProtocolViolationTests.test_anything_before_init_ends_the_worker",
+        "tests.test_isolated_worker_handler.ProtocolViolationTests.test_messages_only_a_worker_may_send_end_the_worker",
+        "tests.test_isolated_worker_handler.EntryPointTests.test_bad_command_lines_are_refused_without_opening_anything"
+      ]
+    },
+    {
+      "id": "PRV-ISO-017",
+      "text": "No fixture selection, command vocabulary, address literal, network or file primitive in production code; no dependency added; lower layers do not know the package.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_production_code_has_no_fixture_selection",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_command_vocabulary",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_print_eval_or_literal_addresses",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_each_file_imports_only_what_it_is_allowed_to",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_no_dependency_was_added",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_lower_layers_do_not_know_this_package"
+      ]
+    }
+  ],
+  "requirements": {
+    "REQ-022": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Passive reads submit no Commands: the protocol has no device-command message, the worker answers OPEN/READ with invalid_state in 4B-1, and no command vocabulary exists in the package.",
+      "tests": [
+        "tests.test_isolated_protocol.RoundTripTests.test_message_types_are_pinned",
+        "tests.test_isolated_worker_handler.HandshakeTests.test_open_and_read_are_not_available_in_this_build",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_command_vocabulary"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "The package imports no domain, storage, GUI or legacy-adapter code and owns no domain semantics.",
+      "tests": [
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_each_file_imports_only_what_it_is_allowed_to",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_lower_layers_do_not_know_this_package"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No Acquisition Execution surface in the package.",
+      "tests": [
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_command_vocabulary"
+      ]
+    }
+  }
+}
