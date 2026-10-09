@@ -1,6 +1,6 @@
 # DB-03 Wave 4B-2 — shared memory, hard deadlines and process containment (offline)
 
-Status: **implemented offline; verified on Linux (CPython 3.13) only; not yet run on Windows.** Base: `origin/master` `48abca3` (4B-1 accepted on Windows offline). Implements phase 4B-2 of `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md` (revision 3) with the owner decisions of the 4B-2 review (below). **No decoder, no OpenCV, no RTSP, no network, no device**; `OPEN`/`READ` and every image exist only in fixture workers — the production worker still answers them with `invalid_state`. Nothing is connected to the preview manager (4B-3). No hardware claim.
+Status: **Windows offline verified, in the scenarios tested (accepted); Linux verified.** Base: `origin/master` `48abca3` (4B-1 accepted on Windows offline); implementation commit `4eb89ae`. Implements phase 4B-2 of `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md` (revision 3) with the owner decisions of the 4B-2 review (below). **No decoder, no OpenCV, no RTSP, no network, no device**; `OPEN`/`READ` and every image exist only in fixture workers — the production worker still answers them with `invalid_state`. Nothing is connected to the preview manager (4B-3). **Not hardware verified; not production ready.**
 
 ## Owner decisions applied
 
@@ -64,6 +64,15 @@ D13 is unchanged (codes 1–21 and 255, status table version 1); no code was add
 
 `atexit` is best effort: it does not run when the host crashes, is killed or calls `os._exit`. No full cleanup guarantee is claimed.
 
+## Windows acceptance record (operator, Python 3.13)
+
+| Configuration | Result |
+|---|---|
+| Windows, Python 3.13, **no venv** | 207 tests, OK (5 skipped): 202 pass, 0 FAIL, 0 ERROR. `LauncherIdentityTests`: `ok_ops` popen_pid=16192 worker_pid=16192 same=True; `spin_read` popen_pid=2864 worker_pid=2864 same=True. |
+| Windows, Python 3.13, **temporary venv** (since removed) | `LauncherIdentityTests`: 1 test OK. `ok_ops` popen_pid=28728 worker_pid=14012 same=**False**; `spin_read` popen_pid=23792 worker_pid=28940 same=**False**. The test confirmed that the **real worker ended** although the process started by the launcher is an intermediate one. |
+
+What this establishes: in a venv the venv redirector **is** an intermediate process (pids differ), and for the cases run — a normal stop and a worker spinning with the GIL held, ended by the hard deadline — the real worker did not outlive containment. What it does **not** establish: that this holds for every worker state, every Windows build or every venv layout; the mechanism (job object versus pipe lifeline) was not identified; `D10` counts `Popen.poll()` of the process started by the launcher, so in a venv the slot is freed on the launcher's exit — in the observed runs the real worker was gone too, but the code does not itself prove it. The production launcher was not changed. The full 4B-2 suite was run on Windows once without venv; the venv run covered `LauncherIdentityTests` only.
+
 ## Findings and risks reported (none required a contract change)
 
 1. **Layout v2** is a deliberate break: v1 headers are refused. No segment ever existed under v1, so no migration is needed.
@@ -71,7 +80,7 @@ D13 is unchanged (codes 1–21 and 255, status table version 1); no code was add
 3. **Importing the package now imports `multiprocessing.shared_memory`** (no segment is created at import). The 4B-1 import test no longer forbids that module name; it still forbids OpenCV, NumPy and PIL.
 4. **Registry placement.** The design put the live-worker registry in `decoder.py` (4B-3); it lives in `process.py` because the limit is a launcher property.
 5. **`StopReport.uncertain` tokens**: `stream_terminated` (a stream was open and the process was ended by force), `operation_interrupted`, `process_unreaped`, `segment_not_released`. They state what the parent cannot know (design U5); nothing about the device is inferred.
-6. **Windows venv launcher — analysis (unverified on Windows; the production launcher is unchanged).**
+6. **Windows venv launcher — analysis (the observed outcome is in the acceptance record above; the production launcher is unchanged).**
    * *Can `sys.executable` start an intermediate process?* Yes, probably: inside a venv, `Scripts\python.exe` is a redirector (copied from CPython's `venvlauncher`) that reads `pyvenv.cfg`, starts the base interpreter as a **child** and waits for it. Outside a venv (system or `py -3.13` interpreter) there is none. Whether the operator's Windows runs so far used a venv is not recorded; the 4B-1 and spike results therefore do not settle this.
    * *Do `Popen.pid` / `poll()` then describe the launcher?* Yes. While the launcher waits for its child, `poll()` is `None` as long as the real worker runs, so a normal run looks right. The risk is `terminate()`/`kill()` (both `TerminateProcess` on Windows): they end the **launcher**. Whether the real worker then dies depends on the launcher's job object (CPython's launcher is believed to use kill-on-close; **not verified here**). If it does not die, the worker is ended by its lifeline watchdog once the parent closes the pipe — except a worker spinning with the GIL held (L8), which would survive as an orphan.
    * *D10 / containment in that case.* `poll()` of the launcher would confirm "gone" and free the slot while the real worker might live: the slot guarantee would then be weaker than stated, exactly for the stuck-with-GIL case. Handshake, deadlines and the pipe lifeline are unaffected.

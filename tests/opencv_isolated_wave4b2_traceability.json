@@ -15,7 +15,7 @@
   "windows_status": {
     "spike": "The operator ran the launcher spike on Windows (Python 3.13.15, 64-bit, commit 838af69): 13/13 PASS.",
     "4b1": "4B-1 was accepted on Windows offline (commit 4efbb35).",
-    "this_wave": "Not yet run on Windows. Linux results do not stand in for it. UNVERIFIED on Windows until the operator runs the 4B-2 suites: Windows shared-memory semantics (named mapping, no unlink), process termination of a worker started through a venv launcher, handle counts, the exit handler, and the POSIX-only cases that are skipped there."
+    "this_wave": "Windows offline verified in the scenarios tested (operator, Python 3.13): full suite without venv 207 tests OK (5 skipped); LauncherIdentityTests in a temporary venv OK (popen_pid differs from worker_pid; the real worker was gone after containment, including a worker spinning with the GIL held). Not verified: hardware, RTSP, OpenCV, other Windows builds, the mechanism that ends the real worker behind the venv launcher, and any guarantee after a sudden death of the host. UNVERIFIED beyond the scenarios stated."
   },
   "not_claimed": {
     "image_requirements": "REQ-016, REQ-018, REQ-033, REQ-064: no real image exists; fixtures write synthetic pixels.",
@@ -32,7 +32,7 @@
     "memory_containment": "No memory cap on the worker.",
     "cleanup_guarantee": "No full cleanup guarantee after a sudden death of the host: the exit handler is best effort; before the handshake the POSIX segment name depends on Python's resource tracker; on Windows the mapping disappears with its last handle (unverified).",
     "device_side_effects": "The effect of killing a worker with an open stream on the camera is unknown (design U5); the stop report only flags it.",
-    "windows_verified": "Unverified until the operator runs the Windows tests of this wave.",
+    "windows_verified": "Windows offline verified only for the scenarios stated in windows_status; no production readiness and no hardware verification.",
     "hardware": "No hardware evidence of any kind is claimed."
   },
   "local_semantics": [
