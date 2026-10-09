@@ -16,16 +16,17 @@ Implemented:
 - **Mosaic planner** — regular panel grids from an imaging profile and overlap, panel selection and status, plan-level observation type and filter.
 - **Observation Center** — persistent observing Sites on a map, Current Device position, Candidate Site inspection, modeled Light Pollution per Site, manual Local Horizon Profile, and Conditions (weather, Sun/Moon/twilight, target Alt/Az, observing windows, overall assessment).
 - **Capture provenance** — imported captures and their frames are registered in SQLite with content hashes and FITS metadata; a standalone registrar covers existing captures.
+- **Canonical session/domain foundation** — schema v11 and repository/test coverage now include Session, Observation -> Session, Project <-> Session association, SessionPlan, SessionContextFact, SessionEvent, Target type reconciliation, MosaicPlan project ownership, Dataset, ProcessingRun, and the Wave 9 contract traceability manifest. These are backend/domain capabilities unless explicitly listed as app or MCP features.
 - **Catalog** — canonical astronomical CatalogObjects with exact alias resolution and a bundled, pinned OpenNGC snapshot (registered explicitly). See [docs/CATALOG.md](docs/CATALOG.md).
 - **WZRD / MCP** — a read-only MCP server for WZRD, the conversational interface: Sites, Targets, catalog, deterministic target visibility and visibility windows, and the Site weather forecast. No write or telescope-control tools. See [docs/MCP.md](docs/MCP.md).
 
 Scaffold only (structure exists, no working behavior):
 
-- **Seestar adapter** — registered and selectable, but it does not connect to a device or slew. Only the simulator adapter works.
+- **Seestar adapter** — registered and selectable in TSNDSS, but it does not connect to a device or slew. Only the simulator adapter works. Real Seestar discovery/control remains outside TSNDSS; see the post-Wave 9 device investigation notes before designing provider integration.
 
 Present in code but not reachable from the app:
 
-- The SQLite `Observation` / `Dataset` / `ProcessingRun` repositories are implemented and tested, but the local API does not expose them (Captures and Frames are now registered on import). The Projects and Processing workspaces run on the filesystem instead. See the "Two data worlds" section of the architecture doc.
+- The SQLite operational domain repositories for `Session`, `ProjectSession`, `Observation`, `SessionPlan`, `SessionContextFact`, `SessionEvent`, `Dataset` and `ProcessingRun` are implemented and tested, but the local API/frontend expose only selected planning, project, capture, frame, site, catalog, mosaic and telescope-state paths. The Projects and Processing workspaces still run primarily on the filesystem. See the "Two data worlds" and persistence sections of the architecture doc.
 
 ## Requirements
 

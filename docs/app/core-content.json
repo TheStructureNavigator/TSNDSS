@@ -188,8 +188,8 @@
   ],
   "todo": [
     "Connect project targets and mosaic panels with observing conditions and visibility windows.",
-    "Expand the Seestar adapter from the current skeleton toward real device discovery, state synchronization, and telescope control.",
-    "Add observation-session tracking to connect planned targets, acquired data, site conditions, and resulting datasets.",
+    "Design real device/provider integration from the post-Wave 9 evidence: discovery, provider lifecycle, connection state, telemetry, command execution, and safe handoff into canonical acquisition/provenance records.",
+    "Expose or integrate the implemented Session, Observation, Dataset and ProcessingRun repositories through an adjudicated API/frontend workflow without fabricating domain identities.",
     "Prepare the observation planning layer that combines targets, sites, conditions, telescope state, and project progress."
   ]
 }
