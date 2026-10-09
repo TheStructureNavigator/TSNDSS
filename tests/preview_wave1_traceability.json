@@ -12,28 +12,180 @@
     "hardware": "No hardware evidence of any kind is claimed by Wave 1."
   },
   "local_semantics": [
-    {"id": "PRV-SEM-001", "text": "Image metadata and pixels are separate objects; evidence carries no pixels.", "tests": ["tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"]},
-    {"id": "PRV-SEM-002", "text": "host_observed_at is host receipt time; exposure time is UNKNOWN unless the source reports one, and that claim is unverified.", "tests": ["tests.test_preview_models.EvidenceTests.test_time_basis_is_host_receipt_and_exposure_unknown", "tests.test_preview_stream.StreamScenarioTests.test_evidence_time_is_host_receipt"]},
-    {"id": "PRV-SEM-003", "text": "Stream states and transitions are an explicit table; lost and closed are never reactivated.", "tests": ["tests.test_preview_stream.TransitionTableTests.test_every_pair_is_either_allowed_or_invalid", "tests.test_preview_stream.TransitionTableTests.test_lost_and_closed_are_never_reactivated"]},
-    {"id": "PRV-SEM-004", "text": "Freshness is a pure classifier; an age equal to max_age is FRESH.", "tests": ["tests.test_preview_freshness.FreshnessTests.test_age_boundary", "tests.test_preview_freshness.FreshnessTests.test_classifier_is_pure"]},
-    {"id": "PRV-SEM-005", "text": "Repeated content alone is never STALE; corroboration by a frozen source time is required.", "tests": ["tests.test_preview_freshness.FreshnessTests.test_repeated_sha_alone_is_never_stale", "tests.test_preview_freshness.FreshnessTests.test_repeat_with_frozen_source_time_is_stale", "tests.test_preview_stream.StreamScenarioTests.test_repeat_without_source_time_is_never_stale"]},
-    {"id": "PRV-SEM-006", "text": "Image dimensions and sizes are validated; the pixel buffer is bounded by count and bytes.", "tests": ["tests.test_preview_models.PixelTests.test_limits_boundary", "tests.test_preview_stream.LimitAndBufferTests.test_buffer_evicts_oldest_by_count", "tests.test_preview_stream.LimitAndBufferTests.test_buffer_evicts_by_bytes", "tests.test_preview_stream.LimitAndBufferTests.test_oversize_image_makes_stream_lost_and_is_not_stored"]},
-    {"id": "PRV-SEM-007", "text": "The source protocol has open, read and close only; no command surface.", "tests": ["tests.test_preview_stream.SourceProtocolTests.test_protocol_has_no_command_surface"]},
-    {"id": "PRV-SEM-008", "text": "Source faults make the stream LOST without raising; the source is released exactly once; close is idempotent.", "tests": ["tests.test_preview_stream.StreamScenarioTests.test_loss_releases_source_once_and_never_raises", "tests.test_preview_stream.StreamScenarioTests.test_close_is_idempotent_and_clears_pixels", "tests.test_preview_stream.ExceptionSafetyTests.test_unexpected_read_exception_is_lost_released_once_and_propagates", "tests.test_preview_stream.ExceptionSafetyTests.test_failing_close_does_not_mask_the_original_exception", "tests.test_preview_stream.ExceptionSafetyTests.test_clock_failure_in_poll_leaves_state_and_source_releasable", "tests.test_preview_stream.ExceptionSafetyTests.test_invalid_image_kinds_each_make_the_stream_lost_once"]},
-    {"id": "PRV-SEM-009", "text": "Pixels are never written to disk by the neutral core.", "tests": ["tests.test_preview_stream.LimitAndBufferTests.test_pixels_are_not_written_to_disk", "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_file_or_network_primitives"]}
+    {
+      "id": "PRV-SEM-001",
+      "text": "Image metadata and pixels are separate objects; evidence carries no pixels.",
+      "tests": [
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"
+      ]
+    },
+    {
+      "id": "PRV-SEM-002",
+      "text": "host_observed_at is host receipt time; exposure time is UNKNOWN unless the source reports one, and that claim is unverified.",
+      "tests": [
+        "tests.test_preview_models.EvidenceTests.test_time_basis_is_host_receipt_and_exposure_unknown",
+        "tests.test_preview_stream.StreamScenarioTests.test_evidence_time_is_host_receipt"
+      ]
+    },
+    {
+      "id": "PRV-SEM-003",
+      "text": "Stream states and transitions are an explicit table; lost and closed are never reactivated.",
+      "tests": [
+        "tests.test_preview_stream.TransitionTableTests.test_every_pair_is_either_allowed_or_invalid",
+        "tests.test_preview_stream.TransitionTableTests.test_lost_and_closed_are_never_reactivated"
+      ]
+    },
+    {
+      "id": "PRV-SEM-004",
+      "text": "Freshness is a pure classifier; an age equal to max_age is FRESH.",
+      "tests": [
+        "tests.test_preview_freshness.FreshnessTests.test_age_boundary",
+        "tests.test_preview_freshness.FreshnessTests.test_classifier_is_pure"
+      ]
+    },
+    {
+      "id": "PRV-SEM-005",
+      "text": "Repeated content alone is never STALE; corroboration by a frozen source time is required.",
+      "tests": [
+        "tests.test_preview_freshness.FreshnessTests.test_repeated_sha_alone_is_never_stale",
+        "tests.test_preview_freshness.FreshnessTests.test_repeat_with_frozen_source_time_is_stale",
+        "tests.test_preview_stream.StreamScenarioTests.test_repeat_without_source_time_is_never_stale"
+      ]
+    },
+    {
+      "id": "PRV-SEM-006",
+      "text": "Image dimensions and sizes are validated; the pixel buffer is bounded by count and bytes.",
+      "tests": [
+        "tests.test_preview_models.PixelTests.test_limits_boundary",
+        "tests.test_preview_stream.LimitAndBufferTests.test_buffer_evicts_oldest_by_count",
+        "tests.test_preview_stream.LimitAndBufferTests.test_buffer_evicts_by_bytes",
+        "tests.test_preview_stream.LimitAndBufferTests.test_oversize_image_makes_stream_lost_and_is_not_stored"
+      ]
+    },
+    {
+      "id": "PRV-SEM-007",
+      "text": "The source protocol has open, read and close only; no command surface.",
+      "tests": [
+        "tests.test_preview_stream.SourceProtocolTests.test_protocol_has_no_command_surface"
+      ]
+    },
+    {
+      "id": "PRV-SEM-008",
+      "text": "Source faults make the stream LOST without raising; the source is released exactly once; close is idempotent.",
+      "tests": [
+        "tests.test_preview_stream.StreamScenarioTests.test_loss_releases_source_once_and_never_raises",
+        "tests.test_preview_stream.StreamScenarioTests.test_close_is_idempotent_and_clears_pixels",
+        "tests.test_preview_stream.ExceptionSafetyTests.test_unexpected_read_exception_is_lost_released_once_and_propagates",
+        "tests.test_preview_stream.ExceptionSafetyTests.test_failing_close_does_not_mask_the_original_exception",
+        "tests.test_preview_stream.ExceptionSafetyTests.test_clock_failure_in_poll_leaves_state_and_source_releasable",
+        "tests.test_preview_stream.ExceptionSafetyTests.test_invalid_image_kinds_each_make_the_stream_lost_once"
+      ]
+    },
+    {
+      "id": "PRV-SEM-009",
+      "text": "Pixels are never written to disk by the neutral core.",
+      "tests": [
+        "tests.test_preview_stream.LimitAndBufferTests.test_pixels_are_not_written_to_disk",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_file_or_network_primitives"
+      ]
+    }
   ],
   "requirements": {
-    "REQ-016": {"status": "partially_verified", "text": "Preview half: runtime image evidence model with metadata/pixel separation. Operational preview belongs to later waves.", "tests": ["tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"]},
-    "REQ-018": {"status": "partially_verified", "text": "Image evidence reports freshness classification with reason; availability evidence stays in DB-02.", "tests": ["tests.test_preview_freshness.FreshnessTests.test_age_boundary", "tests.test_preview_stream.StreamScenarioTests.test_fresh_images"]},
-    "REQ-022": {"status": "partially_verified", "text": "Runtime image evidence is distinguishable from canonical records; simulated marking is carried.", "tests": ["tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical", "tests.test_preview_stream.StreamScenarioTests.test_fresh_images"]},
-    "REQ-030": {"status": "partially_verified", "text": "Loss of the source is reported as stream state and evidence, not hidden.", "tests": ["tests.test_preview_stream.StreamScenarioTests.test_loss_releases_source_once_and_never_raises"]},
-    "REQ-031": {"status": "partially_verified", "text": "Stall and loss are distinguishable; reopen produces a new stream identity.", "tests": ["tests.test_preview_stream.StreamScenarioTests.test_stall_by_silence_then_stale", "tests.test_preview_stream.StreamScenarioTests.test_reopen_is_a_new_stream"]},
-    "REQ-063": {"status": "partially_verified", "text": "Deterministic simulator scenarios: fresh, repeat, stall, loss, reopen; simulated marking.", "tests": ["tests.test_preview_stream.StreamScenarioTests.test_reopen_is_a_new_stream", "tests.test_preview_stream.SourceProtocolTests.test_simulator_satisfies_protocol_and_is_simulated"]},
-    "REQ-059": {"status": "boundary_verified", "text": "Source protocol exposes no command; a stream never starts, stops or configures a device.", "tests": ["tests.test_preview_stream.SourceProtocolTests.test_protocol_has_no_command_surface", "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_command_surface"]},
-    "REQ-032": {"status": "boundary_verified", "text": "No domain Capture or Frame records created.", "tests": ["tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"]},
-    "REQ-033": {"status": "boundary_verified", "text": "Preview evidence is not a canonical record.", "tests": ["tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"]},
-    "REQ-052": {"status": "boundary_verified", "text": "Neutral core imports no vendor, domain or storage code.", "tests": ["tests.test_preview_boundaries.PreviewBoundaryTests.test_fresh_interpreter_loads_nothing_forbidden"]},
-    "REQ-064": {"status": "boundary_verified", "text": "No acquisition execution surface.", "tests": ["tests.test_preview_boundaries.PreviewBoundaryTests.test_no_command_surface"]},
-    "REQ-067": {"status": "boundary_verified", "text": "No acquisition or dataset ownership in the preview core.", "tests": ["tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"]}
-  }
+    "REQ-016": {
+      "status": "partially_verified",
+      "text": "Preview half: runtime image evidence model with metadata/pixel separation. Operational preview belongs to later waves.",
+      "tests": [
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"
+      ]
+    },
+    "REQ-018": {
+      "status": "partially_verified",
+      "text": "Preview data does not automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state: evidence is metadata only, pixels stay in memory, outputs carry no domain identity, and a full simulated exercise leaves a canonical database and its directory untouched. Verified for the neutral core only; later waves must re-verify.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_full_preview_exercise_leaves_database_and_directory_untouched",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_preview_outputs_carry_no_domain_identity_or_claim",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_evidence_declares_itself_runtime_only",
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical",
+        "tests.test_preview_stream.LimitAndBufferTests.test_pixels_are_not_written_to_disk"
+      ]
+    },
+    "REQ-022": {
+      "status": "boundary_verified",
+      "text": "Passive preview reads submit no Commands: the source protocol and stream expose no command surface.",
+      "tests": [
+        "tests.test_preview_stream.SourceProtocolTests.test_protocol_has_no_command_surface",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_command_surface"
+      ]
+    },
+    "REQ-030": {
+      "status": "partially_verified",
+      "text": "Simulated preview sources and the evidence they produce are marked simulated.",
+      "tests": [
+        "tests.test_preview_stream.SourceProtocolTests.test_simulator_satisfies_protocol_and_is_simulated",
+        "tests.test_preview_stream.StreamScenarioTests.test_fresh_images"
+      ]
+    },
+    "REQ-031": {
+      "status": "partially_verified",
+      "text": "Simulator scenarios (fresh, repeat, stall, loss, reopen) are deterministic.",
+      "tests": [
+        "tests.test_preview_stream.StreamScenarioTests.test_scenarios_are_deterministic",
+        "tests.test_preview_stream.StreamScenarioTests.test_reopen_is_a_new_stream"
+      ]
+    },
+    "REQ-063": {
+      "status": "partially_verified",
+      "text": "Deterministic simulator scenarios: fresh, repeat, stall, loss, reopen; simulated marking.",
+      "tests": [
+        "tests.test_preview_stream.StreamScenarioTests.test_reopen_is_a_new_stream",
+        "tests.test_preview_stream.SourceProtocolTests.test_simulator_satisfies_protocol_and_is_simulated"
+      ]
+    },
+    "REQ-059": {
+      "status": "boundary_verified",
+      "text": "Source protocol exposes no command; a stream never starts, stops or configures a device.",
+      "tests": [
+        "tests.test_preview_stream.SourceProtocolTests.test_protocol_has_no_command_surface",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_command_surface"
+      ]
+    },
+    "REQ-032": {
+      "status": "boundary_verified",
+      "text": "No domain Capture or Frame records created.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"
+      ]
+    },
+    "REQ-033": {
+      "status": "boundary_verified",
+      "text": "Preview evidence is not a canonical record.",
+      "tests": [
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "text": "Neutral core imports no vendor, domain or storage code.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_fresh_interpreter_loads_nothing_forbidden"
+      ]
+    },
+    "REQ-064": {
+      "status": "boundary_verified",
+      "text": "A preview stream, evidence object or pixel buffer does not by itself prove that a Session, Observation, Capture or Frame exists: outputs expose no such identity or claim and are declared runtime evidence only.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_preview_outputs_carry_no_domain_identity_or_claim",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_evidence_declares_itself_runtime_only",
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "text": "No acquisition or dataset ownership in the preview core.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"
+      ]
+    }
+  },
+  "correction_note": "Wave 2 review corrected five entries whose descriptions did not match the contract text: REQ-018 (preview data must not automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state), REQ-022 (passive reads submit no Commands), REQ-030 (simulated outcomes are identified as simulated), REQ-031 (simulator behavior is deterministic) and REQ-064 (a Preview by itself proves no Session, Observation, Capture or Frame exists). Stall and loss semantics are covered by PRV-SEM-003/008, and image freshness by PRV-SEM-004/005, not by those REQs."
 }

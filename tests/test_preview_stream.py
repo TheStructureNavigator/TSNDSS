@@ -97,6 +97,15 @@ class StreamScenarioTests(unittest.TestCase):
         self.assertEqual(stream.latest_pixels(), make_pixels(2))
         self.assertIsNone(stream.pixels_for(99))
 
+    def test_scenarios_are_deterministic(self) -> None:
+        def run():
+            stream, _ = make_stream(scenario_reopen(1, 2))
+            stream.open()
+            out = [stream.poll() for _ in range(2)]
+            return [(e and (e.sequence, e.content_digest, e.host_observed_at, e.freshness)) for e in out], stream.state
+
+        self.assertEqual(run(), run())
+
     def test_evidence_time_is_host_receipt(self) -> None:
         stream, clock = make_stream(scenario_fresh(1, with_provider_time=True, origin=ORIGIN - timedelta(days=1)))
         stream.open()

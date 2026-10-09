@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "stage": "DB-03",
+  "wave": 2,
+  "title": "Preview stream orchestration",
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "note": "Wave 2 verifies the neutral stream manager and readiness gate against deterministic simulated sources and a scripted evidence provider. Every test is offline. Nothing is run against hardware, RTSP, a decoder or any Seestar code. Stream orchestration, readiness gating and recovery rules are local DB-03 semantics (docs/DB-03_PREVIEW_MANAGER.md), not contract requirements.",
+  "evidence_classes": {
+    "offline": "Deterministic tests against simulated sources and scripted evidence.",
+    "hardware": "None. Wave 2 makes no hardware claim; hardware validation is Wave 5."
+  },
+  "not_claimed": {
+    "REQ-058": "Concerns Telemetry samples only (decision D3). Image freshness is a separate local definition.",
+    "REQ-057": "Fresh-evidence enforcement for safety-sensitive Commands belongs to DB-04. The readiness gate is a preview-open precondition, not a Command safety predicate.",
+    "REQ-060": "Same as REQ-057.",
+    "hardware": "No hardware evidence of any kind is claimed."
+  },
+  "local_semantics": [
+    {
+      "id": "PRV-ORC-001",
+      "text": "At most two active streams, at most one active stream per camera; duplicate and over-limit opens are refused without side effects.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.ConstructionTests.test_camera_and_limit_validation",
+        "tests.test_preview_manager.OpenAndGateTests.test_duplicate_open_is_refused_without_side_effects",
+        "tests.test_preview_manager.OpenAndGateTests.test_stream_limit"
+      ]
+    },
+    {
+      "id": "PRV-ORC-002",
+      "text": "Cameras are isolated: loss, open failure, unexpected poll exception, gate denial or close failure of one never stops the other.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.IsolationTests.test_loss_of_one_camera_does_not_stop_the_other",
+        "tests.test_preview_manager.IsolationTests.test_unexpected_exception_in_poll_is_contained",
+        "tests.test_preview_manager.IsolationTests.test_open_failures_are_contained_per_camera",
+        "tests.test_preview_manager.OpenAndGateTests.test_one_camera_denial_does_not_block_the_other",
+        "tests.test_preview_manager.CloseTests.test_close_failure_of_one_does_not_block_the_other"
+      ]
+    },
+    {
+      "id": "PRV-ORC-003",
+      "text": "A stream opens only on an explicit open_stream call that passes the gate; nothing opens on its own.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.ConstructionTests.test_nothing_opens_on_its_own"
+      ]
+    },
+    {
+      "id": "PRV-ORC-004",
+      "text": "The gate allows only fresh AVAILABLE evidence attributed to the same provider, Connection, device and camera; UNKNOWN, UNAVAILABLE, stale, missing, mismatched, future-dated or failing evidence denies.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_readiness.PureGateTests.test_only_fresh_available_allows",
+        "tests.test_preview_readiness.PureGateTests.test_age_boundary",
+        "tests.test_preview_readiness.PureGateTests.test_identity_must_match_every_part",
+        "tests.test_preview_readiness.PureGateTests.test_future_evidence_is_clock_regression",
+        "tests.test_preview_readiness.GateObjectTests.test_provider_failure_is_a_denial"
+      ]
+    },
+    {
+      "id": "PRV-ORC-005",
+      "text": "A denied gate never builds or opens a source: factory calls and source open() calls are zero.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.OpenAndGateTests.test_denied_gate_never_builds_or_opens_a_source",
+        "tests.test_preview_manager.OpenAndGateTests.test_ready_connection_alone_is_not_enough",
+        "tests.test_preview_manager.OpenAndGateTests.test_evidence_provider_failure_is_a_denial"
+      ]
+    },
+    {
+      "id": "PRV-ORC-006",
+      "text": "Connection state is a necessary precondition, never sufficient; the gate has no Connection-state input and reads evidence anew on every open.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_readiness.GateObjectTests.test_gate_has_no_connection_state_input",
+        "tests.test_preview_manager.OpenAndGateTests.test_gate_is_consulted_on_every_open_and_never_cached"
+      ]
+    },
+    {
+      "id": "PRV-ORC-007",
+      "text": "A LOST stream is never reactivated; recovery builds a new stream with a new identity after new positive evidence strictly newer than the end of the previous stream. Network recovery implies nothing about camera readiness.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.RecoveryTests.test_lost_stream_is_not_reactivated_and_same_instant_evidence_is_refused",
+        "tests.test_preview_manager.RecoveryTests.test_recovery_needs_new_positive_evidence_and_creates_a_new_stream",
+        "tests.test_preview_manager.RecoveryTests.test_cached_old_evidence_does_not_authorise_recovery",
+        "tests.test_preview_manager.RecoveryTests.test_recovery_after_loss_is_blocked_by_negative_evidence",
+        "tests.test_preview_manager.RecoveryTests.test_restored_connection_state_does_not_imply_camera_readiness"
+      ]
+    },
+    {
+      "id": "PRV-ORC-008",
+      "text": "close_all and a disconnected Connection close every stream, release each source exactly once, and block further opens; operations are idempotent.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.CloseTests.test_close_all_closes_every_source_exactly_once_and_is_idempotent",
+        "tests.test_preview_manager.CloseTests.test_disconnect_closes_everything_and_blocks_opening",
+        "tests.test_preview_manager.CloseTests.test_close_stream_is_per_camera_and_idempotent"
+      ]
+    },
+    {
+      "id": "PRV-ORC-009",
+      "text": "Old images are never presented as fresh: view re-runs liveness; a failed clock, failed liveness check, backward clock, repeated uncorroborated content or lost stream can only yield fresh=False, and fresh_pixels then returns nothing.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.FreshnessTests.test_fresh_view_then_old_image_is_not_presented_as_fresh",
+        "tests.test_preview_manager.FreshnessTests.test_staleness_is_detected_without_polling",
+        "tests.test_preview_manager.FreshnessTests.test_clock_failure_never_confirms_freshness",
+        "tests.test_preview_manager.FreshnessTests.test_failed_liveness_check_never_confirms_freshness",
+        "tests.test_preview_manager.FreshnessTests.test_backward_clock_is_not_fresh",
+        "tests.test_preview_manager.FreshnessTests.test_repeated_identical_images_are_not_confirmed_fresh"
+      ]
+    },
+    {
+      "id": "PRV-ORC-010",
+      "text": "Exceptions during open, poll and close are contained, reported as fixed category tokens and carry no device data.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_manager.IsolationTests.test_factory_failure_creates_no_stream",
+        "tests.test_preview_manager.IsolationTests.test_source_open_error_reports_its_category",
+        "tests.test_preview_manager.CloseTests.test_source_close_error_category_is_reported"
+      ]
+    },
+    {
+      "id": "PRV-ORC-011",
+      "text": "The manager and gate expose no command surface and no startup, shutdown or arming of cameras.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_manager_and_gate_expose_no_command_surface",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_command_surface"
+      ]
+    }
+  ],
+  "requirements": {
+    "REQ-016": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Preview half: the manager exposes read-only runtime image evidence and freshness-confirmed views.",
+      "tests": [
+        "tests.test_preview_manager.FreshnessTests.test_fresh_view_then_old_image_is_not_presented_as_fresh"
+      ]
+    },
+    "REQ-018": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Manager outputs are runtime evidence and in-memory pixels; a full simulated manager exercise leaves a canonical database and its directory untouched and no output carries a domain identity.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_full_preview_exercise_leaves_database_and_directory_untouched",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_preview_outputs_carry_no_domain_identity_or_claim",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_evidence_declares_itself_runtime_only",
+        "tests.test_preview_manager.OpenAndGateTests.test_two_independent_streams_with_distinct_identities"
+      ]
+    },
+    "REQ-022": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Opening, polling and closing preview streams submit no Commands: no command surface exists and a denied gate has no side effects.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_manager_and_gate_expose_no_command_surface",
+        "tests.test_preview_manager.OpenAndGateTests.test_denied_gate_never_builds_or_opens_a_source"
+      ]
+    },
+    "REQ-030": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Evidence from simulated sources stays marked simulated through the manager.",
+      "tests": [
+        "tests.test_preview_manager.OpenAndGateTests.test_two_independent_streams_with_distinct_identities"
+      ]
+    },
+    "REQ-031": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Manager scenarios with simulated sources are deterministic.",
+      "tests": [
+        "tests.test_preview_manager.DeterminismTests.test_same_script_gives_identical_results"
+      ]
+    },
+    "REQ-059": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Reading preview evidence and images alters no device state; readiness evidence is read-only and a denial opens nothing.",
+      "tests": [
+        "tests.test_preview_manager.ConstructionTests.test_nothing_opens_on_its_own",
+        "tests.test_preview_manager.OpenAndGateTests.test_denied_gate_never_builds_or_opens_a_source"
+      ]
+    },
+    "REQ-063": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Simulator preview scenarios drive the same manager, gate and stream concepts a physical provider will use.",
+      "tests": [
+        "tests.test_preview_manager.RecoveryTests.test_recovery_needs_new_positive_evidence_and_creates_a_new_stream"
+      ]
+    },
+    "REQ-032": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No canonical domain identity is created or replaced.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"
+      ]
+    },
+    "REQ-033": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Preview evidence never becomes a Capture or Frame.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence",
+        "tests.test_preview_models.EvidenceTests.test_evidence_carries_no_pixels_and_is_not_canonical"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "The manager imports no vendor, domain or storage code.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_file_or_network_primitives",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_vendor_tokens"
+      ]
+    },
+    "REQ-064": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "A stream, view or readiness decision proves no Session, Observation, Capture or Frame exists.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_preview_outputs_carry_no_domain_identity_or_claim",
+        "tests.test_preview_boundaries.PreviewEvidenceOnlyTests.test_evidence_declares_itself_runtime_only",
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_no_domain_identity_or_persistence"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No Acquisition Execution surface in the manager.",
+      "tests": [
+        "tests.test_preview_boundaries.PreviewBoundaryTests.test_manager_and_gate_expose_no_command_surface"
+      ]
+    }
+  }
+}
