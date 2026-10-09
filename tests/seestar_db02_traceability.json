@@ -405,17 +405,16 @@
         "tsn_dss.engine.seestar_provider.normalize.preview_availability"
       ],
       "tests": [
-        "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream",
-        "tests.test_seestar_provider.PreviewEvidenceTests.test_idle_device_is_unavailable_and_missing_blocks_are_unknown"
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched",
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields",
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports",
+        "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream"
       ],
-      "note": "",
+      "note": "Corrected after the DB-03 review: the requirement is that Preview data SHALL NOT automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state. The listed tests show that a full exercise (including describe_preview) leaves the canonical database unchanged, that preview evidence carries no domain identity fields, that the provider imports no domain code, and that the preview descriptor is runtime evidence only. The earlier entry listed only availability-mapping tests.",
       "evidence": {
         "offline": "tested",
-        "hardware": "exercised",
-        "hardware_steps": [
-          "S7"
-        ],
-        "hardware_note": "Availability evidence only; the reported value was unknown."
+        "hardware": "not_applicable",
+        "hardware_note": "Structural. Preview availability was read on hardware in step S7 (reported value: unknown); that exercises the preview half of REQ-016, not this requirement. A hardware read cannot show the absence of a conversion into domain records."
       }
     },
     "DSS-CTR-013-REQ-019": {

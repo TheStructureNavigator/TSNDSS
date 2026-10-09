@@ -101,13 +101,12 @@ Hardware column values: observed, exercised (ran in the sessions but no step ass
 | REQ-009, 038, 042 | observed | PASS | Reconnect step: a new connection identity within one session |
 | REQ-010, 041, 056 | exercised | PASS | |
 | REQ-013, 014, 015 | observed / exercised | PASS | Capability step |
-| REQ-016 (telemetry half), 017 | observed / exercised | PASS | Preview half belongs to DB-03 |
+| REQ-016 (telemetry half), 017 | observed / exercised | PASS | Preview half belongs to DB-03. Preview availability was also read on hardware (step S7, reported value `unknown`); that is availability evidence, not evidence for REQ-018 |
 | REQ-036 | partially observed | PASS | Hardware showed success and one failure with category `connect_failed`. Valid empty, fatal, refresh from degraded and in-session recovery are offline only |
 | REQ-037, 043 | not verified | PASS | Offline only |
 | REQ-057 (partial) | observed | PASS | Fresh-read evidence only; enforcement against Commands is DB-04 |
 | REQ-058 | partially observed | PASS | Unknown and unavailable observed; stale offline only |
-| REQ-018 | exercised | PASS | Preview availability evidence only; the reported value was `unknown` |
-| Boundaries: REQ-019, 032, 033, 052, 054, 064, 066, 067 | not applicable | PASS | Structural tests |
+| Boundaries: REQ-018, 019, 032, 033, 052, 054, 064, 066, 067 | not applicable | PASS | Structural tests. For REQ-018 (preview data does not automatically become domain state) these are the canonical-database-untouched and no-domain-identity-fields tests; see the correction note in section 9 |
 | REQ-065 | by construction | PASS | No provider-native target data is mapped |
 
 ## 6. Telemetry interpretation
@@ -140,3 +139,7 @@ Under that reading 17 + 1 + 1 gives the 19 known, 2 are unknown, and 10 are unav
 - **DB-04:** item-level freshness predicates (REQ-051, REQ-060), which must evaluate item states and never Connection state alone; Commands; exclusivity; transport loss during a Command.
 - **DB-05:** physical commands, whether control operations need the handshake, and the unexplained first timeout in the research notes.
 - **Housekeeping, not changed here:** the DB-01 section of the roadmap still shows its original status and "next action" text.
+
+## 9. Correction note (documentation only)
+
+REQ-018 reads: "Preview data SHALL NOT automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state." The original record listed it as "exercised" with the note "Preview availability evidence only". That described the availability read of step S7, which belongs to the preview half of REQ-016, not to REQ-018. REQ-018 is a structural prohibition: it is confirmed by the offline architecture tests named in the manifest entry `DSS-CTR-013-REQ-018`, and a hardware read cannot show it. It is therefore classified with the other structural boundaries (not applicable on hardware). The historical hardware fact is unchanged: preview availability was read in the sessions and the reported value was `unknown`. No requirement status in the manifest, no runtime code and no overall DB-02 status was changed by this correction.
