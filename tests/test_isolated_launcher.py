@@ -177,7 +177,45 @@ class HygieneTests(Cleanup):
             self.assertNotIn("://", item)
         self.assertEqual(data["main_spec"], "tests.process_fixtures")
         self.assertTrue(data["safe_path"])                         # -P: the working directory is not on sys.path
-        self.assertFalse(data["stdin_is_tty"])
+        stdio = data["stdio"]
+        for name in ("stdin", "stdout", "stderr"):
+            self.assertFalse(stdio[name]["is_console"], f"{name} is the parent's console: {stdio}")      # platform-correct detector
+        self.assertTrue(stdio["stdin"]["reads_eof"], f"stdin is not the null device (a read did not return end-of-file): {stdio}")
+        self.assertEqual(stdio["stdin"]["kind"], "char")
+
+    def test_the_stdio_detector_tells_the_null_device_from_a_console_and_from_a_pipe(self) -> None:
+        sys.path.insert(0, str(ROOT))
+        try:
+            from tests import process_fixtures as fx
+        finally:
+            sys.path.remove(str(ROOT))
+        null = os.open(os.devnull, os.O_RDWR)
+        read_end, write_end = os.pipe()
+        try:
+            self.assertFalse(fx.is_console(null))
+            self.assertTrue(fx.reads_eof(null))
+            self.assertEqual(fx.file_kind(null), "char")
+            self.assertFalse(fx.is_console(read_end))
+            self.assertFalse(fx.reads_eof(read_end, timeout=0.3))          # an idle pipe blocks: not end-of-file
+            self.assertEqual(fx.file_kind(read_end), "pipe")
+            self.assertEqual(fx.file_kind(-1 if sys.platform != "win32" else 99999), "invalid")
+        finally:
+            os.close(write_end)                                            # first: lets a reader thread blocked on the pipe finish
+            time.sleep(0.1)
+            os.close(read_end)
+            os.close(null)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "needs a pseudo-terminal")
+    def test_the_stdio_detector_recognises_a_real_terminal(self) -> None:
+        from tests import process_fixtures as fx
+        master, slave = os.openpty()
+        try:
+            self.assertTrue(fx.is_console(slave))
+            self.assertFalse(fx.reads_eof(slave, timeout=0.3))             # a terminal blocks
+        finally:
+            os.close(master)                                               # first: lets a reader thread blocked on the terminal finish
+            time.sleep(0.1)
+            os.close(slave)
 
     def test_opencv_and_numpy_are_never_loaded_by_the_handshake(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

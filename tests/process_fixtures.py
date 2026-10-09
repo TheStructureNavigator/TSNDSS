@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 
 from tsn_dss.engine.opencv_isolated_decoder import protocol as P
@@ -23,6 +24,69 @@ def hang() -> None:
 def spin() -> None:
     while True:
         pass
+
+
+def is_console(fd: int) -> bool:
+    """Is ``fd`` a real console/terminal? ``isatty`` is NOT used on Windows: the C runtime reports every character device,
+    the null device included, as a tty there, so ``isatty`` cannot tell NUL from a console. ``GetConsoleMode`` succeeds only
+    for a console handle."""
+    if sys.platform == "win32":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetConsoleMode.restype = wintypes.BOOL
+        try:
+            handle = msvcrt.get_osfhandle(fd)
+        except OSError:
+            return False
+        return bool(kernel32.GetConsoleMode(handle, ctypes.byref(wintypes.DWORD(0))))
+    return os.isatty(fd)
+
+
+def file_kind(fd: int) -> str:
+    if sys.platform == "win32":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetFileType.argtypes = [wintypes.HANDLE]
+        kernel32.GetFileType.restype = wintypes.DWORD
+        try:
+            return {0: "unknown", 1: "disk", 2: "char", 3: "pipe"}.get(kernel32.GetFileType(msvcrt.get_osfhandle(fd)), "other")
+        except OSError:
+            return "invalid"
+    import stat
+    try:
+        mode = os.fstat(fd).st_mode
+    except OSError:
+        return "invalid"
+    return "char" if stat.S_ISCHR(mode) else "pipe" if stat.S_ISFIFO(mode) else "disk" if stat.S_ISREG(mode) else "other"
+
+
+def reads_eof(fd: int, timeout: float = 1.0) -> bool:
+    """Behavioral check: reading the null device returns end-of-file at once; a console or an idle pipe would block."""
+    result: list = []
+
+    def reader() -> None:
+        try:
+            result.append(os.read(fd, 1))
+        except OSError:
+            result.append(b"<error>")
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    return (not thread.is_alive()) and result == [b""]
+
+
+def stdio_report() -> dict:
+    return {
+        "stdin": {"isatty": (sys.stdin.isatty() if sys.stdin else False), "is_console": is_console(0), "kind": file_kind(0), "reads_eof": reads_eof(0)},
+        "stdout": {"is_console": is_console(1), "kind": file_kind(1)},
+        "stderr": {"is_console": is_console(2), "kind": file_kind(2)},
+    }
 
 
 class Fixture(ProductionHandler):
@@ -46,7 +110,7 @@ class Fixture(ProductionHandler):
             "safe_path": bool(sys.flags.safe_path),
             "cwd_is_temp": os.path.realpath(os.getcwd()) == os.path.realpath(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp"),
             "heavy_modules": sorted(m for m in sys.modules if m.split(".")[0] in {"cv2", "numpy", "PIL", "av"}),
-            "stdin_is_tty": sys.stdin.isatty() if sys.stdin else False,
+            "stdio": stdio_report(),
         }
         with open(self.report, "w", encoding="utf-8") as fh:
             json.dump(data, fh)

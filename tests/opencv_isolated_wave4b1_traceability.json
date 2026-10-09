@@ -167,7 +167,9 @@
         "tests.test_isolated_launcher.HygieneTests.test_the_child_sees_an_explicit_environment_and_a_numeric_only_command_line",
         "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_parents_global_state_is_never_modified",
         "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_worker_receives_only_numbers_on_its_command_line",
-        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_child_environment_is_an_allowlist"
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_the_child_environment_is_an_allowlist",
+        "tests.test_isolated_launcher.HygieneTests.test_the_stdio_detector_tells_the_null_device_from_a_console_and_from_a_pipe",
+        "tests.test_isolated_launcher.HygieneTests.test_the_stdio_detector_recognises_a_real_terminal"
       ]
     },
     {
