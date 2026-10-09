@@ -11,4 +11,5 @@ data/light_pollution/*.tpk
 
 # Operator credentials and validation output must never be committed (DB-02)
 *.pem
-seestar_validation_report.json
+seestar_validation_report*.json
+report_audit_summary*.txt
