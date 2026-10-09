@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "stage": "DB-03",
+  "wave": "4B-2",
+  "title": "Decoder process isolation: shared memory, hard deadlines and process containment (offline)",
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "note": "4B-2 verifies the parent-owned shared segment (layout v2 with a pixel CRC), the segment handshake, parent-enforced OPEN/READ deadlines, slot integrity checks, shared-memory cleanup, the process-wide worker limit with recovery, and exit cleanup, against real fixture worker processes. OPEN/READ and every image exist only in fixture workers: the production worker has no decoder, no OpenCV, no RTSP and no network. Layout v2 and the 4B-1 boundary tests were changed by owner decisions 1 and 4 of 4B-2.",
+  "evidence_classes": {
+    "offline": "Deterministic tests against fixture worker processes and in-process units. Linux-run.",
+    "hardware": "None. 4B-2 makes no hardware claim."
+  },
+  "hardware_claims": [],
+  "windows_status": {
+    "spike": "The operator ran the launcher spike on Windows (Python 3.13.15, 64-bit, commit 838af69): 13/13 PASS.",
+    "4b1": "4B-1 was accepted on Windows offline (commit 4efbb35).",
+    "this_wave": "Not yet run on Windows. Linux results do not stand in for it. UNVERIFIED on Windows until the operator runs the 4B-2 suites: Windows shared-memory semantics (named mapping, no unlink), process termination of a worker started through a venv launcher, handle counts, the exit handler, and the POSIX-only cases that are skipped there."
+  },
+  "not_claimed": {
+    "image_requirements": "REQ-016, REQ-018, REQ-033, REQ-064: no real image exists; fixtures write synthetic pixels.",
+    "REQ-059": "No preview is read.",
+    "REQ-058": "Telemetry only.",
+    "REQ-057": "DB-04.",
+    "REQ-060": "DB-04.",
+    "REQ-030": "Simulator Provider obligations.",
+    "REQ-031": "Same.",
+    "REQ-063": "Same.",
+    "decoder": "No decoder, OpenCV, RTSP or network in 4B-2; OPEN/READ run only against fixtures (4B-3 integrates a decoder).",
+    "crc_is_not_security": "The CRC and the fences detect corruption and protocol violations; a hostile worker can write plausible pixels and a matching CRC.",
+    "sandbox": "Process isolation is not a security sandbox (design section 13).",
+    "memory_containment": "No memory cap on the worker.",
+    "cleanup_guarantee": "No full cleanup guarantee after a sudden death of the host: the exit handler is best effort; before the handshake the POSIX segment name depends on Python's resource tracker; on Windows the mapping disappears with its last handle (unverified).",
+    "device_side_effects": "The effect of killing a worker with an open stream on the camera is unknown (design U5); the stop report only flags it.",
+    "windows_verified": "Unverified until the operator runs the Windows tests of this wave.",
+    "hardware": "No hardware evidence of any kind is claimed."
+  },
+  "local_semantics": [
+    {
+      "id": "PRV-ISO-018",
+      "text": "The parent is the only creator and unlinker of the shared segment; the worker only attaches (track=False) and never unlinks, so the worker's exit cannot destroy the parent's segment. After the handshake the POSIX name is unlinked.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.ParentSegmentTests.test_the_parent_creates_a_segment_with_a_valid_empty_header",
+        "tests.test_isolated_slot.ParentSegmentTests.test_close_and_unlink_are_idempotent_and_close_unlinks",
+        "tests.test_isolated_slot.ParentSegmentTests.test_a_close_without_an_explicit_unlink_removes_the_name",
+        "tests.test_isolated_slot.WorkerSegmentTests.test_a_worker_process_that_attaches_and_exits_does_not_destroy_the_segment",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_ready_means_attached_and_verified_not_opened",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_the_worker_never_unlinks_and_the_parent_never_exposes_a_view",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_shared_memory_exists_only_in_the_segment_module"
+      ]
+    },
+    {
+      "id": "PRV-ISO-019",
+      "text": "Segment header layout version 2 adds a pixel CRC32 at offset 48; a header of any other version, a wrong magic, a wrong slot size or non-zero reserved bytes is refused by both sides (no implicit compatibility).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_layout_constants",
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_round_trip_and_field_offsets",
+        "tests.test_isolated_protocol.SegmentHeaderTests.test_unpack_rejects_bad_headers",
+        "tests.test_isolated_slot.WorkerSegmentTests.test_attach_refuses_what_is_not_a_valid_segment",
+        "tests.test_isolated_slot.WorkerSegmentTests.test_publish_writes_fences_metadata_pixels_and_crc_in_a_consistent_header"
+      ]
+    },
+    {
+      "id": "PRV-ISO-020",
+      "text": "Worker READY requires an attached segment whose shared header carries the nonce that was also echoed on the pipe, plus a PING/PONG round trip. A worker that did not attach, wrote another nonce, refused the segment or died after attaching is not READY.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_ready_means_attached_and_verified_not_opened",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_the_production_worker_attaches_and_answers_ping",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_worker_that_never_attached_is_not_ready",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_wrong_nonce_in_the_shared_header_is_not_ready",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_worker_that_cannot_attach_reports_shm_unavailable",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_worker_that_dies_right_after_attaching_leaves_nothing",
+        "tests.test_isolated_worker_handler.HandshakeTests.test_a_segment_that_does_not_exist_is_refused"
+      ]
+    },
+    {
+      "id": "PRV-ISO-021",
+      "text": "An image reaches the caller only as a bytes copy owned by the parent: the parent copies from the slot, never exposes a view of it, and a later write by the worker does not change the delivered copy.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.ParentSegmentTests.test_the_copy_belongs_to_the_parent",
+        "tests.test_isolated_slot.ParentSegmentTests.test_copy_ranges_are_checked",
+        "tests.test_isolated_slot.IntegrityTests.test_a_late_write_to_the_pixels_does_not_reach_the_delivered_copy",
+        "tests.test_isolated_slot.IntegrityTests.test_no_view_of_the_segment_is_ever_returned",
+        "tests.test_isolated_slot.OperationTests.test_open_then_reads_deliver_parent_owned_images"
+      ]
+    },
+    {
+      "id": "PRV-ISO-022",
+      "text": "A corrupted, torn, inconsistent or out-of-sequence slot is rejected with worker_protocol_error and no pixels are delivered: fences before and after the copy, header identity (nonce, pid), magic and version, message/header agreement, size limits, CRC on the parent's own copy, strict sequence.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.IntegrityTests.test_every_corrupted_or_inconsistent_slot_is_rejected_without_delivering_pixels",
+        "tests.test_isolated_slot.IntegrityTests.test_a_sequence_that_skips_or_repeats_is_rejected",
+        "tests.test_isolated_slot.IntegrityTests.test_a_write_by_the_worker_while_the_parent_owns_the_slot_is_detected",
+        "tests.test_isolated_slot.IntegrityTests.test_the_crc_is_checked_on_the_parents_copy_not_on_the_segment"
+      ]
+    },
+    {
+      "id": "PRV-ISO-023",
+      "text": "READY is not proof of OPEN: decoder_open becomes true only after a correct RESULT for OPEN with the outstanding op id; read before open and a second open are refused without failing the worker.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.OperationTests.test_a_stream_is_not_open_just_because_the_worker_is_ready",
+        "tests.test_isolated_slot.OperationTests.test_invalid_open_arguments_are_a_caller_error_not_a_worker_failure",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_the_production_worker_has_no_decoder",
+        "tests.test_isolated_slot.OperationTests.test_open_failures_map_to_their_category_and_end_the_worker"
+      ]
+    },
+    {
+      "id": "PRV-ISO-024",
+      "text": "OPEN and READ have parent-enforced hard deadlines (requested timeout + margin) that hold against a worker that hangs, spins holding the GIL, answers nothing or is slow but alive; the hung process is gone afterwards and the parent is not blocked beyond the stated bound. Both the process the launcher started and the process that wrote the shared header must be gone (Windows venv-launcher diagnostic).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.OperationTests.test_a_hung_open_is_ended_at_the_hard_deadline",
+        "tests.test_isolated_slot.OperationTests.test_a_worker_spinning_in_open_while_holding_the_gil_is_ended_too",
+        "tests.test_isolated_slot.OperationTests.test_a_hung_read_is_ended_at_the_hard_deadline",
+        "tests.test_isolated_slot.OperationTests.test_a_worker_spinning_in_read_is_ended_too",
+        "tests.test_isolated_slot.OperationTests.test_a_worker_that_answers_nothing_to_read_hits_the_read_deadline",
+        "tests.test_isolated_slot.OperationTests.test_a_slow_but_alive_open_succeeds_inside_its_deadline",
+        "tests.test_isolated_slot.OperationTests.test_the_hard_deadline_follows_the_requested_timeouts",
+        "tests.test_isolated_slot.LauncherIdentityTests.test_both_the_started_process_and_the_real_worker_are_gone_after_stop"
+      ]
+    },
+    {
+      "id": "PRV-ISO-025",
+      "text": "Worker failures during READ map to their fixed category or to worker_crashed / worker_protocol_error and always end the worker.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.OperationTests.test_read_failures_map_to_their_category_and_end_the_worker"
+      ]
+    },
+    {
+      "id": "PRV-ISO-026",
+      "text": "Stop from another thread never touches a closed buffer: the mapping is closed only when no operation uses it, repeated stop is idempotent, and the object stays readable while an operation hangs (no shared lock across a wait the worker can stretch).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.ConcurrencyTests.test_stop_from_another_thread_never_uses_a_closed_buffer",
+        "tests.test_isolated_slot.ConcurrencyTests.test_the_mapping_is_closed_only_after_an_active_copy_has_finished",
+        "tests.test_isolated_slot.ConcurrencyTests.test_concurrent_stops_all_return_the_same_report",
+        "tests.test_isolated_slot.ConcurrencyTests.test_the_state_stays_readable_while_an_operation_hangs",
+        "tests.test_isolated_slot.ConcurrencyTests.test_an_interrupted_start_leaves_nothing",
+        "tests.test_isolated_slot.ConcurrencyTests.test_an_operation_after_stop_is_refused",
+        "tests.test_isolated_slot.ConcurrencyTests.test_restart_means_a_new_worker_and_a_new_segment"
+      ]
+    },
+    {
+      "id": "PRV-ISO-027",
+      "text": "At most two workers exist in the host process (decision D10). A worker counts from reservation until its process is confirmed gone; a refused start creates no process and no segment; failed starts give the slot back; concurrent starts never exceed the limit.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_limit.LimitTests.test_the_ceiling_is_two",
+        "tests.test_isolated_limit.LimitTests.test_a_third_worker_is_refused_before_any_resource_is_created",
+        "tests.test_isolated_limit.LimitTests.test_a_confirmed_exit_frees_the_slot",
+        "tests.test_isolated_limit.LimitTests.test_the_configured_limit_can_be_lower",
+        "tests.test_isolated_limit.LimitTests.test_failed_starts_give_the_slot_back",
+        "tests.test_isolated_limit.LimitTests.test_a_worker_that_failed_an_operation_gives_the_slot_back_only_after_it_is_gone",
+        "tests.test_isolated_limit.LimitTests.test_concurrent_starts_never_exceed_the_limit",
+        "tests.test_isolated_limit.LimitTests.test_concurrent_starts_and_stops_keep_the_count_exact"
+      ]
+    },
+    {
+      "id": "PRV-ISO-028",
+      "text": "A worker that cannot be reaped keeps its slot; neither a timeout, kill() nor a lost pipe frees it. Only a later confirmed exit recovers the slot, explicitly or at the next start, and only once.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_limit.UnreapableTests.test_timeout_kill_and_a_lost_pipe_do_not_free_the_slot",
+        "tests.test_isolated_limit.UnreapableTests.test_two_unreapable_workers_block_every_new_start",
+        "tests.test_isolated_limit.UnreapableTests.test_a_confirmed_exit_recovers_the_slot_explicitly",
+        "tests.test_isolated_limit.UnreapableTests.test_a_confirmed_exit_recovers_the_slot_at_the_next_start",
+        "tests.test_isolated_limit.UnreapableTests.test_a_poll_that_raises_is_not_evidence_of_an_exit",
+        "tests.test_isolated_limit.UnreapableTests.test_concurrent_recovery_and_starts_do_not_over_release"
+      ]
+    },
+    {
+      "id": "PRV-ISO-029",
+      "text": "Exit cleanup is best effort: a registered exit handler contains live workers within a bound, and a host that dies without running it is outlived by the worker only until its own lifeline watchdog ends it. The segment name cannot survive a host death after the handshake; before the handshake, removal depends on Python's resource tracker (observed on Linux, not guaranteed by this code).",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_limit.ExitCleanupTests.test_stop_all_workers_contains_every_live_worker",
+        "tests.test_isolated_limit.ExitCleanupTests.test_atexit_is_registered_once_and_only_when_a_worker_is_reserved",
+        "tests.test_isolated_limit.ExitCleanupTests.test_a_normal_exit_without_stop_contains_the_worker",
+        "tests.test_isolated_limit.ExitCleanupTests.test_an_exit_with_a_stubborn_worker_is_bounded_and_ends_it",
+        "tests.test_isolated_limit.ExitCleanupTests.test_exit_cleanup_is_best_effort_and_a_hard_death_of_the_host_bypasses_it",
+        "tests.test_isolated_limit.ExitCleanupTests.test_a_host_that_dies_after_the_handshake_leaves_no_segment_name",
+        "tests.test_isolated_limit.ExitCleanupTests.test_a_host_that_dies_before_the_handshake_is_cleaned_up_by_the_resource_tracker"
+      ]
+    },
+    {
+      "id": "PRV-ISO-030",
+      "text": "Every failure path of start (no segment, no spawn, no hello, no ping) leaves no process, no slot, no segment and no pipe.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_worker_that_never_answers_leaves_no_segment",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_segment_that_cannot_be_created_spawns_nothing",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_a_spawn_failure_after_the_segment_was_created_removes_the_segment",
+        "tests.test_isolated_limit.LimitTests.test_failed_starts_give_the_slot_back"
+      ]
+    },
+    {
+      "id": "PRV-ISO-031",
+      "text": "Uncertain outcomes are reported, not hidden: a stream ended by force, an interrupted operation, an unreaped process and an unreleased segment appear as fixed tokens in the stop report; a graceful close is not flagged.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.OperationTests.test_a_killed_open_stream_is_reported_as_uncertain",
+        "tests.test_isolated_slot.OperationTests.test_a_graceful_close_of_an_open_stream_is_not_uncertain",
+        "tests.test_isolated_slot.OperationTests.test_a_stream_ended_by_force_is_flagged_for_the_device_side_effect",
+        "tests.test_isolated_limit.UnreapableTests.test_timeout_kill_and_a_lost_pipe_do_not_free_the_slot"
+      ]
+    },
+    {
+      "id": "PRV-ISO-032",
+      "text": "Neither the address nor the segment name appears in a repr, exception, report or the worker's command line.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_slot.RedactionTests.test_nothing_shows_the_address_or_the_segment_name",
+        "tests.test_isolated_slot.RedactionTests.test_the_command_line_of_the_worker_has_neither_address_nor_segment",
+        "tests.test_isolated_slot.ParentSegmentTests.test_the_repr_has_no_name"
+      ]
+    },
+    {
+      "id": "PRV-ISO-033",
+      "text": "Imports stay inside the stated boundaries: shared memory and zlib only in shm.py, atexit only in process.py, no bare multiprocessing import, no socket/ctypes/pickle/OpenCV.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_each_file_imports_only_what_it_is_allowed_to",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_multiprocessing_is_limited_to_the_connection_and_shared_memory_modules",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_atexit_and_zlib_are_confined_to_their_modules",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_the_segment_module_does_not_know_the_launcher",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_importing_the_package_starts_nothing_and_loads_no_decoder_library"
+      ]
+    }
+  ],
+  "requirements": {
+    "REQ-022": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Passive reads submit no Commands: the protocol has no device-command message, the production worker answers OPEN/READ with invalid_state (it has no decoder), and no command vocabulary exists in the package.",
+      "tests": [
+        "tests.test_isolated_protocol.RoundTripTests.test_message_types_are_pinned",
+        "tests.test_isolated_worker_handler.HandshakeTests.test_open_and_read_are_not_available_in_this_build",
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_command_vocabulary",
+        "tests.test_isolated_slot.HandshakeSegmentTests.test_the_production_worker_has_no_decoder"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "The package imports no domain, storage, GUI or legacy-adapter code and owns no domain semantics.",
+      "tests": [
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_each_file_imports_only_what_it_is_allowed_to",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_lower_layers_do_not_know_this_package",
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_multiprocessing_is_limited_to_the_connection_and_shared_memory_modules"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No Acquisition Execution surface in the package.",
+      "tests": [
+        "tests.test_isolated_boundaries.SafetyBoundaryTests.test_no_command_vocabulary"
+      ]
+    }
+  }
+}

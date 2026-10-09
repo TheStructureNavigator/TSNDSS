@@ -1,9 +1,9 @@
 """Parent-side launcher and lifecycle of one isolated decoder worker (DB-03 Wave 4B-1).
 
 What this module does: start a dedicated worker module with ``subprocess.Popen``, hand it one end of a
-``multiprocessing`` ``Pipe`` through handle inheritance, run the readiness handshake, probe it with PING, and end it
-with bounded containment. What it does not do (4B-2/4B-3): open a stream, read frames, attach shared memory, or touch
-OpenCV.
+``multiprocessing`` ``Pipe`` through handle inheritance, create the shared segment (parent-owned), run the readiness
+handshake, probe it with PING, run ``open``/``read`` under parent-enforced hard deadlines, and end the worker with bounded
+containment. It also counts live workers (decision D10). What it does not do (4B-3): decode anything or touch OpenCV.
 
 Rules kept here (design sections 2, 4, 6, 10):
 
@@ -22,6 +22,7 @@ Rules kept here (design sections 2, 4, 6, 10):
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import os
 import secrets
@@ -39,11 +40,14 @@ from multiprocessing.connection import Pipe
 from ..device_runtime.errors import InvalidTransition
 from ..device_runtime.lifecycle import TransitionRecord
 from . import protocol as P
+from .segment import fence_is_stable, validate_image
+from .shm import ParentSegment, SegmentClosed, SegmentUnavailable, crc32_of
 from .states import WorkerEvent, WorkerState, worker_next_state
 
 __all__ = [
-    "MIN_PYTHON", "PRODUCTION_ENTRY", "IsolationUnsupported", "StopReport", "WorkerConfig", "WorkerError",
-    "WorkerProcess", "abandoned_worker_count", "child_environment", "require_supported_python",
+    "MAX_LIVE_WORKERS", "MIN_PYTHON", "PRODUCTION_ENTRY", "IsolationUnsupported", "StopReport", "WorkerConfig",
+    "WorkerError", "WorkerImage", "WorkerProcess", "abandoned_worker_count", "child_environment", "live_worker_count",
+    "reclaim_abandoned_workers", "require_supported_python", "stop_all_workers",
 ]
 
 MIN_PYTHON = (3, 13)
@@ -52,8 +56,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]          # the directory that c
 _ENV_KEYS = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "LANG", "LC_ALL")
 _POLL_SLICE_S = 0.05
 _SPAWN_LOCK = threading.Lock()
-_ABANDONED: list = []
-_ABANDONED_LOCK = threading.Lock()
+MAX_LIVE_WORKERS = 2                                       # decision D10: hard ceiling for the whole host process
+_ABANDONED: list = []                                      # Popen objects of workers that could not be reaped (they keep their slot)
+_ABANDONED_LOCK = threading.Lock()                         # guards _LIVE, _ABANDONED and _ATEXIT_REGISTERED; never held across I/O
+_LIVE: dict = {}                                           # id(worker) -> worker, from reservation until the process is reaped
+_ATEXIT_REGISTERED = False
 
 
 class WorkerError(Exception):
@@ -84,12 +91,24 @@ class WorkerConfig:
     close_graceful_s: float = 0.5
     terminate_wait_s: float = 1.0
     kill_wait_s: float = 1.0
+    open_margin_s: float = 1.5            # hard OPEN deadline = open_timeout_ms + this margin (D12)
+    read_margin_s: float = 1.0            # hard READ deadline = read_timeout_ms + this margin (D12)
+    slot_bytes: int = 0                   # 0: no shared segment (4B-1 behaviour); otherwise the pixel area size (D4)
+    max_width: int = 4096
+    max_height: int = 4096
+    max_live_workers: int = MAX_LIVE_WORKERS
 
     def __post_init__(self) -> None:
-        for name in ("start_deadline_s", "ping_deadline_s", "close_graceful_s", "terminate_wait_s", "kill_wait_s"):
+        for name in ("start_deadline_s", "ping_deadline_s", "close_graceful_s", "terminate_wait_s", "kill_wait_s",
+                     "open_margin_s", "read_margin_s"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 120:
                 raise ValueError(f"{name} must be a number in (0, 120].")
+        for name, low, high in (("slot_bytes", 0, 256 * 1024 * 1024), ("max_width", 1, 16384), ("max_height", 1, 16384),
+                                ("max_live_workers", 1, MAX_LIVE_WORKERS)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+                raise ValueError(f"{name} must be an integer in [{low}, {high}].")
 
 
 @dataclass(slots=True, frozen=True)
@@ -98,6 +117,24 @@ class StopReport:
     exit_code: object
     containment_failed: bool
     elapsed_s: float
+    uncertain: tuple = ()                 # fixed tokens for outcomes the parent cannot know (see WorkerProcess.stop)
+    segment_released: bool = True
+    slot_released: bool = True            # False: the process was not confirmed gone, so it still counts against the limit
+
+
+@dataclass(slots=True, frozen=True)
+class WorkerImage:
+    """One image copied out of the shared slot into memory owned by the parent. ``decode_ns`` is diagnostic, never a scene time."""
+
+    seq: int
+    width: int
+    height: int
+    pixel_format: int
+    pixels: bytes
+    decode_ns: int
+
+    def __repr__(self) -> str:
+        return f"WorkerImage(seq={self.seq}, {self.width}x{self.height}, format={self.pixel_format}, nbytes={len(self.pixels)})"
 
 
 def child_environment(extra_pythonpath=()) -> dict:
@@ -111,6 +148,53 @@ def abandoned_worker_count() -> int:
     """Workers that could not be reaped and whose ``Popen`` is therefore kept alive (a visible leak)."""
     with _ABANDONED_LOCK:
         return len(_ABANDONED)
+
+
+def _reclaim_locked() -> int:
+    """Drop abandoned workers whose exit is now confirmed by ``poll()``; a slot is never freed on any other evidence."""
+    freed = 0
+    for popen in list(_ABANDONED):
+        try:
+            gone = popen.poll() is not None
+        except Exception:
+            gone = False
+        if gone:
+            _ABANDONED.remove(popen)
+            freed += 1
+    return freed
+
+
+def reclaim_abandoned_workers() -> int:
+    """Collect workers that were unreapable earlier and have exited since; returns how many slots were recovered."""
+    with _ABANDONED_LOCK:
+        return _reclaim_locked()
+
+
+def live_worker_count() -> int:
+    """Workers counted against the limit: from reservation until the process is confirmed reaped (abandoned ones included)."""
+    with _ABANDONED_LOCK:
+        return len(_LIVE) + len(_ABANDONED)
+
+
+def stop_all_workers() -> int:
+    """Best-effort bounded stop of every live worker. Registered with ``atexit``; a crash of the host bypasses it."""
+    with _ABANDONED_LOCK:
+        workers = list(_LIVE.values())
+    for worker in workers:
+        try:
+            worker.stop()
+        except Exception:
+            pass
+    return len(workers)
+
+
+def _register_atexit() -> None:
+    global _ATEXIT_REGISTERED
+    with _ABANDONED_LOCK:
+        if _ATEXIT_REGISTERED:
+            return
+        _ATEXIT_REGISTERED = True
+    atexit.register(stop_all_workers)      # registered after ``multiprocessing`` was imported, so it runs before its own exit handler
 
 
 class WorkerProcess:
@@ -138,7 +222,14 @@ class WorkerProcess:
         self.failure_category: str | None = None
         self.exit_code = None
         self.pid: int | None = None
+        self.worker_pid: int | None = None               # as the worker wrote it into the segment: diagnostic, may differ from ``pid`` (e.g. a Windows venv launcher)
         self.abandoned = False
+        self._segment: ParentSegment | None = None
+        self._reserved = False
+        self._decoder_open = False
+        self._read_timeout_s = 0.0
+        self._last_seq = 0
+        self._nonce = 0
 
     def __repr__(self) -> str:
         return f"WorkerProcess({self._id}, {self._state.value})"
@@ -156,7 +247,8 @@ class WorkerProcess:
 
     @property
     def decoder_open(self) -> bool:
-        return False                                      # no stream can be opened before 4B-3
+        """True only after a correct RESULT for OPEN. A READY worker says nothing about this."""
+        return self._decoder_open
 
     @property
     def popen_released(self) -> bool:
@@ -193,16 +285,20 @@ class WorkerProcess:
                 self._io_changed.notify_all()
                 finalize = self._stopping and self._io_active == 0
             if finalize:
-                self._close_connection()
+                self._close_channel()
 
-    def _close_connection(self) -> None:
+    def _close_channel(self) -> None:
+        """Close the pipe and the parent's mapping (unlinking the name first). Only called when no operation uses them."""
         with self._lock:
             conn, self._conn = self._conn, None
+            segment, self._segment = self._segment, None
         if conn is not None:
             try:
                 conn.close()
             except Exception:
                 pass
+        if segment is not None:
+            segment.close()
 
     # --- launching --------------------------------------------------------------------------------
 
@@ -288,27 +384,31 @@ class WorkerProcess:
         self._apply(WorkerEvent.START_REQUESTED)
         deadline = time.monotonic() + self._config.start_deadline_s
         try:
+            self._reserve_slot()
             with self._io():
+                self._create_segment()
                 try:
                     conn, popen = self._spawn()
                 except Exception:
                     raise WorkerError("worker_start_failed") from None
                 with self._lock:
                     self._conn, self._popen, self.pid = conn, popen, popen.pid
-                nonce = secrets.randbits(64)
-                self._send(P.Init(P.PROTOCOL_VERSION, P.STATUS_TABLE_VERSION, nonce, "", 0, 1, 1))
+                self._nonce = secrets.randbits(64)
+                segment, cfg = self._segment, self._config
+                self._send(P.Init(P.PROTOCOL_VERSION, P.STATUS_TABLE_VERSION, self._nonce,
+                                  segment.name if segment else "", cfg.slot_bytes, cfg.max_width, cfg.max_height))
                 hello = self._expect(P.Hello, deadline, "worker_handshake_timeout")
                 if hello.proto_version != P.PROTOCOL_VERSION or hello.status_table_version != P.STATUS_TABLE_VERSION:
                     raise WorkerError("worker_protocol_error")
-                try:
-                    category = P.category_for_status(hello.status)
-                except P.UnknownStatus:
-                    raise WorkerError("worker_protocol_error") from None
+                category = self._status_category(hello.status)
                 if category is not None:
                     raise WorkerError(category)
-                if hello.nonce != nonce:
+                if hello.nonce != self._nonce:
                     raise WorkerError("worker_protocol_error")
+                self._verify_segment()
                 self._probe(deadline, "worker_handshake_timeout")
+                if segment is not None:
+                    segment.unlink_name()                  # POSIX: from here on no name can leak; Windows: no-op
             self._apply(WorkerEvent.HANDSHAKE_COMPLETE, "ping_ok")
         except WorkerError as exc:
             self._fail(exc.category)
@@ -316,6 +416,47 @@ class WorkerProcess:
         except BaseException:
             self._fail("worker_start_failed")
             raise
+
+    def _reserve_slot(self) -> None:
+        """Count this worker against the process-wide limit before any resource is created (decision D10)."""
+        limit = min(self._config.max_live_workers, MAX_LIVE_WORKERS)
+        with _ABANDONED_LOCK:
+            _reclaim_locked()
+            if len(_LIVE) + len(_ABANDONED) >= limit:
+                raise WorkerError("worker_limit")
+            _LIVE[id(self)] = self
+            self._reserved = True
+        _register_atexit()
+
+    def _create_segment(self) -> None:
+        if self._config.slot_bytes <= 0:
+            return
+        try:
+            segment = ParentSegment(self._config.slot_bytes)
+        except (SegmentUnavailable, P.ProtocolError):
+            raise WorkerError("shm_unavailable") from None
+        with self._lock:
+            self._segment = segment
+
+    def _verify_segment(self) -> None:
+        """The nonce the worker wrote into the shared header must equal the one it echoed on the pipe (proves a shared mapping)."""
+        segment = self._segment
+        if segment is None:
+            return
+        try:
+            header = segment.read_header()
+        except (P.ProtocolError, SegmentClosed):
+            raise WorkerError("worker_protocol_error") from None
+        if header.handshake_nonce != self._nonce or header.begin_seq or header.end_seq:
+            raise WorkerError("worker_protocol_error")
+        self.worker_pid = header.worker_pid
+
+    @staticmethod
+    def _status_category(code: int):
+        try:
+            return P.category_for_status(code)
+        except P.UnknownStatus:
+            raise WorkerError("worker_protocol_error") from None
 
     def _probe(self, deadline: float, timeout_category: str) -> None:
         op = self._new_op()
@@ -336,6 +477,105 @@ class WorkerProcess:
             self._fail(exc.category)
             raise
 
+    # --- operations (4B-2: exercised with fixture workers only; the production worker has no decoder) ---------
+
+    def _begin_operation(self, event: WorkerEvent) -> int:
+        with self._lock:
+            if self._stopping or self._state in (WorkerState.FAILED, WorkerState.STOPPING, WorkerState.TERMINATED):
+                raise WorkerError("worker_ipc_lost")
+            if self._state is not WorkerState.READY:       # STARTING, CREATED, or an operation already in flight
+                raise InvalidTransition("isolated worker", self._state.value, event.value)
+            if (event is WorkerEvent.OPEN_REQUESTED) == self._decoder_open:
+                raise InvalidTransition("isolated worker", "open" if self._decoder_open else "not_open", event.value)
+            if event is WorkerEvent.READ_REQUESTED and self._config.slot_bytes <= 0:
+                raise InvalidTransition("isolated worker", "no_shared_slot", event.value)
+            self._apply(event)
+            return self._new_op()
+
+    def _fail_unexpected(self) -> None:
+        self._fail("worker_ipc_lost")
+
+    def open(self, address: str, open_timeout_ms: int, read_timeout_ms: int) -> None:
+        """Ask the worker to open a stream. Hard deadline: ``open_timeout_ms`` + ``open_margin_s``. READY is not proof of this call."""
+        try:
+            P.Open(1, open_timeout_ms, read_timeout_ms, address)
+        except P.ProtocolError:
+            raise ValueError("invalid open arguments") from None
+        op = self._begin_operation(WorkerEvent.OPEN_REQUESTED)
+        try:
+            with self._io():
+                self._read_timeout_s = read_timeout_ms / 1000
+                self._send(P.Open(op, open_timeout_ms, read_timeout_ms, address))
+                deadline = time.monotonic() + open_timeout_ms / 1000 + self._config.open_margin_s
+                result = self._expect(P.Result, deadline, "open_deadline_exceeded")
+                if result.op_id != op:
+                    raise WorkerError("worker_protocol_error")
+                category = self._status_category(result.status)
+                if category is not None:
+                    raise WorkerError(category)
+            with self._lock:
+                if self._stopping:
+                    raise WorkerError("worker_ipc_lost")
+                self._decoder_open = True
+                self._apply(WorkerEvent.OPEN_COMPLETE, "open_ok")
+        except WorkerError as exc:
+            self._fail(exc.category)
+            raise
+        except BaseException:
+            self._fail_unexpected()
+            raise
+
+    def read(self) -> WorkerImage:
+        """Ask for one image. Hard deadline: ``read_timeout_ms`` + ``read_margin_s``. The image is copied into memory owned by the parent."""
+        op = self._begin_operation(WorkerEvent.READ_REQUESTED)
+        try:
+            with self._io():
+                self._send(P.Read(op))
+                deadline = time.monotonic() + self._read_timeout_s + self._config.read_margin_s
+                message = self._expect((P.ImageReady, P.Result), deadline, "read_deadline_exceeded")
+                if message.op_id != op:
+                    raise WorkerError("worker_protocol_error")
+                if isinstance(message, P.Result):
+                    category = self._status_category(message.status)
+                    raise WorkerError(category or "worker_protocol_error")     # a READ answered with OK and no image is a violation
+                image = self._take_image(message)
+            with self._lock:
+                if self._stopping:
+                    raise WorkerError("worker_ipc_lost")
+                self._last_seq = image.seq
+                self._apply(WorkerEvent.READ_COMPLETE, "image_ok")
+            return image
+        except WorkerError as exc:
+            self._fail(exc.category)
+            raise
+        except BaseException:
+            self._fail_unexpected()
+            raise
+
+    def _take_image(self, message: P.ImageReady) -> WorkerImage:
+        """Design 7.4: validate against the header, copy to parent memory, re-read the header, check the CRC on the copy."""
+        segment, cfg = self._segment, self._config
+        if segment is None:
+            raise WorkerError("worker_ipc_lost")
+        if message.seq != self._last_seq + 1:
+            raise WorkerError("worker_protocol_error")
+        try:
+            first = segment.read_header()
+            validate_image(message, first, max_width=cfg.max_width, max_height=cfg.max_height, max_image_bytes=cfg.slot_bytes)
+            if first.handshake_nonce != self._nonce or first.worker_pid != self.worker_pid:
+                raise P.ProtocolError("header_identity")
+            pixels = segment.copy_pixels(message.nbytes)
+            second = segment.read_header()
+        except P.ProtocolError:
+            raise WorkerError("worker_protocol_error") from None
+        except SegmentClosed:
+            raise WorkerError("worker_ipc_lost") from None
+        if second != first or not fence_is_stable(second, message.seq):     # the worker wrote while the parent owned the slot
+            raise WorkerError("worker_protocol_error")
+        if crc32_of(pixels) != first.crc32:                                 # checked on the parent's own copy
+            raise WorkerError("worker_protocol_error")
+        return WorkerImage(message.seq, message.width, message.height, message.pixel_format, pixels, message.decode_ns)
+
     def _fail(self, category: str) -> None:
         with self._lock:
             if self.failure_category is None:
@@ -355,6 +595,8 @@ class WorkerProcess:
             first = not self._stopping
             self._stopping = True
             was_ready = self._state is WorkerState.READY and self._io_active == 0
+            in_flight = self._state in (WorkerState.OPENING, WorkerState.READING)
+            had_stream = self._decoder_open
             self._apply(WorkerEvent.STOP_REQUESTED)
         if not first:
             self._terminated.wait(cfg.close_graceful_s + cfg.terminate_wait_s + cfg.kill_wait_s + 3.0)
@@ -397,6 +639,11 @@ class WorkerProcess:
                 containment_failed = True
             else:
                 self.exit_code = popen.returncode
+        uncertain: list = []
+        if (had_stream or in_flight) and ("terminate" in steps or "kill" in steps):
+            uncertain.append("operation_interrupted" if in_flight else "stream_terminated")   # effect on the device is unknown (U5)
+        if containment_failed:
+            uncertain.append("process_unreaped")
         popen = None
         with self._lock:                                   # let an operation thread leave the channel before it is closed
             end = time.monotonic() + 1.0
@@ -404,19 +651,37 @@ class WorkerProcess:
                 self._io_changed.wait(0.05)
             idle = self._io_active == 0
         if idle:
-            self._close_connection()
+            self._close_channel()
         with self._lock:
             if containment_failed:
                 self.abandoned = True
                 if self.failure_category is None:
                     self.failure_category = "containment_failed"
-                with _ABANDONED_LOCK:
-                    _ABANDONED.append(self._popen)         # the handle is still needed; the leak stays visible
+            gone = self._popen
             self._popen = None                             # ownership ends: the Popen (and its process handle) is released
+            self._decoder_open = False
             self._apply(WorkerEvent.STOPPED)
-            self._stop_report = StopReport(tuple(steps), self.exit_code, containment_failed, time.monotonic() - began)
+            slot_released = self._settle_slot(gone if containment_failed else None)
+            segment_released = self._segment is None
+            if not segment_released:
+                uncertain.append("segment_not_released")
+            self._stop_report = StopReport(tuple(steps), self.exit_code, containment_failed, time.monotonic() - began,
+                                           tuple(uncertain), segment_released, slot_released)
         self._terminated.set()
         return self._stop_report
+
+    def _settle_slot(self, unreaped) -> bool:
+        """End of life: free the slot only when the process is confirmed gone (or never existed); otherwise the Popen moves
+        to the abandoned list and keeps counting. A timeout, ``kill()`` or a lost pipe is never evidence of exit."""
+        with _ABANDONED_LOCK:
+            if not self._reserved:
+                return True
+            _LIVE.pop(id(self), None)
+            self._reserved = False
+            if unreaped is not None:
+                _ABANDONED.append(unreaped)                # the handle is still needed; the leak stays visible and counted
+                return False
+            return True
 
     def __enter__(self) -> "WorkerProcess":
         return self

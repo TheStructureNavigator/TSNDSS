@@ -1,10 +1,15 @@
-"""Shared-memory segment header codec and image validation (DB-03 Wave 4B-1; the segment itself arrives in 4B-2).
+"""Shared-memory segment header codec and image validation (DB-03 Wave 4B-1 codec, layout v2 in 4B-2).
 
-Pure functions over ``bytes``/``memoryview``: no shared memory is created or attached here. Layout (design section 7.1),
-64-byte header, little-endian, fixed-width, followed by the pixel area:
+Pure functions over ``bytes``/``memoryview``: no shared memory is created or attached here (``shm.py`` does that).
+Layout (design section 7.1, version 2), 64-byte header, little-endian, fixed-width, followed by the pixel area:
 
     0  magic "TDS1" · 4 layout_version u16 · 6 slot_bytes u32 · 12 handshake_nonce u64 · 20 worker_pid u32
-    24 begin_seq u32 · 28 end_seq u32 · 32 width u32 · 36 height u32 · 40 pixel_format u8 · 44 nbytes u32 · 48..63 zero
+    24 begin_seq u32 · 28 end_seq u32 · 32 width u32 · 36 height u32 · 40 pixel_format u8 · 44 nbytes u32
+    48 pixel_crc32 u32 · 52..63 zero
+
+Version 2 added ``pixel_crc32`` (owner decision 4B-2/1). A header of any other version is rejected: there is no implicit
+compatibility. The CRC detects corruption and torn writes; it is computed by the worker and therefore is **not** a defence
+against a hostile worker.
 
 The header fields ``begin_seq``/``end_seq`` are verification fences, not synchronization: ownership of the slot is
 decided by the message order (design section 7.3). ``validate_image`` is the parent-side check of section 7.4 step 3.
@@ -23,9 +28,9 @@ __all__ = [
 ]
 
 SEGMENT_MAGIC = b"TDS1"
-LAYOUT_VERSION = 1
+LAYOUT_VERSION = 2
 HEADER_BYTES = 64
-_LAYOUT = struct.Struct("<4sHIxxQIIIIIB3xI16x")
+_LAYOUT = struct.Struct("<4sHIxxQIIIIIB3xII12x")
 assert _LAYOUT.size == HEADER_BYTES
 
 _BYTES_PER_PIXEL = {1: 1, 3: 3}          # pixel_format code -> bytes per pixel (1 GRAY8, 3 BGR8)
@@ -55,6 +60,7 @@ class SegmentHeader:
     height: int = 0
     pixel_format: int = 0
     nbytes: int = 0
+    crc32: int = 0
     layout_version: int = LAYOUT_VERSION
 
 
@@ -63,31 +69,31 @@ def pack_header(header: SegmentHeader) -> bytes:
     try:
         return _LAYOUT.pack(SEGMENT_MAGIC, header.layout_version, header.slot_bytes, header.handshake_nonce,
                             header.worker_pid, header.begin_seq, header.end_seq, header.width, header.height,
-                            header.pixel_format, header.nbytes)
+                            header.pixel_format, header.nbytes, header.crc32)
     except struct.error:
         raise ProtocolError("header_field_range") from None
 
 
-def unpack_header(buffer: object, *, expected_slot_bytes: int | None = None) -> SegmentHeader:
+def unpack_header(buffer: object, *, expected_slot_bytes: int | None = None, segment_length: int | None = None) -> SegmentHeader:
     """Parse and validate a header. Raises ``ProtocolError`` for a short buffer, wrong magic/version, non-zero reserved bytes or an
-    unexpected slot size."""
+    unexpected slot size. ``segment_length`` is the size of the whole segment when only the first 64 bytes are passed."""
     view = memoryview(buffer)
     if len(view) < HEADER_BYTES:
         raise ProtocolError("header_short")
     fields = _LAYOUT.unpack(view[:HEADER_BYTES])
-    magic, version, slot, nonce, pid, begin, end, width, height, fmt, nbytes = fields
+    magic, version, slot, nonce, pid, begin, end, width, height, fmt, nbytes, crc = fields
     if magic != SEGMENT_MAGIC:
         raise ProtocolError("header_magic")
     if version != LAYOUT_VERSION:
         raise ProtocolError("header_version")
-    if bytes(view[48:HEADER_BYTES]) != bytes(16) or bytes(view[41:44]) != bytes(3) or bytes(view[10:12]) != bytes(2):
+    if bytes(view[52:HEADER_BYTES]) != bytes(12) or bytes(view[41:44]) != bytes(3) or bytes(view[10:12]) != bytes(2):
         raise ProtocolError("header_reserved")
     segment_size(slot)
     if expected_slot_bytes is not None and slot != expected_slot_bytes:
         raise ProtocolError("header_slot_mismatch")
-    if len(view) < HEADER_BYTES + slot:
+    if (len(view) if segment_length is None else segment_length) < HEADER_BYTES + slot:
         raise ProtocolError("header_segment_short")
-    return SegmentHeader(slot, nonce, pid, begin, end, width, height, fmt, nbytes, version)
+    return SegmentHeader(slot, nonce, pid, begin, end, width, height, fmt, nbytes, crc, version)
 
 
 def fence_is_stable(header: SegmentHeader, seq: int) -> bool:

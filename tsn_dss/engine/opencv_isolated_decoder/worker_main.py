@@ -4,8 +4,9 @@ Started by ``process.WorkerProcess`` through ``subprocess.Popen``; never imports
 module. The only thing that arrives on the command line is a numeric pipe handle and the protocol number: no host, no
 address, no key, no segment name.
 
-4B-1 scope: the readiness handshake (``INIT`` -> ``HELLO``, ``PING`` -> ``PONG``) and a clean ``CLOSE``. ``OPEN`` and
-``READ`` are answered with ``INVALID_STATE`` (the decoder arrives in 4B-3). OpenCV is never imported here.
+Scope (4B-1, 4B-2): the readiness handshake (``INIT`` -> ``HELLO``, ``PING`` -> ``PONG``), attaching the parent's shared
+segment without taking ownership of it, and a clean ``CLOSE``. ``OPEN`` and ``READ`` are answered with ``INVALID_STATE``
+(the decoder arrives in 4B-3). OpenCV is never imported here.
 
 Threads: a dedicated reader thread blocks on the control pipe and queues commands; when the pipe closes (the parent is
 gone) it ends the process at once with ``os._exit``, even while the main thread is stuck. The main thread executes
@@ -20,6 +21,7 @@ import sys
 import threading
 
 from . import protocol as P
+from .shm import SegmentUnavailable, WorkerSegment
 
 __all__ = ["EXIT_PARENT_GONE", "EXIT_PROTOCOL", "ProductionHandler", "main", "serve"]
 
@@ -41,6 +43,16 @@ class ProductionHandler:
 
     def __init__(self) -> None:
         self.initialised = False
+        self.slot: WorkerSegment | None = None             # attached, never created or unlinked here
+
+    def _attach(self, message: P.Init) -> P.Status:
+        try:
+            slot = WorkerSegment.attach(message.segment_name, message.slot_bytes)
+            slot.record_handshake(message.nonce, os.getpid())
+        except (SegmentUnavailable, OSError, ValueError):
+            return P.Status.SHM_UNAVAILABLE
+        self.slot = slot
+        return P.Status.OK
 
     def handle(self, message: P.Message) -> tuple[list[bytes], bool]:
         if isinstance(message, P.Init):
@@ -51,7 +63,7 @@ class ProductionHandler:
             if sys.version_info[:2] < _MIN_PYTHON:
                 status = P.Status.PYTHON_UNSUPPORTED
             elif message.segment_name:
-                status = P.Status.SHM_UNAVAILABLE          # the shared slot is attached in 4B-2
+                status = self._attach(message)
             return [P.encode(P.Hello(P.PROTOCOL_VERSION, P.STATUS_TABLE_VERSION, int(status), message.nonce))], False
         if not self.initialised:
             os._exit(EXIT_PROTOCOL)

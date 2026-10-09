@@ -227,6 +227,8 @@ One named segment per worker, size `64 + slot_bytes`.
 | 40 | `pixel_format` u8, `nbytes` u32 | worker | |
 | 64 | pixel area, `slot_bytes` | worker | row-major, tightly packed, top row first (PreviewPixels layout) |
 
+**Erratum (4B-2, owner decision):** layout version 2 adds `pixel_crc32` u32 at offset 48 (bytes 52..63 stay zero); the parent verifies it on its own copy. Version 1 headers are refused. See `docs/DB-03_WAVE4B2_SHARED_MEMORY_CONTAINMENT.md`.
+
 All header fields are written with fixed-width little-endian `struct` packing; the parent never interprets header bytes by any other means.
 
 ### 7.2 Who creates and who removes

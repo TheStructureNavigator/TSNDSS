@@ -13,18 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "tsn_dss" / "engine" / "opencv_isolated_decoder"
 FILES = {p.name: p for p in sorted(PACKAGE.glob("*.py"))}
 
-# Which standard-library modules each file may import (decision D11, narrowed to what 4B-1 needs).
+# Which standard-library modules each file may import (decision D11, narrowed to what 4B-1 and 4B-2 need).
 ALLOWED_STDLIB = {
     "__init__.py": {"__future__"},
     "protocol.py": {"__future__", "struct", "dataclasses", "enum", "typing"},
     "segment.py": {"__future__", "struct", "dataclasses"},
     "states.py": {"__future__", "enum"},
-    "process.py": {"__future__", "contextlib", "os", "secrets", "subprocess", "sys", "tempfile", "threading", "time", "dataclasses",
+    "shm.py": {"__future__", "secrets", "struct", "zlib", "multiprocessing"},
+    "process.py": {"__future__", "atexit", "contextlib", "os", "secrets", "subprocess", "sys", "tempfile", "threading", "time", "dataclasses",
                    "datetime", "pathlib", "multiprocessing"},
     "worker_main.py": {"__future__", "os", "queue", "sys", "threading", "multiprocessing"},
 }
 FORBIDDEN_EVERYWHERE = {"cv2", "numpy", "PIL", "av", "socket", "ssl", "select", "selectors", "asyncio", "http", "urllib", "ftplib", "ctypes",
-                        "pickle", "shelve", "sqlite3", "shutil", "io", "signal", "atexit", "requests", "seestarpy", "astropy", "mcp"}
+                        "pickle", "shelve", "sqlite3", "shutil", "io", "signal", "requests", "seestarpy", "astropy", "mcp"}
 COMMAND_WORDS = {"start_view", "stop_view", "start_scan", "scope", "park", "slew", "goto", "arm"}
 
 
@@ -50,7 +51,7 @@ def imports(path: Path):
 
 class ImportBoundaryTests(unittest.TestCase):
     def test_the_package_has_exactly_the_planned_files(self) -> None:
-        self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "states.py", "process.py", "worker_main.py"})
+        self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "shm.py", "states.py", "process.py", "worker_main.py"})
 
     def test_each_file_imports_only_what_it_is_allowed_to(self) -> None:
         for name, path in FILES.items():
@@ -60,21 +61,55 @@ class ImportBoundaryTests(unittest.TestCase):
                     self.assertIn(top, ALLOWED_STDLIB[name], (name, module))
                     self.assertNotIn(top, FORBIDDEN_EVERYWHERE, (name, module))
                 elif level == 1:
-                    self.assertIn(module, {"", "process", "protocol", "segment", "states"}, (name, module))
+                    self.assertIn(module, {"", "process", "protocol", "segment", "shm", "states"}, (name, module))
                 else:
                     self.assertEqual(level, 2)
                     self.assertIn(module, {"device_runtime.errors", "device_runtime.lifecycle"}, (name, module))
 
-    def test_multiprocessing_is_limited_to_the_connection_module(self) -> None:
+    def test_multiprocessing_is_limited_to_the_connection_and_shared_memory_modules(self) -> None:
         for name, path in FILES.items():
-            for level, module in imports(path):
-                if level == 0 and module.split(".")[0] == "multiprocessing":
-                    self.assertEqual(module, "multiprocessing.connection", (name, module))
-                    self.assertIn(name, {"process.py", "worker_main.py"})
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        self.assertNotEqual(alias.name.split(".")[0], "multiprocessing", (name, alias.name))     # no bare 'import multiprocessing'
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and (node.module or "").split(".")[0] == "multiprocessing":
+                    if name == "shm.py":
+                        self.assertEqual((node.module, [a.name for a in node.names]), ("multiprocessing", ["shared_memory"]))
+                    else:
+                        self.assertEqual(node.module, "multiprocessing.connection", (name, node.module))
+                        self.assertIn(name, {"process.py", "worker_main.py"})
 
-    def test_shared_memory_is_not_used_yet(self) -> None:
+    def test_shared_memory_exists_only_in_the_segment_module(self) -> None:
         for name, path in FILES.items():
-            self.assertNotIn("shared_memory", code_only(path), name)                        # attached in 4B-2
+            if name != "shm.py":
+                self.assertNotIn("shared_memory", code_only(path), name)
+                self.assertNotIn("SharedMemory", code_only(path), name)
+        self.assertIn("track=False", code_only(PACKAGE / "shm.py"))                       # the worker never registers the segment with its own tracker
+
+    def test_atexit_and_zlib_are_confined_to_their_modules(self) -> None:
+        for name, path in FILES.items():
+            tops = {module.split(".")[0] for level, module in imports(path) if level == 0}
+            self.assertEqual("atexit" in tops, name == "process.py", name)
+            self.assertEqual("zlib" in tops, name == "shm.py", name)
+
+    def test_the_segment_module_does_not_know_the_launcher(self) -> None:
+        self.assertNotIn(("process"), {m for level, m in imports(FILES["shm.py"]) if level == 1})
+
+    def test_the_worker_never_unlinks_and_the_parent_never_exposes_a_view(self) -> None:
+        worker = code_only(PACKAGE / "worker_main.py")
+        self.assertNotIn("unlink", worker)
+        shm = ast.parse((PACKAGE / "shm.py").read_text(encoding="utf-8"))
+        classes = {n.name: n for n in shm.body if isinstance(n, ast.ClassDef)}
+
+        def attributes(node):
+            return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
+
+        self.assertIn("unlink", attributes(classes["ParentSegment"]))
+        self.assertNotIn("unlink", attributes(classes["WorkerSegment"]))
+        for method in ast.walk(classes["ParentSegment"]):
+            if isinstance(method, ast.FunctionDef) and method.name in {"read_header", "copy_pixels"}:
+                returns = [ast.unparse(r.value) for r in ast.walk(method) if isinstance(r, ast.Return)]
+                self.assertTrue(all("buf" not in r.replace("bytes(part)", "") for r in returns), (method.name, returns))
 
     def test_no_opencv_decoder_and_no_preview_runtime_coupling(self) -> None:
         for name, path in FILES.items():
@@ -93,7 +128,7 @@ class ImportBoundaryTests(unittest.TestCase):
         code = (
             "import sys\nimport tsn_dss.engine.device_runtime\nbefore=set(sys.modules)\n"
             "import tsn_dss.engine.opencv_isolated_decoder as p\n"
-            "bad=sorted(m for m in set(sys.modules)-before if m.split('.')[0] in {'cv2','numpy','PIL','av'} or m=='multiprocessing.shared_memory')\n"
+            "bad=sorted(m for m in set(sys.modules)-before if m.split('.')[0] in {'cv2','numpy','PIL','av'} )\n"
             "print(','.join(bad)); print(sorted(p.__all__)[:2])\n"
         )
         result = subprocess.run([sys.executable, "-P", "-c", code], cwd=ROOT, capture_output=True, text=True,

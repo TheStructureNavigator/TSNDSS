@@ -107,7 +107,7 @@
         "tests.test_isolated_protocol.SegmentHeaderTests.test_unpack_rejects_bad_headers",
         "tests.test_isolated_protocol.SegmentHeaderTests.test_short_buffers_and_slot_expectations",
         "tests.test_isolated_protocol.SegmentHeaderTests.test_pack_rejects_out_of_range_fields",
-        "tests.test_isolated_boundaries.ImportBoundaryTests.test_shared_memory_is_not_used_yet"
+        "tests.test_isolated_boundaries.ImportBoundaryTests.test_shared_memory_exists_only_in_the_segment_module"
       ]
     },
     {

@@ -222,7 +222,8 @@ class StatusTableTests(unittest.TestCase):
 
 class SegmentHeaderTests(unittest.TestCase):
     def header(self, **kw):
-        fields = dict(slot_bytes=1000, handshake_nonce=11, worker_pid=22, begin_seq=3, end_seq=3, width=4, height=2, pixel_format=3, nbytes=24)
+        fields = dict(slot_bytes=1000, handshake_nonce=11, worker_pid=22, begin_seq=3, end_seq=3, width=4, height=2, pixel_format=3, nbytes=24,
+                      crc32=0xDEADBEEF)
         fields.update(kw)
         return S.SegmentHeader(**fields)
 
@@ -247,14 +248,18 @@ class SegmentHeaderTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<II", raw, 32), (4, 2))
         self.assertEqual(raw[40], 3)
         self.assertEqual(struct.unpack_from("<I", raw, 44)[0], 24)
-        self.assertEqual(raw[48:], bytes(16))
+        self.assertEqual(struct.unpack_from("<I", raw, 48)[0], 0xDEADBEEF)              # layout v2: pixel CRC32
+        self.assertEqual(raw[52:], bytes(12))
+        self.assertEqual(S.LAYOUT_VERSION, 2)
 
     def test_unpack_rejects_bad_headers(self) -> None:
         good = self.buffer()
         for mutate, reason in (
             (lambda b: b.__setitem__(slice(0, 4), b"XXXX"), "header_magic"),
-            (lambda b: struct.pack_into("<H", b, 4, 2), "header_version"),
-            (lambda b: b.__setitem__(48, 1), "header_reserved"),
+            (lambda b: struct.pack_into("<H", b, 4, 1), "header_version"),             # v1 is rejected: no implicit compatibility
+            (lambda b: struct.pack_into("<H", b, 4, 3), "header_version"),
+            (lambda b: b.__setitem__(52, 1), "header_reserved"),
+            (lambda b: b.__setitem__(63, 1), "header_reserved"),
             (lambda b: b.__setitem__(41, 1), "header_reserved"),
             (lambda b: b.__setitem__(10, 1), "header_reserved"),
             (lambda b: struct.pack_into("<I", b, 6, 0), "slot_bytes_range"),

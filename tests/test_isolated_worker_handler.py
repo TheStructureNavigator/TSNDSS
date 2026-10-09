@@ -38,8 +38,8 @@ class HandshakeTests(unittest.TestCase):
             (hello,), _ = reply(W.ProductionHandler(), INIT)
         self.assertEqual(P.category_for_status(hello.status), "python_unsupported")
 
-    def test_a_shared_segment_is_refused_until_4b2(self) -> None:
-        (hello,), _ = reply(W.ProductionHandler(), P.Init(1, 1, 1, "segment_x", 100, 10, 10))
+    def test_a_segment_that_does_not_exist_is_refused(self) -> None:
+        (hello,), _ = reply(W.ProductionHandler(), P.Init(1, 1, 1, "no_such_segment_x", 100, 10, 10))
         self.assertEqual(P.category_for_status(hello.status), "shm_unavailable")
 
     def test_ping_is_answered_after_init(self) -> None:
