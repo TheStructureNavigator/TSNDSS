@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "stage": "DB-03",
+  "wave": 4,
+  "title": "Optional OpenCV RTSP decoder (offline)",
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "note": "Wave 4 verifies the OpenCV/FFmpeg decoder adapter against a fake cv2 module and the Wave 1-3 flow over a fake transport. Every test is offline. No real OpenCV, no real RTSP connection and no hardware is involved; OpenCV behavior (timeouts, 5.x, name resolution, the Seestar RTSP server) is unverified.",
+  "evidence_classes": {
+    "offline": "Deterministic tests against a fake cv2 module, a fake transport and the Wave 1-3 runtime.",
+    "hardware": "None. Wave 4 makes no hardware claim; hardware validation is Wave 5."
+  },
+  "hardware_claims": [],
+  "not_claimed": {
+    "hard_timeout": "The adapter provides OpenCV soft timeouts only. It gives no hard timeout and no containment of a hung capture; see docs/DB-03_OPENCV_DECODER.md.",
+    "REQ-058": "Concerns Telemetry samples only (decision D3).",
+    "REQ-057": "DB-04.",
+    "REQ-060": "DB-04.",
+    "REQ-030": "Simulator Provider obligations; the adapter is not a Simulator Provider.",
+    "REQ-031": "Same as REQ-030.",
+    "REQ-063": "Same as REQ-030.",
+    "REQ-016": "Not claimed again here; the read-only evidence path is covered by Waves 2 and 3.",
+    "hardware": "No hardware evidence of any kind is claimed."
+  },
+  "local_semantics": [
+    {
+      "id": "PRV-S4-001",
+      "text": "OpenCV is an optional, lazily imported dependency: nothing is imported at package import or construction, no requirement was added, no test imports a real OpenCV, and lower layers do not know the package.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_opencv_is_imported_in_exactly_one_lazy_place",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_no_dependency_was_added",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_no_test_imports_a_real_opencv",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_lower_layers_do_not_know_this_package",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_importing_the_package_loads_neither_opencv_nor_numpy",
+        "tests.test_opencv_preview_decoder.ImportTests.test_construction_and_import_of_the_package_load_no_opencv"
+      ]
+    },
+    {
+      "id": "PRV-S4-002",
+      "text": "A missing or broken OpenCV, an unsupported or unreadable version and an incompatible module are refused with fixed categories before anything is opened.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.ImportTests.test_missing_or_broken_opencv_is_a_category_not_a_traceback",
+        "tests.test_opencv_preview_decoder.ImportTests.test_default_loader_without_opencv_installed_fails_cleanly",
+        "tests.test_opencv_preview_decoder.ImportTests.test_version_gate",
+        "tests.test_opencv_preview_decoder.ImportTests.test_incompatible_module_is_refused",
+        "tests.test_opencv_preview_integration.FlowTests.test_unavailable_opencv_is_an_open_failure_with_a_category"
+      ]
+    },
+    {
+      "id": "PRV-S4-003",
+      "text": "The FFmpeg backend is requested explicitly with both soft timeouts, confirmed after opening, and never replaced by another backend; one construction only, no reconnect.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.OpenTests.test_ffmpeg_backend_is_forced_with_both_timeouts",
+        "tests.test_opencv_preview_decoder.OpenTests.test_other_backend_is_never_accepted",
+        "tests.test_opencv_preview_decoder.OpenTests.test_unverifiable_backend_is_refused",
+        "tests.test_opencv_preview_decoder.OpenTests.test_a_decoder_is_never_reopened",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_backend_is_explicit_and_there_is_no_fallback",
+        "tests.test_opencv_preview_integration.FlowTests.test_a_failed_read_is_a_lost_stream_and_the_adapter_never_reconnects"
+      ]
+    },
+    {
+      "id": "PRV-S4-004",
+      "text": "Only the pixel layouts PreviewPixels supports are produced (BGR8, GRAY8); frames are validated for depth, channels, dimensions and byte size before any copy; limits are enforced.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.ReadTests.test_color_and_gray_frames",
+        "tests.test_opencv_preview_decoder.ReadTests.test_unsupported_formats_and_depths",
+        "tests.test_opencv_preview_decoder.ReadTests.test_oversize_frames_are_rejected_before_any_copy",
+        "tests.test_opencv_preview_decoder.ReadTests.test_inconsistent_data_length_is_rejected",
+        "tests.test_opencv_preview_decoder.ConfigTests.test_validation"
+      ]
+    },
+    {
+      "id": "PRV-S4-005",
+      "text": "Every failure is a fixed category; OpenCV messages, the host and the RTSP address are never kept, shown or chained.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.OpenTests.test_open_failures",
+        "tests.test_opencv_preview_decoder.ReadTests.test_failed_reads_are_a_lost_stream_not_a_retry",
+        "tests.test_opencv_preview_decoder.RedactionTests.test_repr_hides_the_address",
+        "tests.test_opencv_preview_decoder.SourceIntegrationTests.test_through_the_wave3_source_categories_survive_and_nothing_leaks",
+        "tests.test_opencv_preview_integration.RedactionTests.test_no_output_reveals_the_host_or_the_address"
+      ]
+    },
+    {
+      "id": "PRV-S4-006",
+      "text": "The capture is released exactly once, also after a failed open or a failing release; a failed read is a lost stream and recovery is only a new stream after new readiness evidence.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.ReleaseTests.test_close_releases_exactly_once_and_is_idempotent",
+        "tests.test_opencv_preview_decoder.ReleaseTests.test_release_failure_is_a_category_and_is_not_retried",
+        "tests.test_opencv_preview_decoder.ReleaseTests.test_release_failure_during_a_failed_open_does_not_mask_the_open_error",
+        "tests.test_opencv_preview_integration.FlowTests.test_recovery_only_through_a_new_stream_after_new_evidence",
+        "tests.test_opencv_preview_integration.FlowTests.test_disconnect_releases_every_capture_once"
+      ]
+    },
+    {
+      "id": "PRV-S4-007",
+      "text": "What cannot be interrupted is not pretended to be: a blocked read blocks its caller (no hard timeout), a concurrent close is deferred and never released underneath a running call, a concurrent second call is refused, and the pending release is visible.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_decoder.UninterruptibleCallTests.test_a_hung_read_blocks_the_calling_thread_and_the_adapter_claims_no_timeout_of_its_own",
+        "tests.test_opencv_preview_decoder.UninterruptibleCallTests.test_close_during_a_blocked_read_is_deferred_never_concurrent",
+        "tests.test_opencv_preview_decoder.UninterruptibleCallTests.test_a_second_concurrent_call_is_refused",
+        "tests.test_opencv_preview_decoder.UninterruptibleCallTests.test_a_close_that_never_gets_its_turn_is_reported_as_pending",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_both_soft_timeouts_are_passed_and_no_hard_timeout_is_claimed",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_threads_are_started_and_no_process_is_spawned",
+        "tests.test_opencv_preview_decoder.DeferredCloseRaceTests.test_close_arriving_just_before_the_lock_is_released_is_still_honored",
+        "tests.test_opencv_preview_decoder.DeferredCloseRaceTests.test_the_same_window_during_open_and_close_paths",
+        "tests.test_opencv_preview_decoder.DeferredCloseRaceTests.test_release_is_only_ever_called_with_the_lock_held"
+      ]
+    },
+    {
+      "id": "PRV-S4-008",
+      "text": "The readiness gate decides first: after a refusal no decoder is created and OpenCV is neither loaded nor opened.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_integration.GateTests.test_a_refused_gate_creates_no_decoder_and_never_loads_or_opens_opencv",
+        "tests.test_opencv_preview_integration.GateTests.test_a_ready_connection_with_no_camera_evidence_opens_nothing",
+        "tests.test_opencv_preview_integration.GateTests.test_building_and_polling_without_opening_touch_nothing"
+      ]
+    },
+    {
+      "id": "PRV-S4-009",
+      "text": "Main and wide run independently through the adapter; a fault in one never stops the other.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_integration.FlowTests.test_both_cameras_through_ffmpeg_with_their_own_endpoints",
+        "tests.test_opencv_preview_integration.FlowTests.test_one_camera_lost_the_other_keeps_running",
+        "tests.test_opencv_preview_integration.FlowTests.test_open_failure_is_contained_per_camera",
+        "tests.test_opencv_preview_integration.FlowTests.test_a_stalled_stream_is_never_presented_as_fresh"
+      ]
+    },
+    {
+      "id": "PRV-S4-010",
+      "text": "No command, reconnect, write or process surface: no state-changing capture property, no file or network primitive, no command vocabulary.",
+      "evidence": "offline",
+      "tests": [
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_command_or_reconnect_vocabulary",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_print_file_access_eval_or_literal_addresses",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_state_changing_capture_properties_are_used",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_only_allowed_imports_and_opencv_is_never_imported_statically"
+      ]
+    }
+  ],
+  "requirements": {
+    "REQ-018": {
+      "status": "partially_verified",
+      "evidence": "offline",
+      "text": "Preview data does not automatically become Capture, Frame, Dataset, ProcessingRun, Observation or Session state: a full offline OpenCV-adapter flow leaves a canonical database and its directory untouched and the adapter has no write primitive.",
+      "tests": [
+        "tests.test_opencv_preview_integration.EvidenceOnlyTests.test_a_full_opencv_flow_leaves_the_canonical_database_and_directory_untouched",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_print_file_access_eval_or_literal_addresses"
+      ]
+    },
+    "REQ-022": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Passive preview reads submit no Commands: the adapter has the open/read/close seam only, no command vocabulary and no state-changing capture property.",
+      "tests": [
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_command_or_reconnect_vocabulary",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_state_changing_capture_properties_are_used"
+      ]
+    },
+    "REQ-059": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Reading preview images through the adapter alters no device state and happens only after a positive gate.",
+      "tests": [
+        "tests.test_opencv_preview_integration.GateTests.test_a_refused_gate_creates_no_decoder_and_never_loads_or_opens_opencv",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_state_changing_capture_properties_are_used"
+      ]
+    },
+    "REQ-033": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "Decoded images never become a Capture or Frame; pixels stay in memory.",
+      "tests": [
+        "tests.test_opencv_preview_integration.EvidenceOnlyTests.test_a_full_opencv_flow_leaves_the_canonical_database_and_directory_untouched",
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_print_file_access_eval_or_literal_addresses"
+      ]
+    },
+    "REQ-052": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "The adapter imports no domain, storage, GUI or legacy-adapter code and owns no domain semantics.",
+      "tests": [
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_only_allowed_imports_and_opencv_is_never_imported_statically",
+        "tests.test_opencv_preview_boundaries.ImportBoundaryTests.test_lower_layers_do_not_know_this_package"
+      ]
+    },
+    "REQ-064": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "A decoder, a decoded image or a stream does not by itself prove that a Session, Observation, Capture, Frame, Dataset or ProcessingRun occurred or exists.",
+      "tests": [
+        "tests.test_opencv_preview_integration.EvidenceOnlyTests.test_a_full_opencv_flow_leaves_the_canonical_database_and_directory_untouched"
+      ]
+    },
+    "REQ-067": {
+      "status": "boundary_verified",
+      "evidence": "offline",
+      "text": "No Acquisition Execution surface in the adapter.",
+      "tests": [
+        "tests.test_opencv_preview_boundaries.SafetyBoundaryTests.test_no_command_or_reconnect_vocabulary"
+      ]
+    }
+  },
+  "decision_note": "Containment decision (owner): variant C, one decoder process per camera, is the target architecture and is a separate wave (DB-03 Wave 4B) required before unattended or continuous hardware use. Variant D is allowed only as a transitional way to run one short, attended single-camera validation, after separate consent. This wave implements neither."
+}
