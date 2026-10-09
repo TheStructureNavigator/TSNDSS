@@ -259,7 +259,10 @@ Expected work:
 - distinguish behavioral coverage from contract coverage
 
 Status:
-ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8
+COMPLETE
+
+Completion note:
+Wave 9 established contract conformance traceability for DSS-CTR-001 through DSS-CTR-012 without production or schema changes. It added stable manifest-owned requirement IDs, source line ranges, normalized summaries, SHA-256 excerpt hashes, mechanical inventory validation, source-hash validation, and fully qualified unittest-reference validation. Independent re-acceptance in Pass 6 returned ACCEPTED. The accepted manifest records 169 normative requirements: 74 verified, 71 partially verified, 4 not verified, 10 policy-only, and 10 not implemented by adjudication. Core non-socket regression passed with 265 tests OK. Wave 9 COMPLETE means the traceability and evidence layer is accepted; it does not mean every contract obligation is fully implemented or fully verified. Known limitations remain visible: partial and unverified obligations, policy-only obligations, unimplemented SessionMember capabilities, and API/MCP execution limitations.
 
 Conformance tests should be added during each implementation wave where practical. Wave 9 is final consolidation, not permission to defer all tests until the end.
 
@@ -304,7 +307,7 @@ For every future implementation wave:
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | COMPLETE | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | COMPLETE | Medium |
 | 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | COMPLETE | Medium |
-| 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8 | Low |
+| 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | COMPLETE | Low |
 
 ## 9. Definition of Done
 
@@ -324,8 +327,6 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 9 — Contract Conformance Suite planning / implementation planning
+NEXT: No further wave is defined in this roadmap.
 
-Next work is planning and implementation planning for the final contract conformance suite.
-
-Do not begin Wave 9 implementation now.
+Wave 9 is COMPLETE. Do not begin Wave 10 or invent new roadmap scope without human adjudication.

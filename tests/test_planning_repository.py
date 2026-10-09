@@ -596,6 +596,46 @@ class PlanningRepositoryTests(unittest.TestCase):
                 )
             )
 
+    def test_acquisition_plan_creation_does_not_create_unrelated_domain_records(self) -> None:
+        self.repository.create_target(
+            Target(
+                target_type="fixed_coordinate",
+                id="target:side-effect",
+                name="Side Effect Target",
+                ra_deg=1.0,
+                dec_deg=2.0,
+            )
+        )
+        before = {
+            table: self.connection.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+            for table in (
+                "sessions",
+                "session_plans",
+                "observations",
+                "captures",
+                "frames",
+                "datasets",
+                "processing_runs",
+            )
+        }
+
+        self.repository.save_acquisition_plan(
+            AcquisitionPlan(
+                id="plan:side-effect",
+                target_id="target:side-effect",
+                name="Side Effect Plan",
+                sequences=[
+                    AcquisitionSequence(sequence_order=10, frame_type="light", exposure_s=60.0, frame_count=1)
+                ],
+            )
+        )
+
+        after = {
+            table: self.connection.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+            for table in before
+        }
+        self.assertEqual(after, before)
+
 
 if __name__ == "__main__":
     unittest.main()

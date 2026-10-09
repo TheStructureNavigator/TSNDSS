@@ -227,6 +227,29 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
                 )
             )
 
+    def test_processing_run_creation_does_not_create_or_redefine_session_or_observation(self) -> None:
+        before_sessions = self.connection.execute("SELECT id, state FROM sessions ORDER BY id;").fetchall()
+        before_observations = self.connection.execute(
+            "SELECT id, session_id, target_id, acquisition_plan_id, status FROM observations ORDER BY id;"
+        ).fetchall()
+
+        self.processing.create_processing_run(
+            ProcessingRun(
+                id="processing:m42:first-light:v001",
+                dataset_id="dataset:m42:first-light",
+                version_label="v001",
+                engine_name="Siril",
+                status="planned",
+            )
+        )
+
+        after_sessions = self.connection.execute("SELECT id, state FROM sessions ORDER BY id;").fetchall()
+        after_observations = self.connection.execute(
+            "SELECT id, session_id, target_id, acquisition_plan_id, status FROM observations ORDER BY id;"
+        ).fetchall()
+        self.assertEqual(after_sessions, before_sessions)
+        self.assertEqual(after_observations, before_observations)
+
     def test_full_m42_workflow_reaches_output(self) -> None:
         run = self.processing.create_processing_run(
             ProcessingRun(
@@ -261,6 +284,7 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         self.project_id, self.capture_id = seed_project_and_capture(self.connection)
         self.planning.create_target(
             Target(
+                target_type="fixed_coordinate",
                 id="target:m42",
                 catalog="MESSIER",
                 catalog_id="M42",
@@ -271,6 +295,7 @@ class ProcessingRunRepositoryTests(unittest.TestCase):
         )
         self.planning.create_target(
             Target(
+                target_type="fixed_coordinate",
                 id="target:m31",
                 catalog="MESSIER",
                 catalog_id="M31",

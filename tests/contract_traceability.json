@@ -1,0 +1,2549 @@
+{
+  "schema_version": 1,
+  "contracts": [
+    {
+      "contract_id": "DSS-CTR-001",
+      "source_path": "../Contracts/DSS-CTR-001-Session-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-001.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "not_verified",
+          "tests": [],
+          "source": {
+            "line_start": 16,
+            "line_end": 16,
+            "excerpt_hash": "sha256:5d33381beafe89f8891b234d6addedbc0f699b29f79f4cb038631ff85a0b1d2e"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Session **SHALL** use the meaning established by this contract.",
+          "rationale": "No current repository-level conformance test directly proves this complete obligation."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_create_get_and_list_standalone_session"
+          ],
+          "source": {
+            "line_start": 46,
+            "line_end": 49,
+            "excerpt_hash": "sha256:b8048de039b33ba33e28ba86dfca212948012557bf841d046a277871ecbc2b3c"
+          },
+          "summary": "Every Session **SHALL** have: - `session_id` - `started_at`"
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_abort_sets_terminal_fields_consistently",
+            "tests.test_session_repository.SessionRepositoryTests.test_session_transition_lifecycle_preserves_operator"
+          ],
+          "source": {
+            "line_start": 51,
+            "line_end": 54,
+            "excerpt_hash": "sha256:9d7e98f043fc6e8db787f5062456af1a531bf78c1dfe92b3f7e1c3cf47d1ae69"
+          },
+          "summary": "A completed or otherwise terminated Session **SHALL** additionally have: - `ended_at` - `final_state`"
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_create_get_and_list_standalone_session",
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 68,
+            "line_end": 68,
+            "excerpt_hash": "sha256:3a9399a8a1e07425a1f10e7c035ef51de408355d90cebbc049e0e8e86945cd0e"
+          },
+          "summary": "The Session identity belongs to TSN DSS and SHALL NOT depend on the identity model of any individual provider, Project, Capture, Frame, Dataset, ProcessingRun, or external integration.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-005",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_session_transition_lifecycle_preserves_operator"
+          ],
+          "source": {
+            "line_start": 74,
+            "line_end": 74,
+            "excerpt_hash": "sha256:d8c6f1b14e538c3703280db27617327447473b3cc42ecd1c78def21d4e4be8d2"
+          },
+          "summary": "Every active Session **SHALL** have exactly one **Session Operator**.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-006",
+          "classification": "boundary",
+          "verification_status": "not_verified",
+          "tests": [],
+          "source": {
+            "line_start": 112,
+            "line_end": 112,
+            "excerpt_hash": "sha256:5618e5d70f5e24a88d52e71e91d33bd46df9efe213175d7387dda37971baf935"
+          },
+          "summary": "Session termination SHALL NOT invalidate information already recorded during the Session.",
+          "rationale": "No current repository-level conformance test directly proves this complete obligation."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-007",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none",
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session",
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 120,
+            "line_end": 125,
+            "excerpt_hash": "sha256:b55fc0c85d6f99d7ce793d30e80251cfb85b97d70cbf3341623d77443adc92e6"
+          },
+          "summary": "A Session **SHALL** own: - zero or one active Session Plan, - zero or more Session Events, - zero or more Session Context associations, - zero or more Observations.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-008",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 139,
+            "line_end": 139,
+            "excerpt_hash": "sha256:e7a4207b4d364012f2a7808140f758b4b361aaaab2631e216f4c110a9d68a99e"
+          },
+          "summary": "> **Project SHALL NOT own Session**"
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-009",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 143,
+            "line_end": 143,
+            "excerpt_hash": "sha256:69d079729df36686153faef5be661dbd961fe651d0a09865709742910dcc129f"
+          },
+          "summary": "> **Session SHALL NOT own Project**"
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-010",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 145,
+            "line_end": 145,
+            "excerpt_hash": "sha256:ccbeca6bdf74ee462e4096d3d77d1c243265dcae231fadc05c35d8067e062c60"
+          },
+          "summary": "A Session **SHALL NOT** own Capture provenance."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-011",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 147,
+            "line_end": 147,
+            "excerpt_hash": "sha256:517044ed8535a6236210e75104166634e292d5c4e55f49c36ba97e1214772612"
+          },
+          "summary": "A Session **SHALL NOT** own Frame provenance."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-012",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership",
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 149,
+            "line_end": 149,
+            "excerpt_hash": "sha256:61a9f175747f7c6d7222de010abd4324cf39d7f3cf081d7857e280ce8340ab69"
+          },
+          "summary": "A Session **SHALL NOT** own Datasets or ProcessingRuns.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-013",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_blank_and_nonexistent_session_are_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 165,
+            "line_end": 165,
+            "excerpt_hash": "sha256:fbace5ea996322510a5beb2c72c3213c50c2ffdf1628e94160947904ab89b776"
+          },
+          "summary": "Every canonical Observation associated with TSN DSS **SHALL** belong to exactly one Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-014",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed",
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair",
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 171,
+            "line_end": 173,
+            "excerpt_hash": "sha256:9c9b64afb554360cd175f0d13733fb5c5519bdc1d3a9e3c1914177ea092a919f"
+          },
+          "summary": "Observation semantics, Target relationships, AcquisitionPlan references, Frame associations, outputs, and completion criteria are outside the scope of this contract and SHALL be defined by: > **DSS-CTR-003 --- Observation Contract**",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-015",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_planning_lifecycle_creates_no_observation",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 187,
+            "line_end": 187,
+            "excerpt_hash": "sha256:7ad8929cbfcfe2f95cb5d3c170a89f6ddc573e8f9770e380051c1f520253e386"
+          },
+          "summary": "A Session Plan SHALL NOT redefine Session, Observation, Target, AcquisitionPlan, MosaicPlan, MosaicPanel, Project, Capture, Frame, Dataset, or ProcessingRun semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-016",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 211,
+            "line_end": 211,
+            "excerpt_hash": "sha256:a57d2a1bc6d3ae1aafb5a25d845e05ae7e51e7dac1d02b3404547f489e4858b3"
+          },
+          "summary": "Absence or failure of an optional context provider SHALL NOT prevent a Session from existing.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-017",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 227,
+            "line_end": 227,
+            "excerpt_hash": "sha256:ccbfea86a218d9ca9c04a855ca19f8ec9d0dcf31c56ff22f5083c9ffb3942c79"
+          },
+          "summary": "Events SHALL NOT redefine the canonical meaning of Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-018",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 233,
+            "line_end": 233,
+            "excerpt_hash": "sha256:54183665d2f160aafbc51b478e6f5e7c6bc0b640c487814e890f0774841c881f"
+          },
+          "summary": "This contract SHALL NOT require a specific telescope, camera, mount, sensor, computer, vehicle, lighting system, music service, environmental station, sky-quality instrument, or other implementation.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-019",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 237,
+            "line_end": 237,
+            "excerpt_hash": "sha256:07800bfc74fe0d6916c35106e94bee6ecf03af953293058e705bd715f0550ca1"
+          },
+          "summary": "Specific equipment integrations SHALL NOT redefine the canonical meaning of a Session.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-020",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 249,
+            "line_end": 255,
+            "excerpt_hash": "sha256:13c078f86136ba0d42bb4bd8231e50568c001b337437e627ad8bd37b0849867d"
+          },
+          "summary": "Safety of Session Members SHALL take precedence over: - Observation completion, - equipment operation, - data acquisition, - Session objectives, - preservation of planned procedure.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-021",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 259,
+            "line_end": 259,
+            "excerpt_hash": "sha256:4eb1d7008f942262bc011e3dcdae35dec62fc0aa779c3f6d64359ef35391f117"
+          },
+          "summary": "Detailed safety rules are outside the scope of this contract and SHALL be governed by applicable TSN DSS safety policies.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-022",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 312,
+            "line_end": 312,
+            "excerpt_hash": "sha256:db2a9b5cf993ec41f212ed17bfabfb78700270a7fa1e6447ced9e7cf5ff5c812"
+          },
+          "summary": "Dependent documents SHALL NOT redefine the canonical meaning of Session established by DSS-CTR-001.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-001.REQ-023",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session",
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_imported_capture_frames_fabricate_neither_session_nor_association"
+          ],
+          "source": {
+            "line_start": 322,
+            "line_end": 322,
+            "excerpt_hash": "sha256:a380d2d6dfefec164d3c8a2af66e1366ffba1c7bb1430e22fa97c7b11c254c1f"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT fabricate Sessions merely to make legacy data conform.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-002",
+      "source_path": "../Contracts/DSS-CTR-002-Session-Member-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-002.REQ-001",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:e44ea5b5d7b34dd94f805fb53f1dd9df204d05024d14cb3b5fe5a767c45e04d5"
+          },
+          "summary": "This contract depends on and SHALL be interpreted according to: > **DSS-CTR-001 --- Session Contract**",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-002",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 62,
+            "line_end": 62,
+            "excerpt_hash": "sha256:6240346d30c759c67d67f0cb46229588b75e502fb014b2781a4af5708cb207be"
+          },
+          "summary": "Session Members SHALL respect operational instructions issued by the Session Operator when those instructions relate to safety, equipment, Observation integrity, or Session execution.",
+          "rationale": "SessionMember persistence, permissions, and lifecycle were explicitly left out of Wave 9 correction scope and are not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-003",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 70,
+            "line_end": 70,
+            "excerpt_hash": "sha256:1aac5401a0445524153714f2a0159d201dc03cf0fa329b26f25508b05383f79f"
+          },
+          "summary": "Session membership **SHALL NOT** imply ownership of any Project.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association",
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 72,
+            "line_end": 72,
+            "excerpt_hash": "sha256:8ebebb4627607915f8697d523f587a2e6ae8502b84885ce5da1869ce5554d03f"
+          },
+          "summary": "Session membership **SHALL NOT** imply ownership of Captures, Frames, Datasets, ProcessingRuns, MosaicPlans, MosaicPanels, AcquisitionPlans, or other provenance or planning artifacts.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-005",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 105,
+            "line_end": 105,
+            "excerpt_hash": "sha256:3575f5350b523d6730c82ffcb9920949dca21248bab8eb81f0d883e70a4c0381"
+          },
+          "summary": "No Session Member SHALL be required to understand provider architecture, telemetry schemas, MCP integrations, or other implementation details merely to look at the sky.",
+          "rationale": "SessionMember experience and implementation-detail exposure are not implemented repository capabilities."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-006",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 113,
+            "line_end": 113,
+            "excerpt_hash": "sha256:5436da66e69816bf172d36a26160301ce65322975a1651d2573925920bbde8f1"
+          },
+          "summary": "A Session Member SHALL NOT automatically receive control over all Session systems.",
+          "rationale": "SessionMember capability assignment is not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-007",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 129,
+            "line_end": 129,
+            "excerpt_hash": "sha256:6c4e3777325e83d75f6189cc394e5bdb04f991eabe5561b6970db8a70f24a8d7"
+          },
+          "summary": "The absence of a capability SHALL NOT prevent ordinary participation unless that capability is required for a specific action.",
+          "rationale": "SessionMember participation and capability checks are not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-008",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 131,
+            "line_end": 131,
+            "excerpt_hash": "sha256:774fecbc2ed4101b14006ca5408d10ad05f7ce59839491f1d4c5ec89679298f8"
+          },
+          "summary": "A Session Member without `equipment.control` SHALL NOT operate astronomical equipment merely because the equipment is physically accessible.",
+          "rationale": "SessionMember equipment-control capability checks are not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-009",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 137,
+            "line_end": 137,
+            "excerpt_hash": "sha256:b6860d70dc47dd177871848b1e35b4e29b4a7cb9d210ad9a0bf27a10f5260328"
+          },
+          "summary": "Session Members SHALL treat astronomical instruments, computers, sensors, power systems, and other Session equipment as operational equipment.",
+          "rationale": "SessionMember equipment interaction behavior is not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-010",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 139,
+            "line_end": 146,
+            "excerpt_hash": "sha256:a1c8d1e1a9b0f2256fd330a3ac41d2127f063ebb2d03b2cb6a094829c99d3110"
+          },
+          "summary": "Unless explicitly authorized, Session Members SHALL NOT: - move or reposition an active Observation instrument, - disconnect power or communication links, - modify acquisition settings, - interrupt an active Observation, - alter Session software configuration, - handle equipment in a way that may compromise safety or data acquisition.",
+          "rationale": "SessionMember authorization and equipment operation behavior are not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-011",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 168,
+            "line_end": 168,
+            "excerpt_hash": "sha256:2d200feee6b1fa64d651f70d4f56e660da736a55b4a5b94fde127eabd9b55687"
+          },
+          "summary": "Unintentional light exposure SHALL be treated as an operational inconvenience, not as grounds for summary execution of the Session Member.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-012",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 182,
+            "line_end": 182,
+            "excerpt_hash": "sha256:a6dc179441f1ec45f55152689d21b424b66186cc55ca6809f263b13ab9abf18d"
+          },
+          "summary": "Session Members SHALL take reasonable care not to contaminate, damage, obstruct, or destabilize operational equipment.",
+          "rationale": "SessionMember field-equipment behavior is not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-013",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 214,
+            "line_end": 214,
+            "excerpt_hash": "sha256:45cfb0ed933eb1f30143fe19ac391d87b5486c73c5222e12b2f6308a6ee785aa"
+          },
+          "summary": "Junior Session Members SHALL NOT receive unrestricted equipment-control capabilities by default.",
+          "rationale": "Junior SessionMember capability behavior is not implemented in the repository."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-014",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 226,
+            "line_end": 226,
+            "excerpt_hash": "sha256:20c44d7499e95f116c5abf1d68760dfd184dd510a86c0446996472e03b969db8"
+          },
+          "summary": "Every Session Member SHALL prioritize personal and group safety over Session objectives.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-015",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 234,
+            "line_end": 234,
+            "excerpt_hash": "sha256:4109a145f88eac55e668052defc469bec4555b7e4940b0ee78b860dd30fb8fbb"
+          },
+          "summary": "SHALL be considered valid environmental input and MAY justify immediate reassessment by the Session Operator.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        },
+        {
+          "requirement_id": "DSS-CTR-002.REQ-016",
+          "classification": "policy",
+          "verification_status": "policy_only",
+          "tests": [],
+          "source": {
+            "line_start": 242,
+            "line_end": 242,
+            "excerpt_hash": "sha256:a0fc8c389f9c192ff66afecab3b02ed8f3e9f98b7d291e00ce2cfc77bf062f2b"
+          },
+          "summary": "When an emergency, credible hazard, or Session abort condition is declared, Session Members SHALL prioritize movement to the designated safe location and follow reasonable safety instructions from the Session Operator.",
+          "rationale": "Policy or governance statement; no repository-level behavior is required or sufficient for full verification in this wave."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-003",
+      "source_path": "../Contracts/DSS-CTR-003-Observation-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-003.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 16,
+            "line_end": 16,
+            "excerpt_hash": "sha256:0cde4efd340b4ba600c5db1b91e5f0751ca83ec95469738b6ffa70b65a5e7eab"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference an Observation **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_blank_and_nonexistent_session_are_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 30,
+            "line_end": 30,
+            "excerpt_hash": "sha256:7606469c78490347a76dd530c452a759a3a20648d169b1ea13cf13da28172984"
+          },
+          "summary": "Every canonical Observation **SHALL** belong to exactly one Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_observation_without_target_is_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 32,
+            "line_end": 32,
+            "excerpt_hash": "sha256:c2b8b945029aa240a24b024205d22d702f410b16c9c113639bb8fcb9522b13e6"
+          },
+          "summary": "Every canonical Observation **SHALL** reference exactly one Target."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-004",
+          "classification": "compatibility",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session"
+          ],
+          "source": {
+            "line_start": 56,
+            "line_end": 56,
+            "excerpt_hash": "sha256:f439b93f32d8171fe9c25beae2e608483e2cb702a0682b2136e65e14110b9b67"
+          },
+          "summary": "Imported data **SHALL NOT** require creation of an Observation."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-005",
+          "classification": "compatibility",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session"
+          ],
+          "source": {
+            "line_start": 58,
+            "line_end": 58,
+            "excerpt_hash": "sha256:fbd34a64f0a25761ede96060c05b19fabf307c4f9490547677783d2727577d11"
+          },
+          "summary": "Imported data **SHALL NOT** require fabrication of a Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-006",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_blank_and_nonexistent_session_are_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 60,
+            "line_end": 60,
+            "excerpt_hash": "sha256:00fcff74051ecd6357da75322b757861193187384719c9a703c72d5349c679e2"
+          },
+          "summary": "Legacy TSN DSS Observation records that predate Session support are compatibility and migration concerns. They SHALL NOT redefine canonical Observation semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-007",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 74,
+            "line_end": 80,
+            "excerpt_hash": "sha256:fe39257e5607795141ff9c57b312e5a90c1acace7745c1790d38086a38e1ab96"
+          },
+          "summary": "Every Observation **SHALL** have: - `observation_id` - `session_id` - `target` - `started_at` - `state`"
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-008",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 82,
+            "line_end": 85,
+            "excerpt_hash": "sha256:d6e008641d356ac0d909ed4fa44afac5dc47bc544f9552b9569d10fc1720cc44"
+          },
+          "summary": "A terminated Observation **SHALL** additionally have: - `ended_at` - `final_state`",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-009",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 87,
+            "line_end": 87,
+            "excerpt_hash": "sha256:b6a5db7a5cb71218850132a35b671d0e9e2749494fe49e8b897f99776086aa5f"
+          },
+          "summary": "Observation identity belongs to TSN DSS and SHALL NOT depend solely on a Target name, Capture identifier, Frame identifier, Dataset identifier, ProcessingRun identifier, provider-specific identifier, or file path.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-010",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_repository.SessionRepositoryTests.test_session_transition_lifecycle_preserves_operator"
+          ],
+          "source": {
+            "line_start": 116,
+            "line_end": 116,
+            "excerpt_hash": "sha256:37991a3ce541be80175cead89138ace2a7e82138d376ccd660e3c1841aa8dbaa"
+          },
+          "summary": "Observation lifecycle states SHALL NOT redefine Session lifecycle states.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-011",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_observation_without_target_is_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 122,
+            "line_end": 122,
+            "excerpt_hash": "sha256:5d600e5f02d1cf2cbd4b7d7a26d9375afd92224f0385d321cb1775ac70ba0158"
+          },
+          "summary": "Every Observation **SHALL** reference exactly one Target."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-012",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_deleting_an_observation_keeps_its_frames"
+          ],
+          "source": {
+            "line_start": 162,
+            "line_end": 162,
+            "excerpt_hash": "sha256:1d0578fa5d27d90e40d0f6a671dae9a08fe0ced9abdca7cb97b3d9e5a28a94ac"
+          },
+          "summary": "An Observation **SHALL NOT** own Frame provenance."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-013",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 196,
+            "line_end": 196,
+            "excerpt_hash": "sha256:2ddc7761da72c07ff331e821d359f91e6576bc2720ed80cdb70a070d5bc16f1e"
+          },
+          "summary": "An Observation context snapshot or detail **SHALL NOT** redefine Session Context.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-014",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_processing_run_creation_does_not_create_or_redefine_session_or_observation"
+          ],
+          "source": {
+            "line_start": 216,
+            "line_end": 216,
+            "excerpt_hash": "sha256:75d4c31b8b8264f794918b9f93e4181b34b97fec556f4d680956d5bae2051bfd"
+          },
+          "summary": "Processing success or failure SHALL NOT redefine Observation completion.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-015",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_blank_and_nonexistent_session_are_rejected"
+          ],
+          "source": {
+            "line_start": 256,
+            "line_end": 256,
+            "excerpt_hash": "sha256:310004f88c934c4463745f19f7fd5bfa9eded8eea87dd83109605731166a4e0e"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT weaken the rule that every canonical Observation belongs to exactly one Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-003.REQ-016",
+          "classification": "compatibility",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session"
+          ],
+          "source": {
+            "line_start": 258,
+            "line_end": 258,
+            "excerpt_hash": "sha256:ac59e8f8f3a5753051f844ccce02aeac68b60617a5d2f7903a8ee349b13cbb74"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT fabricate Sessions merely to make legacy or imported data conform."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-004",
+      "source_path": "../Contracts/DSS-CTR-004-Target-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-004.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair"
+          ],
+          "source": {
+            "line_start": 16,
+            "line_end": 16,
+            "excerpt_hash": "sha256:5eb891f822f0b9b149621837defb5afeb895ca4acd996d1176e399113fde4aee"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Target **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-002",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair",
+            "tests.test_project_identity.ProjectRepositoryTests.test_unknown_target_stays_null_even_when_a_matching_target_exists"
+          ],
+          "source": {
+            "line_start": 56,
+            "line_end": 56,
+            "excerpt_hash": "sha256:5e0cb26599d948b5be9e3f063f685f36ae85c1e5ff0bc15f3c5c827b459168fb"
+          },
+          "summary": "A Target MAY be backed by catalog data, resolved from catalog data, or associated with catalog metadata, but catalog metadata SHALL NOT replace the canonical Target identity."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair"
+          ],
+          "source": {
+            "line_start": 64,
+            "line_end": 64,
+            "excerpt_hash": "sha256:96705db2393b39315c2328c5c4223de232288f7d92d51e8810123c921cbdac40"
+          },
+          "summary": "Every Target **SHALL** have a Target identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair"
+          ],
+          "source": {
+            "line_start": 66,
+            "line_end": 73,
+            "excerpt_hash": "sha256:34b3a78e07ca5e26d13a0be5034e44264b577707c895a607bd2cc538c7cc86be"
+          },
+          "summary": "Target identity SHALL NOT depend solely on: - a display name, - a catalog name, - a provider identifier, - a Project label, - a Session identifier, - an Observation identifier.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-005",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_observation_without_target_is_rejected",
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair"
+          ],
+          "source": {
+            "line_start": 87,
+            "line_end": 87,
+            "excerpt_hash": "sha256:764aa070a355bf722b54d4140cc3732b12ee0b1f812e7357ed82a06d4bf6edee"
+          },
+          "summary": "A Target classification SHALL NOT by itself prove that an Observation occurred."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-006",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_observation_without_target_is_rejected",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 93,
+            "line_end": 93,
+            "excerpt_hash": "sha256:c2b8b945029aa240a24b024205d22d702f410b16c9c113639bb8fcb9522b13e6"
+          },
+          "summary": "Every canonical Observation **SHALL** reference exactly one Target."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-007",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key"
+          ],
+          "source": {
+            "line_start": 121,
+            "line_end": 121,
+            "excerpt_hash": "sha256:ba1d6b567fcf019675592c24d5532f09dce955e087dc63a2f512ac2fa1182988"
+          },
+          "summary": "A Project SHALL NOT be constrained to exactly one Target merely because it has a primary Target or primary intent.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-008",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_dataset_target_must_match_observation_target"
+          ],
+          "source": {
+            "line_start": 137,
+            "line_end": 139,
+            "excerpt_hash": "sha256:0e430ad60fb9cb40c4171786294f07ae7b5614bff67f1a0f77f44e9cb15ad174"
+          },
+          "summary": "A Dataset SHALL preserve target-consistency semantics according to: > **DSS-CTR-012 --- Dataset and Processing Contract**"
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-009",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_unknown_target_stays_null_even_when_a_matching_target_exists"
+          ],
+          "source": {
+            "line_start": 151,
+            "line_end": 151,
+            "excerpt_hash": "sha256:6f5ececa481a148a13338b1c5d279bc95381e948059458fefb93b233e73ddfa1"
+          },
+          "summary": "The identity of the Target SHALL remain distinct from any single coordinate sample."
+        },
+        {
+          "requirement_id": "DSS-CTR-004.REQ-010",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair",
+            "tests.test_project_identity.ProjectRepositoryTests.test_unknown_target_stays_null_even_when_a_matching_target_exists"
+          ],
+          "source": {
+            "line_start": 167,
+            "line_end": 167,
+            "excerpt_hash": "sha256:96f7563d9b76b7b18e8063738204980f279bc3d8bdf86b1e0ecd3580cf6dd54b"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT collapse Target identity into a catalog object, Project label, Session, or Observation.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-005",
+      "source_path": "../Contracts/DSS-CTR-005-Session-Context-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-005.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none",
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_forecast_observed_and_derived_facts_remain_distinguishable"
+          ],
+          "source": {
+            "line_start": 16,
+            "line_end": 16,
+            "excerpt_hash": "sha256:56e116d248a9c5d400ea57a59a5bb4d7b817651f978201b647bf942dc5f2d666"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference Session Context **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-002",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 58,
+            "line_end": 58,
+            "excerpt_hash": "sha256:522c0b4ac1f635d361d21877cfbce1e8c47b88e89f8f265a0cbc7d40e8db2b5a"
+          },
+          "summary": "A context provider **SHALL NOT** own the Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-003",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 60,
+            "line_end": 60,
+            "excerpt_hash": "sha256:8e782595b41de8c8da1c739b7b824e064460f4f5f70e3ff0104705d42d1def76"
+          },
+          "summary": "A context provider **SHALL NOT** redefine Session, Observation, Session Plan, Session Event, Project, Capture, Frame, Dataset, or ProcessingRun semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none",
+            "tests.test_session_repository.SessionRepositoryTests.test_create_get_and_list_standalone_session"
+          ],
+          "source": {
+            "line_start": 62,
+            "line_end": 62,
+            "excerpt_hash": "sha256:e163250bab49a37e1dc74a04d34eb103bfde050d21ad3c34053fff9c06e9506e"
+          },
+          "summary": "Failure or absence of an optional provider SHALL NOT prevent a Session from existing.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-005",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 102,
+            "line_end": 102,
+            "excerpt_hash": "sha256:0cf1724aa88aba8d40e82721f178309919e9cc5b4c6f60a4a90803c895a6271d"
+          },
+          "summary": "Such an Observation snapshot or detail **SHALL NOT** redefine Session Context.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-006",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 130,
+            "line_end": 130,
+            "excerpt_hash": "sha256:875ecc4dac7b851c11f62be0b283d569ba1e0ec5f5ae63734fb9742369571030"
+          },
+          "summary": "Session Context **SHALL NOT** own Project, Capture, Frame, Dataset, or ProcessingRun semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-005.REQ-007",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_context_repository.SessionContextRepositoryTests.test_context_fact_may_exist_with_zero_observations_and_creates_none"
+          ],
+          "source": {
+            "line_start": 152,
+            "line_end": 152,
+            "excerpt_hash": "sha256:2968bdde892dfd9f39214781e89e09326fdb88d9d1b45701abd58c6352d09056"
+          },
+          "summary": "Compatibility mechanisms SHALL preserve provider provenance when available and SHALL NOT make providers owners of DSS Session semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-006",
+      "source_path": "../Contracts/DSS-CTR-006-Session-Event-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-006.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 16,
+            "line_end": 16,
+            "excerpt_hash": "sha256:9d94cac172c6ecc2d3241b7d1221a7179ce40335422dab902b489868e886b03a"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Session Event **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 26,
+            "line_end": 26,
+            "excerpt_hash": "sha256:6b017044fd55e8821d8e6b6474dfef118296df99555ffa7006f8d644643049c9"
+          },
+          "summary": "Every Session Event **SHALL** belong to exactly one Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 42,
+            "line_end": 47,
+            "excerpt_hash": "sha256:a7c1df56fb132549368ff439e310b899752b6e332ea7dcf4af4b4a0162648bad"
+          },
+          "summary": "Every Session Event **SHALL** have: - `event_id` - `session_id` - `event_type` - `occurred_at`"
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 57,
+            "line_end": 57,
+            "excerpt_hash": "sha256:f8be9b2b8ec0a698aa913c51a46b9cc5ba7ef2bf11aaab9bc0d26c9403f13b40"
+          },
+          "summary": "Session Event identity SHALL NOT depend solely on provider-specific identifiers, Observation identifiers, Frame identifiers, Dataset identifiers, or ProcessingRun identifiers.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-005",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 67,
+            "line_end": 67,
+            "excerpt_hash": "sha256:ccde97f9ee1827b28f61cc37a9cb3e4cd1cadf4bd907e405ffae1fb0734ddaac"
+          },
+          "summary": "A Session Event SHALL NOT redefine the canonical current state of Session, Observation, Project, Capture, Frame, Dataset, or ProcessingRun.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-006",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 75,
+            "line_end": 75,
+            "excerpt_hash": "sha256:5c1f57a19f3009099224141ff6c856bc9bd3a580cf4adf822e6ef7b9702d2514"
+          },
+          "summary": "A Session Event **SHALL** have `occurred_at`."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-007",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_cross_session_observation_is_rejected",
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_same_session_observation_is_accepted"
+          ],
+          "source": {
+            "line_start": 93,
+            "line_end": 93,
+            "excerpt_hash": "sha256:1f3a9edc58ea8f3e97ebd707142ee99626fff0228f1af237c2a30c9e612eba83"
+          },
+          "summary": "A Session Event reference to an Observation SHALL NOT make the Session Event the owner of the Observation."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-008",
+          "classification": "policy",
+          "verification_status": "not_implemented_by_adjudication",
+          "tests": [],
+          "source": {
+            "line_start": 105,
+            "line_end": 105,
+            "excerpt_hash": "sha256:44efa65a9ad09bd5191e6c41de4814c819e0ca3a37287b210c1405aaa91dd347"
+          },
+          "summary": "A Session Event reference to a Session Member SHALL NOT make the Session Event the owner of the Session Member.",
+          "rationale": "SessionMember persistence is not implemented, so ownership through SessionEvent member references cannot be mechanically verified."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-009",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 151,
+            "line_end": 151,
+            "excerpt_hash": "sha256:bdecd45dd8173591bc344fae4c21d39c98a2e0f366ba11bdc85b2889cf1be8a9"
+          },
+          "summary": "Legacy event records SHALL NOT redefine canonical Session Event semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-010",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters",
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 167,
+            "line_end": 167,
+            "excerpt_hash": "sha256:45cffcc835aa9784b4199d34c5356063bf70e69c73184eff4fd3abb017566169"
+          },
+          "summary": "A ProcessingRun SHALL NOT become a Session Event merely because it exists.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-011",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event"
+          ],
+          "source": {
+            "line_start": 183,
+            "line_end": 183,
+            "excerpt_hash": "sha256:1f395fba0556cbe234a8a1b5a8db2a085401445d130e5b0098740e152a21c137"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT weaken the rule that every canonical Session Event belongs to exactly one Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-006.REQ-012",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_add_and_list_canonical_event",
+            "tests.test_session_event_repository.SessionEventRepositoryTests.test_same_session_observation_is_accepted"
+          ],
+          "source": {
+            "line_start": 185,
+            "line_end": 185,
+            "excerpt_hash": "sha256:681efdca9fa6885ac14c601b820640d22ad1b1312a2dc93c450d916aa15cd925"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT create a separate ObservationEvent authority unless a future approved contract does so explicitly.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-007",
+      "source_path": "../Contracts/DSS-CTR-007-Session-Plan-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-007.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 18,
+            "line_end": 18,
+            "excerpt_hash": "sha256:c9f177abe4640544df83cf8445cf19300a95c761afbd07c36f4703b20ece9e3b"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Session Plan **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-002",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 63,
+            "line_end": 63,
+            "excerpt_hash": "sha256:e2b4a6f3ed2b0a8d0a24092b1b6b3d520f23a8fe900747b35b75d5f1400c94b2"
+          },
+          "summary": "A Session Plan identity SHALL NOT depend solely on Target identity, AcquisitionPlan identity, MosaicPanel identity, Project identity, or runtime pointing state.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-003",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_planning_lifecycle_creates_no_observation"
+          ],
+          "source": {
+            "line_start": 84,
+            "line_end": 84,
+            "excerpt_hash": "sha256:e66bcc93390d416c53589392862c988d0b366d461bdb4d0b26138135e4b1af63"
+          },
+          "summary": "A Session Plan change SHALL NOT by itself prove that an Observation occurred."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-004",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 94,
+            "line_end": 94,
+            "excerpt_hash": "sha256:9a74fdf92ecc21dab9d2564bc0b8ea3bcf7c23cd01af3ab3465d48d3da0f32ad"
+          },
+          "summary": "A Session Plan SHALL NOT own Target."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-005",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 108,
+            "line_end": 108,
+            "excerpt_hash": "sha256:9a886feb5efe1482937d7675e70445dd35d1b5f4ea6dfcbcccd8e3f920299512"
+          },
+          "summary": "A Session Plan SHALL NOT own AcquisitionPlan."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-006",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 126,
+            "line_end": 126,
+            "excerpt_hash": "sha256:74982f20549b75dabd188975d20389ea2079ad2a12cdf2cd45c9910c73eacf69"
+          },
+          "summary": "A Session Plan SHALL NOT own MosaicPlan.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-007",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 128,
+            "line_end": 128,
+            "excerpt_hash": "sha256:d9af522e60c03599ad907f2917a7528344cee38f1ed9c197badd4c48245a0d28"
+          },
+          "summary": "A Session Plan SHALL NOT own MosaicPanel.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-008",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 144,
+            "line_end": 144,
+            "excerpt_hash": "sha256:fc3520302f404f7d682db25f96f53125f703144199ad7b942f725d50ed54cd55"
+          },
+          "summary": "A Session Plan SHALL NOT own Project.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-009",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 146,
+            "line_end": 146,
+            "excerpt_hash": "sha256:073e17f3777ba608319ee1170d86db8ad39a3b3e152ebbcbadff2798ce649428"
+          },
+          "summary": "A Session Plan reference to Project SHALL NOT make Project the owner of the Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-010",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 160,
+            "line_end": 160,
+            "excerpt_hash": "sha256:d632e333334112a4b9867ac048f1e4d9a9ab3c05ab593282fd65169eb743e2d5"
+          },
+          "summary": "A Session Plan SHALL NOT mean PlannedPointing.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-011",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 174,
+            "line_end": 174,
+            "excerpt_hash": "sha256:5d78db17454637e7a1bfe1a819a0a5e4a8d0650a5757817a11ec6156bf844b94"
+          },
+          "summary": "A Session Plan SHALL NOT redefine Observation lifecycle, Observation Target rules, Observation AcquisitionPlan references, or Observation Frame associations.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-012",
+          "classification": "policy",
+          "verification_status": "not_verified",
+          "tests": [],
+          "source": {
+            "line_start": 184,
+            "line_end": 184,
+            "excerpt_hash": "sha256:5ddd0efc354c7cdaa701d67f2713379bac0c6c6eeb6a5ed7c54c5b964c2de4f0"
+          },
+          "summary": "WZRD SHALL NOT redefine the canonical meaning of Session Plan.",
+          "rationale": "No current repository-level conformance test directly proves this WZRD obligation."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-013",
+          "classification": "policy",
+          "verification_status": "not_verified",
+          "tests": [],
+          "source": {
+            "line_start": 186,
+            "line_end": 186,
+            "excerpt_hash": "sha256:e182d58b7ecc493bd125aafdc8cfead644723fd3866f8f65e9aa8e8feff7e3c3"
+          },
+          "summary": "WZRD SHALL NOT become the owner of Target, AcquisitionPlan, MosaicPlan, MosaicPanel, Project, Observation, Capture, Frame, Dataset, or ProcessingRun merely by proposing plan content.",
+          "rationale": "No current repository-level conformance test directly proves this WZRD obligation."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-014",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip",
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 202,
+            "line_end": 202,
+            "excerpt_hash": "sha256:8f443d90de331b98b3083733c99ab6d700eee49bbb558a3843e55e64a7b214a7"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT collapse SessionPlan, AcquisitionPlan, MosaicPlan, or PlannedPointing into one concept.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-007.REQ-015",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_planning_lifecycle_creates_no_observation"
+          ],
+          "source": {
+            "line_start": 204,
+            "line_end": 204,
+            "excerpt_hash": "sha256:c7f4d0b6eaaa77091ad6bd0da38589c5e1c183fb447e16e273eb4190c9ecd3d4"
+          },
+          "summary": "Compatibility mechanisms SHALL NOT treat planned items as executed Observations.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-008",
+      "source_path": "../Contracts/DSS-CTR-008-Project-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-008.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key"
+          ],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:d46ef75773a2ff486d3bffe5e7c924afeb32b93b3abc98219a20b659db31315d"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Project **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key"
+          ],
+          "source": {
+            "line_start": 64,
+            "line_end": 64,
+            "excerpt_hash": "sha256:a001294e09ba792f16d35874be820a28401770013eb8549dd23233cba074aabd"
+          },
+          "summary": "Every Project **SHALL** have a Project identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-003",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key"
+          ],
+          "source": {
+            "line_start": 66,
+            "line_end": 73,
+            "excerpt_hash": "sha256:f7e8b94c770a281e5a232e598b4b8bc7bd974376d5c1f955f58d30853420e0ca"
+          },
+          "summary": "A Project identity **SHALL NOT** depend solely on: - a display name, - a filesystem path, - a directory name, - a Target name, - a Session identifier, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-004",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key",
+            "tests.test_session_repository.SessionRepositoryTests.test_sessions_do_not_own_projects_captures_frames_or_observations"
+          ],
+          "source": {
+            "line_start": 98,
+            "line_end": 100,
+            "excerpt_hash": "sha256:9e7c10ad77e2484ee45e5531ea719ca74124a3b05c747b55b0ae03741b0884e2"
+          },
+          "summary": "Project termination or archival **SHALL NOT** imply that Sessions, Observations, Captures, Frames, Datasets, or ProcessingRuns are semantically invalid.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-005",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_identity.ProjectRepositoryTests.test_id_is_opaque_prefixed_and_independent_of_dir_key"
+          ],
+          "source": {
+            "line_start": 111,
+            "line_end": 111,
+            "excerpt_hash": "sha256:14e05f25e2d7281e4dc5f7abed2d38aa0ebf7e14771b2cfd17438d7757684255"
+          },
+          "summary": "A Project **SHALL NOT** be restricted to exactly one Target.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-006",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path"
+          ],
+          "source": {
+            "line_start": 125,
+            "line_end": 125,
+            "excerpt_hash": "sha256:df6a912b299c65ba5a526d6e90afd8c41915c49a164eac13a9abd30ec7d097b8"
+          },
+          "summary": "A Project **SHALL** own Capture provenance associated with the Project."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-007",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_identity.MosaicProjectLinkTests.test_new_plan_gets_the_project_id_when_the_slug_resolves"
+          ],
+          "source": {
+            "line_start": 140,
+            "line_end": 140,
+            "excerpt_hash": "sha256:c68d99cf1c07401124982b7ad21ca05aff4535a52b9b0c0b7b2fb7efc1985892"
+          },
+          "summary": "A Project **SHALL** own MosaicPlans associated with the Project."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-008",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership",
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 156,
+            "line_end": 158,
+            "excerpt_hash": "sha256:f6d03bf2ae380349b0ceff9d67922e213a246011cae232bcd86421ce33bd2e26"
+          },
+          "summary": "A Dataset or ProcessingRun associated with a Project **SHALL NOT** replace the provenance of the Captures or Frames from which it is derived.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-009",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 185,
+            "line_end": 185,
+            "excerpt_hash": "sha256:e7a4207b4d364012f2a7808140f758b4b361aaaab2631e216f4c110a9d68a99e"
+          },
+          "summary": "> **Project SHALL NOT own Session**"
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-010",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 212,
+            "line_end": 213,
+            "excerpt_hash": "sha256:f24255a296efd2fdfd3856ed33f8f25d93958b9cdb34830d72b9e834a5ba9dd3"
+          },
+          "summary": "The fact that a Project spans multiple Sessions **SHALL NOT** merge those Sessions into a single Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-011",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_session_observations_remain_session_owned_after_project_association"
+          ],
+          "source": {
+            "line_start": 215,
+            "line_end": 216,
+            "excerpt_hash": "sha256:202146f1a625da9ff793c3f11bfef3f383a1a77c65345e39b32c1bc0becf4b4f"
+          },
+          "summary": "The fact that a Session contributes to a Project **SHALL NOT** make the Project the owner of the Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-012",
+          "classification": "compatibility",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_imported_capture_frames_fabricate_neither_session_nor_association"
+          ],
+          "source": {
+            "line_start": 224,
+            "line_end": 225,
+            "excerpt_hash": "sha256:55d65daa40a3a2308c7238f91439a35921328704cb268ffcd4e39cc3bfdb068e"
+          },
+          "summary": "Imported data **SHALL NOT** require fabrication of a Session merely to belong to a Project."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-013",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path",
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_imported_capture_frames_fabricate_neither_session_nor_association"
+          ],
+          "source": {
+            "line_start": 227,
+            "line_end": 228,
+            "excerpt_hash": "sha256:37d513b744017a03d3990c7d6e40f85e7df70f94a4b8799ac94acfbc6c3d165f"
+          },
+          "summary": "Imported data **SHALL** preserve available provenance according to the Capture and Frame provenance contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-014",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_valid_session_is_persisted_returned_and_listed"
+          ],
+          "source": {
+            "line_start": 230,
+            "line_end": 233,
+            "excerpt_hash": "sha256:5acbb1903589b9d8efeff150604fbfdf92136d123d67e0239709e5111a52e17f"
+          },
+          "summary": "If an imported Frame is later accepted as evidence or output of an Observation, that association SHALL be governed by: > **DSS-CTR-009 --- Capture and Frame Provenance Contract**",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-008.REQ-015",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_project_session_association.ProjectSessionAssociationTests.test_imported_capture_frames_fabricate_neither_session_nor_association"
+          ],
+          "source": {
+            "line_start": 278,
+            "line_end": 280,
+            "excerpt_hash": "sha256:ab07b48de6fba889394dcc5fc9c3c58bc96450e5d86dd94c72232675cb37480f"
+          },
+          "summary": "Compatibility mechanisms SHALL preserve known provenance and SHALL NOT invent Sessions, Observations, Targets, Captures, Frames, Datasets, or ProcessingRuns merely to satisfy a Project representation.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-009",
+      "source_path": "../Contracts/DSS-CTR-009-Capture-Frame-Provenance-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-009.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path",
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:137b9389c317c0da0a279652cee8cb248a66649057802a4f9d6e33f80be9c9ee"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference Capture or Frame provenance **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-002",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path",
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 94,
+            "line_end": 95,
+            "excerpt_hash": "sha256:6be11fb94a39d17aac4d065645fb1a61806dc5e682e3dc6170319ea97c11b6f1"
+          },
+          "summary": "Provenance **SHALL NOT** be weakened merely to force an operational relationship.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-003",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_datasets_accept_frames_that_have_no_observation"
+          ],
+          "source": {
+            "line_start": 97,
+            "line_end": 98,
+            "excerpt_hash": "sha256:7b7402c1f46093f69b15583c02919dcc3bfa6246d0a06c06462eab4374eea5e0"
+          },
+          "summary": "The absence of a known Session or Observation **SHALL NOT** invalidate a Capture or Frame."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-004",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path",
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 100,
+            "line_end": 101,
+            "excerpt_hash": "sha256:1065e0fb8a4a3f9945a0beb4c18e7025d6bc091370670d0c72ce7f97b84c8100"
+          },
+          "summary": "The existence of a Capture or Frame **SHALL NOT** imply that an Observation exists."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-005",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path"
+          ],
+          "source": {
+            "line_start": 107,
+            "line_end": 107,
+            "excerpt_hash": "sha256:4d2660d7e8a800a51871d3218b6d68f44ccd6a76675c683ae9f7150c3523efd1"
+          },
+          "summary": "Every Capture **SHALL** have a Capture identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-006",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 109,
+            "line_end": 109,
+            "excerpt_hash": "sha256:ccda4f5f46a833fbea4e5f4b16ee2555cb0c6deb5c40201e61e3774b12b632f3"
+          },
+          "summary": "Every Frame **SHALL** have a Frame identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-007",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path"
+          ],
+          "source": {
+            "line_start": 111,
+            "line_end": 117,
+            "excerpt_hash": "sha256:76fd4612178d8e0f0f833627e6d99aa136109ddf27ae7c3f54c86a12e7c2e3ec"
+          },
+          "summary": "Capture identity **SHALL NOT** depend solely on: - a folder name, - an import label, - a Session identifier, - an Observation identifier, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-008",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 119,
+            "line_end": 126,
+            "excerpt_hash": "sha256:c1b1ff1dee33351b500bad41417f31b30b5b0176abf63ae9bf273ba3a055c67f"
+          },
+          "summary": "Frame identity **SHALL NOT** depend solely on: - a file name, - a path, - a content hash, - a Session identifier, - an Observation identifier, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-009",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.CaptureRepositoryTests.test_identity_is_opaque_and_independent_of_name_and_path"
+          ],
+          "source": {
+            "line_start": 135,
+            "line_end": 135,
+            "excerpt_hash": "sha256:18a02aa24bfc1d97bc3d044a861e57dab33d1130a09f294188a548b228185674"
+          },
+          "summary": "A Project **SHALL** own its Captures."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-010",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 137,
+            "line_end": 137,
+            "excerpt_hash": "sha256:38181fd5e1f3b0b4ab24ef873604fbbbba2baf52c2324f6f2c8a2a6c7e9db091"
+          },
+          "summary": "A Capture **SHALL** own zero or more Frames."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-011",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 139,
+            "line_end": 139,
+            "excerpt_hash": "sha256:8d71d85a1465643f5015f8acb7a4e516b3f6d0916a1c5d50d4796375cfde5098"
+          },
+          "summary": "A Frame **SHALL** belong to exactly one Capture."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-012",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_a_frame_must_lie_inside_its_capture_and_project"
+          ],
+          "source": {
+            "line_start": 141,
+            "line_end": 142,
+            "excerpt_hash": "sha256:d2de7c75ce8631a1e79e55c2872d200dba84739f0e38cb91c8597f9c69ecfe70"
+          },
+          "summary": "A Frame **SHALL** belong to exactly one Project under the current TSN DSS provenance model."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-013",
+          "classification": "compatibility",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_datasets_accept_frames_that_have_no_observation",
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session"
+          ],
+          "source": {
+            "line_start": 193,
+            "line_end": 194,
+            "excerpt_hash": "sha256:729a055d6359562b4e34df234d8265fcd1a77b661f52ecb02c02802189872816"
+          },
+          "summary": "No imported, legacy, calibration, synthetic, or test data SHALL require fabrication of a Session or Observation merely to preserve provenance."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-014",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership",
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 234,
+            "line_end": 235,
+            "excerpt_hash": "sha256:6e6688c9befe203a4aa2e0b9da7113d5c166a6c8d7dbf348f4ce91268b0578d7"
+          },
+          "summary": "Dataset membership and processing execution **SHALL NOT** replace Capture and Frame provenance.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-009.REQ-015",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_observation_session_contract.ObservationSessionContractTests.test_import_registration_fabricates_neither_observation_nor_session"
+          ],
+          "source": {
+            "line_start": 278,
+            "line_end": 279,
+            "excerpt_hash": "sha256:04c04772bc12aa7e1c970d52c23b91ae6099ab7ff267a0f62e5274e1da80aa9f"
+          },
+          "summary": "Compatibility mechanisms SHALL preserve available provenance and SHALL NOT invent operational history.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-010",
+      "source_path": "../Contracts/DSS-CTR-010-Acquisition-Plan-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-010.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:0e9a8ae8ef7033baae9d919c869b5d9b2c7176af674cb88f361b7bb29d760c52"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference an AcquisitionPlan **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 65,
+            "line_end": 66,
+            "excerpt_hash": "sha256:3195605021c0f8af66bb974d50106196be43d5933e374c810efaa960c85cb1f1"
+          },
+          "summary": "Every AcquisitionPlan **SHALL** have an AcquisitionPlan identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-003",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 68,
+            "line_end": 73,
+            "excerpt_hash": "sha256:cbbbe82542f12415da5bd42a4106765ccecc78858553dafc4c1a15c3ce8e5663"
+          },
+          "summary": "AcquisitionPlan identity **SHALL NOT** depend solely on: - a display name, - a Session identifier, - an Observation identifier, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-004",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_create_target_accepts_fixed_coordinate_without_catalog_pair",
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 93,
+            "line_end": 93,
+            "excerpt_hash": "sha256:e4f745c111f5fe62aa60130259d90c9c8b1eb4ba4e4bb443d4b0a00ff3e9abda"
+          },
+          "summary": "An AcquisitionPlan **SHALL NOT** replace Target identity."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-005",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_acquisition_plan_creation_does_not_create_unrelated_domain_records"
+          ],
+          "source": {
+            "line_start": 95,
+            "line_end": 96,
+            "excerpt_hash": "sha256:c6101ea9ba26a4933eb9719d3db14e1ba3c88e607afeac2d2e30d8d7a12e8d45"
+          },
+          "summary": "An AcquisitionPlan **SHALL NOT** by itself prove that an Observation occurred."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-006",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order"
+          ],
+          "source": {
+            "line_start": 127,
+            "line_end": 128,
+            "excerpt_hash": "sha256:f0b33973bcae800105ccf48270e7632035f6d13772efa42e3a63b563ba66f0cc"
+          },
+          "summary": "An AcquisitionPlan **SHALL NOT** be owned by Session merely because it is used during a Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-007",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_acquisition_plan_creation_does_not_create_unrelated_domain_records"
+          ],
+          "source": {
+            "line_start": 130,
+            "line_end": 131,
+            "excerpt_hash": "sha256:828a99948e5fbd1fb3ed4d5d7eb1bbd8cacf8bcb1ef5fee98010759eedb8658f"
+          },
+          "summary": "An AcquisitionPlan **SHALL NOT** be owned by Observation merely because an Observation references it."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-008",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 159,
+            "line_end": 160,
+            "excerpt_hash": "sha256:d9cd902e37d50b5ca75965b7b2898bd0c42e24f7775d1feaca53fd8b9e2f0a53"
+          },
+          "summary": "A SessionPlan reference to an AcquisitionPlan **SHALL NOT** make the AcquisitionPlan part of the SessionPlan's identity."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-009",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_save_acquisition_plan_persists_sequences_in_order",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_delete_plan_removes_only_owned_items_and_leaves_independent_aggregates"
+          ],
+          "source": {
+            "line_start": 162,
+            "line_end": 163,
+            "excerpt_hash": "sha256:e291e52891dbed57ae3caeb0bebb2d2be2c5c74fc715c83d2de6f225de742ff4"
+          },
+          "summary": "A SessionPlan reference to an AcquisitionPlan **SHALL NOT** make the AcquisitionPlan owned by the Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-010.REQ-010",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_planning_repository.PlanningRepositoryTests.test_acquisition_plan_creation_does_not_create_unrelated_domain_records"
+          ],
+          "source": {
+            "line_start": 191,
+            "line_end": 200,
+            "excerpt_hash": "sha256:98650f722c4a944ed0e1b1b492260759c894a56f44c89cd0fe39f1c48ee761ea"
+          },
+          "summary": "Creating, editing, or storing an AcquisitionPlan **SHALL NOT** by itself create: - a Session, - a SessionPlan, - an Observation, - a Capture, - a Frame, - a Dataset, - a ProcessingRun."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-011",
+      "source_path": "../Contracts/DSS-CTR-011-Mosaic-Plan-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-011.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:cdfe4b14df434803873a4fe373e85411e1251c62de76ebd3abbc8e081cb7802c"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a MosaicPlan or MosaicPanel **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-002",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 77,
+            "line_end": 78,
+            "excerpt_hash": "sha256:fbd051eab98c1e44c94ae4d676db27694e0c1d3aa7a40014a7fff249de83ca86"
+          },
+          "summary": "Every MosaicPlan **SHALL** have a MosaicPlan identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 80,
+            "line_end": 81,
+            "excerpt_hash": "sha256:d1b0d24108133ee2515e6cf09cf9dce77e7570850447b69b6d8474db9e771879"
+          },
+          "summary": "Every MosaicPanel **SHALL** have a MosaicPanel identity controlled by TSN DSS or a stable identity within its MosaicPlan."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-004",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 83,
+            "line_end": 88,
+            "excerpt_hash": "sha256:2251534444e309f974192d3acbfc2e5f88e565ce577a5de4520b0c5abc5369ef"
+          },
+          "summary": "MosaicPlan identity **SHALL NOT** depend solely on: - a display name, - a Session identifier, - a selected panel, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-005",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 90,
+            "line_end": 95,
+            "excerpt_hash": "sha256:27a1bfba951ad2b0af53a19e5718a5e141fee731483210bb357a005eafe925f0"
+          },
+          "summary": "MosaicPanel identity **SHALL NOT** depend solely on: - screen position, - UI cell position, - runtime telescope position, - provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-006",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_project_identity.MosaicProjectLinkTests.test_new_plan_gets_the_project_id_when_the_slug_resolves"
+          ],
+          "source": {
+            "line_start": 101,
+            "line_end": 101,
+            "excerpt_hash": "sha256:652c86aa9caf556df008ec1dcb37407e1fcbe1fd862d74438d07c7753368fcab"
+          },
+          "summary": "A Project **SHALL** own MosaicPlans."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-007",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 103,
+            "line_end": 103,
+            "excerpt_hash": "sha256:e2d8aea9ddb32bcc2c2b605c06ed54d4c1a161ef403eff0add577adf58487fff"
+          },
+          "summary": "A MosaicPlan **SHALL** own MosaicPanels."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-008",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip",
+            "tests.test_session_plan_repository.SessionPlanRepositoryTests.test_save_and_retrieve_session_plan_for_existing_session"
+          ],
+          "source": {
+            "line_start": 107,
+            "line_end": 108,
+            "excerpt_hash": "sha256:b9206408268f6fc8ddee1baf0dafb50a5fd3386df1e8efde730846d88bafa720"
+          },
+          "summary": "A SessionPlan reference to a MosaicPanel **SHALL NOT** make the MosaicPanel owned by the SessionPlan or Session.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-009",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 125,
+            "line_end": 126,
+            "excerpt_hash": "sha256:6106b9be040ac5972e8796d96fdd897be6a283cba43cfa4467200c22843c19b8"
+          },
+          "summary": "Panel geometry **SHALL NOT** be reduced to a user-interface cell or screen coordinate.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-010",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 141,
+            "line_end": 141,
+            "excerpt_hash": "sha256:5b09ed5636963ada6675f7e05203f23009625808f93711814deb70556d543390"
+          },
+          "summary": "Partial completion across Sessions **SHALL NOT** merge those Sessions.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-011",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 143,
+            "line_end": 144,
+            "excerpt_hash": "sha256:4eed36c33e61984b56aa4eba1184bb28dbc2857520fe97d372af194a98fa224a"
+          },
+          "summary": "Partial completion across Sessions **SHALL NOT** make the MosaicPlan a SessionPlan.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-011.REQ-012",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_mosaic_repository.MosaicRepositoryTests.test_save_and_reload_mosaic_plan_round_trip"
+          ],
+          "source": {
+            "line_start": 171,
+            "line_end": 172,
+            "excerpt_hash": "sha256:ba0c4b4b0628e3c19bc11cbd603506468db2853de5d2306dff2df7fc315600b4"
+          },
+          "summary": "A runtime planned pointing **SHALL NOT** redefine MosaicPlan or MosaicPanel semantics.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    },
+    {
+      "contract_id": "DSS-CTR-012",
+      "source_path": "../Contracts/DSS-CTR-012-Dataset-Processing-Contract.md",
+      "status": "Draft",
+      "requirements": [
+        {
+          "requirement_id": "DSS-CTR-012.REQ-001",
+          "classification": "mechanical",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership",
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 17,
+            "line_end": 19,
+            "excerpt_hash": "sha256:661b62df897622b85c6640bbdf29ddbffaea8076695abde1f49b44f7eff23892"
+          },
+          "summary": "All contracts, policies, procedures, software components, integrations, and operational processes that reference a Dataset or ProcessingRun **SHALL** use the meaning established by this contract.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-002",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 39,
+            "line_end": 39,
+            "excerpt_hash": "sha256:2aa9de4047b790cbddf25434f1fe09d447ff46a1c790ac4a2feca0272892b0dc"
+          },
+          "summary": "A Dataset **SHALL NOT** be owned by Session."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-003",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 89,
+            "line_end": 89,
+            "excerpt_hash": "sha256:b93464fa47c78689d28459ea371d63206e9e0afdbfe6c445b670fe15402de8d5"
+          },
+          "summary": "Every Dataset **SHALL** have a Dataset identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-004",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 91,
+            "line_end": 92,
+            "excerpt_hash": "sha256:e175a5cd59cf5ba721efbdd5a38892ebb27b5fb1f15a97b2aab5c62d7fe3cf4a"
+          },
+          "summary": "Every ProcessingRun **SHALL** have a ProcessingRun identity controlled by TSN DSS."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-005",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 94,
+            "line_end": 100,
+            "excerpt_hash": "sha256:2d7e4341a380c418abd72ccc45fe10c987a7799e3fdddc314c6425dcb59437f7"
+          },
+          "summary": "Dataset identity **SHALL NOT** depend solely on: - a Capture identifier, - a Session identifier, - an Observation identifier, - a folder name, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-006",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 102,
+            "line_end": 106,
+            "excerpt_hash": "sha256:a7b8431189ac7cf79ea1a80414f1f3a4c25c6707a90d9b39f5237f410d8da566"
+          },
+          "summary": "ProcessingRun identity **SHALL NOT** depend solely on: - a Dataset name, - a ProcessingRun output path, - a provider-specific identifier."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-007",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 112,
+            "line_end": 112,
+            "excerpt_hash": "sha256:050221cdc79dc8f30a1b140016e29a4807d22c49cf0d06788103883468af4e15"
+          },
+          "summary": "A Dataset **SHALL** preserve explicit curated membership."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-008",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_datasets_accept_frames_that_have_no_observation",
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 127,
+            "line_end": 127,
+            "excerpt_hash": "sha256:0d521a66a8f6ff16bd56db12c75298e16fc110eb5f25399a48b90ea1aadc1847"
+          },
+          "summary": "Dataset membership **SHALL NOT** replace Capture or Frame provenance."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-009",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_capture_frame_schema.FrameRepositoryS3Tests.test_datasets_accept_frames_that_have_no_observation",
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 129,
+            "line_end": 130,
+            "excerpt_hash": "sha256:ecfc83b806e52e73b48b69d47d2989086eb595ddd671d25a29766f375815fd24"
+          },
+          "summary": "Dataset membership **SHALL NOT** prove that a Session or Observation occurred.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-010",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_dataset_target_must_match_observation_target"
+          ],
+          "source": {
+            "line_start": 136,
+            "line_end": 136,
+            "excerpt_hash": "sha256:fc1a27049abd3cf786df41c448cacf953865e0ff9f095fc17def0de2c7c3ea7f"
+          },
+          "summary": "A Dataset **SHALL** preserve target-consistency semantics."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-011",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 158,
+            "line_end": 165,
+            "excerpt_hash": "sha256:b256dad96a101963f77cf7e43c112d2b9289cb592380f4ab206db17a3511940d"
+          },
+          "summary": "Dataset membership **SHALL NOT** erase, replace, or weaken: - Project provenance, - Capture provenance, - Frame provenance, - Observation association, - AcquisitionPlan sequence provenance, - Session history.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-012",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 167,
+            "line_end": 168,
+            "excerpt_hash": "sha256:3b5ddfe84feaa9bedd7a7cdd8f2678f93dc81dda7fe2a62bcf5c4686d5250c9e"
+          },
+          "summary": "Processing over a Dataset **SHALL NOT** make the Dataset the owner of the source Frames."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-013",
+          "classification": "mechanical",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 174,
+            "line_end": 174,
+            "excerpt_hash": "sha256:504676e72f7a08a740090f09574c21495565f9cf7b24c131cefeac66613bc90e"
+          },
+          "summary": "A ProcessingRun **SHALL** derive from exactly one Dataset."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-014",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_processing_run_creation_does_not_create_or_redefine_session_or_observation"
+          ],
+          "source": {
+            "line_start": 180,
+            "line_end": 182,
+            "excerpt_hash": "sha256:b04fec5ea3c170be50e4fc0a3d19f808285c565ce271e83e7c7203e943284cf0"
+          },
+          "summary": "ProcessingRun output MAY be used by downstream procedures, but the existence of an output **SHALL NOT** redefine the Dataset, Frames, Captures, Observations, or Sessions from which it was derived."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-015",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership"
+          ],
+          "source": {
+            "line_start": 219,
+            "line_end": 220,
+            "excerpt_hash": "sha256:5fa6e0c166df0d721de503d001398bd90b06c57510a1d15661ee1b7d440d350e"
+          },
+          "summary": "A Dataset association with an Observation **SHALL NOT** make the Dataset owned by the Observation.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-016",
+          "classification": "boundary",
+          "verification_status": "verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_processing_run_creation_does_not_create_or_redefine_session_or_observation"
+          ],
+          "source": {
+            "line_start": 222,
+            "line_end": 222,
+            "excerpt_hash": "sha256:46bce7f6bd59ee5d7361dd1c0fa5306db3a3ffcdbeb3a237acbad45b8ebadc10"
+          },
+          "summary": "A ProcessingRun **SHALL NOT** mean Observation."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-017",
+          "classification": "boundary",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_dataset_repository.DatasetRepositoryTests.test_create_dataset_persists_observation_and_frame_membership",
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_create_processing_run_persists_pipeline_and_parameters"
+          ],
+          "source": {
+            "line_start": 240,
+            "line_end": 241,
+            "excerpt_hash": "sha256:652bee44659a056bd7ab5a57d57940ac425c565a4f765114ea421170d807852f"
+          },
+          "summary": "Project organization of Datasets and ProcessingRuns **SHALL NOT** replace Dataset membership or ProcessingRun identity.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        },
+        {
+          "requirement_id": "DSS-CTR-012.REQ-018",
+          "classification": "compatibility",
+          "verification_status": "partially_verified",
+          "tests": [
+            "tests.test_processing_repository.ProcessingRunRepositoryTests.test_processing_run_creation_does_not_create_or_redefine_session_or_observation"
+          ],
+          "source": {
+            "line_start": 286,
+            "line_end": 287,
+            "excerpt_hash": "sha256:fad66c25244501236a62a276df829e9354b7a0a619c4e29182b49b659079c7dd"
+          },
+          "summary": "Compatibility mechanisms SHALL preserve source provenance and SHALL NOT invent Sessions, Observations, Captures, or Frames.",
+          "rationale": "Existing tests prove part of this obligation, but not the full contract statement."
+        }
+      ]
+    }
+  ]
+}
