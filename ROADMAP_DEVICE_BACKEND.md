@@ -56,13 +56,15 @@ Provider identity, runtime Device References, discovery outcomes, Connection ide
 
 ### Contract requirement coverage
 
-Primary: REQ-001 through REQ-017, REQ-030 (partial), REQ-031, REQ-035 through REQ-038, REQ-041 through REQ-043, REQ-055 through REQ-059, REQ-063 (partial).
+Primary: REQ-001 through REQ-017, REQ-030 (partial), REQ-031, REQ-035 through REQ-038, REQ-041 through REQ-043, REQ-055, REQ-056, REQ-057 (partial), REQ-058, REQ-059, REQ-063 (partial).
 
 Boundary: REQ-018, REQ-019, REQ-032, REQ-033, REQ-052, REQ-054, REQ-064, REQ-065, REQ-066, REQ-067.
 
 Type-level preparation only, NOT requirement verification: REQ-020, REQ-039, REQ-040, REQ-044.
 
 REQ-030 and REQ-063 are covered in DB-01 only for Provider, Device, Connection, Capability, Telemetry and Preview. Their Command-outcome portions remain DB-04 responsibilities.
+
+REQ-057 is covered in DB-01 only at the Capability Report model level (support separate from availability, observation time, no proof or freshness claim). Enforcing the obligation against safety-sensitive Commands belongs to DB-04 (REQ-051, REQ-060).
 
 Preparing Command identity and state types in DB-01 does not verify DB-04 command execution, per-Connection exclusivity or safety requirements. REQ-039 and REQ-040 are verified in DB-04, not in DB-01.
 
@@ -112,17 +114,38 @@ Seestar Provider behind the provider-neutral runtime, Device discovery using rea
 
 ### Contract requirement coverage
 
-Primary: REQ-001 through REQ-015, REQ-035 through REQ-038, REQ-041 through REQ-043, REQ-051, REQ-056 through REQ-058.
+Primary: REQ-001 through REQ-015, REQ-016 (partial: Telemetry only), REQ-017, REQ-035 through REQ-038, REQ-041 through REQ-043, REQ-055, REQ-056, REQ-057 (partial), REQ-058, REQ-059.
 
-Boundary: REQ-032, REQ-052, REQ-054, REQ-064, REQ-067.
+Boundary: REQ-018, REQ-019, REQ-032, REQ-033, REQ-052, REQ-054, REQ-064, REQ-065, REQ-066, REQ-067.
+
+Responsibility boundaries between DB-01, DB-02 and DB-04:
+
+- REQ-016: DB-02 verifies the Telemetry half (read-only runtime evidence). Preview reading and streaming belong to DB-03. DB-02 reports Preview availability evidence only and opens no stream.
+- REQ-017 and REQ-058: DB-02 maps real device state into provider-reported items. The runtime adds host-observed evidence and the host observation time. Unknown, stale and unavailable states are preserved.
+- REQ-055 and REQ-059: discovery, connection reads, Telemetry and capability reads submit no Commands and write no canonical domain records.
+- REQ-057 (partial): DB-02 supplies Capability Report freshness evidence taken from a fresh device read. It does not enforce the obligation against safety-sensitive Commands; that is DB-04 (REQ-051, REQ-060).
+- REQ-051 is not a DB-02 requirement. It requires each safety-sensitive Command kind to define freshness predicates and is verified in DB-04 and DB-05. It was removed from the DB-02 coverage above.
+- REQ-065 is a DB-02 boundary: provider-native target names and coordinates are never mapped into Device References or Telemetry as Target identity.
+- Freshness signal: the DB-01 runtime treats a non-raising Provider read as success, so a partially stale telemetry sample still leaves the Connection `ready`. A `ready` Connection therefore does not guarantee that every telemetry item is fresh. Item states (KNOWN, STALE, UNAVAILABLE) are the freshness signal, and item-level freshness enforcement is a DB-04 responsibility (REQ-051, REQ-060): DB-04 freshness predicates must evaluate item states and must never rely on Connection state alone. DB-01 is not modified for this.
+- The Seestar authentication handshake is permitted only as a connection prerequisite. It grants no permission for physical control. DB-02 has no Command surface; that is DB-04.
 
 ### Dependencies
 
-DB-01 complete, S30Lab read-only evidence and a local hardware-validation environment.
+DB-01 complete, S30Lab read-only evidence (docs/S30Pro_WZRD_research_2026-10-08_UPDATED.md and docs/research/S30Lab/) and a local hardware-validation environment.
+
+### Approved design constraints
+
+- Package location: `tsn_dss/engine/seestar_provider/`, separate from the vendor-neutral `device_runtime`, which DB-02 does not modify.
+- The Seestar protocol client is an independent minimal implementation. seestarpy (GPL-3.0) is documented secondary protocol evidence only and none of its source is copied.
+- RSA credentials are supplied externally by the operator as a key path. TSNDSS never extracts, embeds, distributes or commits key material.
+- Explicitly configured hosts are preferred. UDP discovery is opt-in. There is no fallback IP address.
+- TCP sessions are short-lived. Automatic retries apply only to explicitly classified idempotent read operations.
+- No generic RPC interface escapes the read-only transport boundary.
+- No physical commands, acquisition, preview streaming or telescope movement.
 
 ### Deliverables
 
-Seestar read-only adapter, runtime configuration model for host/key path without secret leakage, discovery and telemetry normalization, Capability Reports and hardware validation procedure.
+Seestar read-only adapter, runtime configuration model for host/key path without secret leakage, discovery and telemetry normalization, Capability Reports and hardware validation procedure (operator-run, in docs/DB-02_HARDWARE_VALIDATION.md).
 
 ### Deterministic acceptance tests
 
@@ -375,6 +398,8 @@ Every DSS-CTR-013 requirement has at least one planned verification stage. Simul
 Notes:
 
 - Type-level preparation in DB-01 (REQ-020, REQ-039, REQ-040, REQ-044) is not verification of the DB-04/DB-05 rows above.
+- REQ-057 is partial in both DB-01 and DB-02 (Capability Report model and fresh-evidence provenance). Enforcement against safety-sensitive Commands, and REQ-051 and REQ-060, are DB-04 and DB-05.
+- REQ-016 is split: Telemetry in DB-01 and DB-02, Preview in DB-03 (DB-01 and DB-02 provide descriptors and availability evidence only).
 - DSS-CTR-013 normative traceability uses the contract's own requirement IDs (`DSS-CTR-013-REQ-001` through `REQ-067`) and is separate from the legacy SHALL-anchor manifest `tests/contract_traceability.json`, which covers DSS-CTR-001 through DSS-CTR-012 only and does not include DSS-CTR-013.
 
 ## Hardware safety gates
