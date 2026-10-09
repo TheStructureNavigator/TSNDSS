@@ -1,6 +1,8 @@
 # DB-03 Wave 4B-1 — isolated decoder worker: protocol, state machine, launcher
 
-Status: **implemented offline; verified on Linux; not yet verified on Windows.** Implements section 16 / phase 4B-1 of `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md` (revision 3). There is no decoder, no OpenCV, no shared segment, no image and no network in this wave; nothing is connected to the preview manager.
+Status: **Windows offline verified (accepted).** Implements section 16 / phase 4B-1 of `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md` (revision 3). There is no decoder, no OpenCV, no shared segment, no image and no network in this wave; nothing is connected to the preview manager.
+
+Acceptance record: operator run on real Windows (Python 3.13) at commit `4efbb35` — full Wave 4B-1 suite 122 tests OK (2 expected SKIP), `HygieneTests` 7 tests OK (1 expected SKIP), 0 FAIL, 0 ERROR; `SteadyStateTests`, `PopenOwnershipTests`, `ParentDeathTests` and containment tests pass. Scope of this verification: offline tests only (protocol, state machine, launcher, handle ownership). **Not validated:** RTSP, OpenCV, shared memory, the Seestar or any hardware; the Linux/Windows result says nothing about decoding. D13 remains to be frozen at the end of the wave; Wave 4B-2 is not started.
 
 ## What exists
 
