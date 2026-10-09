@@ -1,0 +1,41 @@
+{
+  "_synthetic": true,
+  "jsonrpc": "2.0",
+  "Timestamp": "1234.567890123",
+  "method": "iscope_get_app_state",
+  "result": {
+    "selected_cam": "View",
+    "View": {
+      "state": "working",
+      "mode": "scenery",
+      "cam_id": 0,
+      "stage": "RTSP",
+      "target_name": "Unknown",
+      "target_ra_dec": [
+        9.0,
+        80.0
+      ],
+      "RTSP": {
+        "state": "working",
+        "port": 4554
+      }
+    },
+    "SecondView": {
+      "state": "working",
+      "mode": "scenery",
+      "cam_id": 0,
+      "stage": "RTSP",
+      "target_name": "Unknown",
+      "target_ra_dec": [
+        9.0,
+        80.0
+      ],
+      "RTSP": {
+        "state": "working",
+        "port": 4555
+      }
+    }
+  },
+  "code": 0,
+  "id": 1
+}

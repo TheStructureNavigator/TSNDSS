@@ -1,0 +1,13 @@
+{
+  "_synthetic": true,
+  "id": 1,
+  "method": "scan_iscope",
+  "result": {
+    "sn": "0badc0de",
+    "product_model": "Seestar S30 Pro",
+    "ssid": "SYNTHETIC-AP",
+    "tcp_client_num": 0,
+    "connect_lock": false,
+    "is_verified": false
+  }
+}

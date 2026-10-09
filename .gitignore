@@ -8,3 +8,7 @@ projects
 data/light_pollution/*.tif
 data/light_pollution/*.tiff
 data/light_pollution/*.tpk
+
+# Operator credentials and validation output must never be committed (DB-02)
+*.pem
+seestar_validation_report.json

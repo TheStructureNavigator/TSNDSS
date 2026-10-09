@@ -1,0 +1,39 @@
+{
+  "_synthetic": true,
+  "jsonrpc": "2.0",
+  "Timestamp": "1234.567890123",
+  "method": "iscope_get_app_state",
+  "result": {
+    "selected_cam": "View",
+    "View": {
+      "state": "cancel",
+      "mode": "none",
+      "cam_id": 0,
+      "stage": "ContinuousExposure",
+      "target_name": "Unknown",
+      "target_ra_dec": [
+        9.0,
+        80.0
+      ],
+      "RTSP": {
+        "state": "idle"
+      }
+    },
+    "SecondView": {
+      "state": "idle",
+      "mode": "none",
+      "cam_id": 0,
+      "stage": "Sleep",
+      "target_name": "Unknown",
+      "target_ra_dec": [
+        9.0,
+        80.0
+      ],
+      "RTSP": {
+        "state": "idle"
+      }
+    }
+  },
+  "code": 0,
+  "id": 1
+}

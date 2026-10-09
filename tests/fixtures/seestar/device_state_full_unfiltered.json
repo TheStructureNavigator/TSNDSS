@@ -1,0 +1,85 @@
+{
+  "_synthetic": true,
+  "jsonrpc": "2.0",
+  "Timestamp": "1234.567890123",
+  "method": "get_device_state",
+  "result": {
+    "device": {
+      "name": "synthetic-imager",
+      "firmware_ver_string": "9.31",
+      "firmware_ver_int": 2931,
+      "is_verified": true,
+      "sn": "0badc0de",
+      "cpuId": "SYNTHETIC-CPU-ID",
+      "product_model": "Seestar S30 Pro"
+    },
+    "setting": {
+      "heater_enable": false,
+      "expt_heater_enable": false,
+      "manual_exp": false,
+      "isp_exp_ms": -999000.0,
+      "isp_gain": -9990.0,
+      "wide_cam": false,
+      "isp_range_gain": [
+        0,
+        600
+      ]
+    },
+    "location_lon_lat": [
+      0.0,
+      0.0
+    ],
+    "ap": {
+      "ssid": "SYNTHETIC-AP",
+      "passwd": "SYNTHETIC-NOT-A-SECRET",
+      "is_5g": false
+    },
+    "station": {
+      "server": true,
+      "ip": "192.0.2.10",
+      "ssid": "SYNTHETIC-NET",
+      "gateway": "192.0.2.1",
+      "netmask": "255.255.255.0",
+      "sig_lev": -60,
+      "key_mgmt": "WPA2-PSK"
+    },
+    "focuser": {
+      "state": "idle",
+      "max_step": 2600,
+      "step": 1580
+    },
+    "second_focuser": {
+      "state": "idle",
+      "step": 1500
+    },
+    "balance_sensor": {
+      "code": 0,
+      "data": {
+        "angle": 0.5
+      }
+    },
+    "compass_sensor": {
+      "code": 0,
+      "data": {
+        "direction": 90.0
+      }
+    },
+    "mount": {
+      "move_type": "none",
+      "close": true,
+      "tracking": false,
+      "equ_mode": false
+    },
+    "pi_status": {
+      "is_overtemp": false,
+      "temp": 41.5,
+      "charger_status": "Discharging",
+      "battery_capacity": 80,
+      "charge_online": false,
+      "battery_temp": 22,
+      "battery_temp_type": "normal"
+    }
+  },
+  "code": 0,
+  "id": 1
+}

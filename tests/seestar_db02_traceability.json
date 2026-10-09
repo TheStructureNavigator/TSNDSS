@@ -1,0 +1,721 @@
+{
+  "schema_version": 1,
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "source_path": "Contracts/DSS-CTR-013-Device-Provider-Runtime-Contract.md",
+  "stage": "DB-02",
+  "roadmap": "ROADMAP_DEVICE_BACKEND.md",
+  "note": "DSS-CTR-013 REQ-ID traceability for DB-02 (offline phase). Separate from the DB-01 manifest and from the legacy SHALL-anchor manifest. Hardware validation is the stage acceptance gate and is NOT yet performed: no entry is 'verified' on real hardware.",
+  "status_definitions": {
+    "offline_verified": "Exercised by deterministic offline tests against synthetic fixtures and fake or scripted peers. Hardware validation is still pending.",
+    "partial_offline": "The offline-testable part is exercised; the remainder belongs to a later stage (see note) and hardware validation is pending.",
+    "boundary_offline": "Offline tests show DB-02 does not cross the stated ownership or scope boundary. This is not verification of obligations on future work.",
+    "deferred": "Not a DB-02 requirement."
+  },
+  "requirements": {
+    "DSS-CTR-013-REQ-001": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider",
+        "tsn_dss.engine.seestar_provider.config.SeestarProviderConfig"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_satisfies_the_neutral_provider_protocol_and_registers_without_side_effects"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-002": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_configuration_status_reflects_operator_input"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-003": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_satisfies_the_neutral_provider_protocol_and_registers_without_side_effects",
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched"
+      ],
+      "note": "Primary evidence is structural (no database handle); the digest test corroborates."
+    },
+    "DSS-CTR-013-REQ-004": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_unreachable_host_is_a_nonfatal_failure_and_recovers",
+        "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset",
+        "tests.test_seestar_provider.DiscoveryTests.test_configured_host_that_does_not_answer_degrades_because_a_device_is_required"
+      ],
+      "note": "Provider lifecycle is the DB-01 table; DB-02 verifies the Seestar Provider drives it correctly."
+    },
+    "DSS-CTR-013-REQ-005": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_unreachable_host_is_a_nonfatal_failure_and_recovers",
+        "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset"
+      ],
+      "note": "Inherited from DB-01: no device-level state appears at Provider level."
+    },
+    "DSS-CTR-013-REQ-006": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.discover",
+        "tsn_dss.engine.seestar_provider.protocol.parse_scan_reply",
+        "tsn_dss.engine.seestar_provider.transport.TcpSeestarTransport.discover_via_udp"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_configured_host_discovery_returns_a_runtime_device_reference",
+        "tests.test_seestar_provider.DiscoveryTests.test_udp_discovery_is_opt_in_and_never_used_when_a_host_is_configured",
+        "tests.test_seestar_protocol.UdpDiscoveryTests.test_probe_targets_and_reply_parsing"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-007": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.transport.SeestarReadTransport",
+        "tsn_dss.engine.seestar_provider.protocol.READ_METHODS"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_discovery_creates_no_persistent_identity_and_no_commands",
+        "tests.test_seestar_provider.SafetyAndRedactionTests.test_full_session_uses_only_allow_listed_transport_calls",
+        "tests.test_seestar_protocol.AllowListTests.test_every_physical_or_generic_method_is_refused_at_encoding",
+        "tests.test_seestar_protocol.AllowListTests.test_transport_public_surface_is_only_typed_reads_and_udp_discovery"
+      ],
+      "note": "Read-only is demonstrated for the offline transport boundary. Absence of physical side effects on a real device is a hardware-validation item."
+    },
+    "DSS-CTR-013-REQ-008": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.protocol.device_ref_for",
+        "tsn_dss.engine.seestar_provider.normalize.parse_identity"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_device_reference_carries_no_address_or_secret",
+        "tests.test_seestar_provider.DiscoveryTests.test_missing_serial_means_no_identity_and_is_not_invented"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-009": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_connect_verifies_identity_and_reports_provider_evidence_only"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-010": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_connect_verifies_identity_and_reports_provider_evidence_only",
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_a_different_device_at_the_same_address_fails_the_connection_and_it_is_replaced"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-011": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_loss_and_recovery_through_refresh",
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_connection_to_an_unreachable_device_fails"
+      ],
+      "note": "Connection state only; Command outcomes are DB-04."
+    },
+    "DSS-CTR-013-REQ-012": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_loss_and_recovery_through_refresh"
+      ],
+      "note": "Inherited from DB-01: connection states never include unknown_result."
+    },
+    "DSS-CTR-013-REQ-013": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_capabilities"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.CapabilityTests.test_support_is_separate_from_availability_and_physical_operations_are_unsupported",
+        "tests.test_seestar_provider.CapabilityTests.test_provider_level_report_has_no_availability_and_makes_no_device_call"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-014": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_capabilities"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-015": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_capabilities"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.CapabilityTests.test_support_is_separate_from_availability_and_physical_operations_are_unsupported"
+      ],
+      "note": "Reads confirm IMPLEMENTED_UNTESTED; hardware confirmation is recorded only in the operator report."
+    },
+    "DSS-CTR-013-REQ-016": {
+      "classification": "primary",
+      "status": "partial_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_sample_has_host_time_and_provider_and_host_sources",
+        "tests.test_seestar_provider.TelemetryTests.test_telemetry_reads_submit_no_commands_and_change_no_state"
+      ],
+      "note": "Telemetry half only. Preview reading and streaming are DB-03; DB-02 reports availability evidence without opening a stream."
+    },
+    "DSS-CTR-013-REQ-017": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry",
+        "tsn_dss.engine.seestar_provider.normalize.device_items"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_sample_has_host_time_and_provider_and_host_sources"
+      ],
+      "note": "The runtime adds the host-observed items; the Provider reports only provider-reported items."
+    },
+    "DSS-CTR-013-REQ-018": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_preview",
+        "tsn_dss.engine.seestar_provider.normalize.preview_availability"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream",
+        "tests.test_seestar_provider.PreviewEvidenceTests.test_idle_device_is_unavailable_and_missing_blocks_are_unknown"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-019": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields",
+        "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-020": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-021": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-022": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-023": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-024": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-025": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-026": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-027": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-028": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-029": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-030": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-01, DB-03, DB-04",
+      "note": "Not a DB-02 requirement; planned stage: DB-01, DB-03, DB-04."
+    },
+    "DSS-CTR-013-REQ-031": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-01, DB-03, DB-04",
+      "note": "Not a DB-02 requirement; planned stage: DB-01, DB-03, DB-04."
+    },
+    "DSS-CTR-013-REQ-032": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched",
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-033": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_preview"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.PreviewEvidenceTests.test_availability_comes_from_reported_state_and_opens_no_stream",
+        "tests.test_seestar_provider.PreviewEvidenceTests.test_wrong_port_or_stage_is_not_available"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-034": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-06A, DB-06B",
+      "note": "Not a DB-02 requirement; planned stage: DB-06A, DB-06B."
+    },
+    "DSS-CTR-013-REQ-035": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.config.SeestarProviderConfig",
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DescriptorAndRegistrationTests.test_descriptor_declares_identity_kind_label_and_real_provider",
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_address_change_in_udp_mode_keeps_device_ref_and_updates_the_endpoint"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-036": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.discover"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_configured_host_discovery_returns_a_runtime_device_reference",
+        "tests.test_seestar_provider.DiscoveryTests.test_udp_silence_is_valid_empty_discovery",
+        "tests.test_seestar_provider.DiscoveryTests.test_unreachable_host_is_a_nonfatal_failure_and_recovers",
+        "tests.test_seestar_provider.DiscoveryTests.test_rejected_authentication_is_fatal_until_reset"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-037": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.discover"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.DiscoveryTests.test_udp_silence_is_valid_empty_discovery",
+        "tests.test_seestar_provider.DiscoveryTests.test_configured_host_that_does_not_answer_degrades_because_a_device_is_required"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-038": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-039": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-040": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-041": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect",
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.disconnect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_disconnect_makes_no_device_call",
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
+      ],
+      "note": "Repeated-request semantics are the DB-01 runtime table; the Seestar Provider issues one identity read per connect and none on disconnect."
+    },
+    "DSS-CTR-013-REQ-042": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_reconnect_creates_a_new_connection_id_with_the_same_device_ref"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-043": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.connect"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_a_different_device_at_the_same_address_fails_the_connection_and_it_is_replaced",
+        "tests.test_seestar_provider.ConnectionLifecycleTests.test_connection_to_an_unreachable_device_fails"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-044": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-045": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-046": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-047": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-048": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-049": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-050": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-051": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement. It requires per-command-kind freshness predicates and is verified in DB-04 and DB-05."
+    },
+    "DSS-CTR-013-REQ-052": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_only_stdlib_neutral_runtime_and_package_imports",
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_no_domain_storage_gui_mcp_or_legacy_adapter_imports",
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-053": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-06A, DB-06B",
+      "note": "Not a DB-02 requirement; planned stage: DB-06A, DB-06B."
+    },
+    "DSS-CTR-013-REQ-054": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_package_location",
+        "tests.test_seestar_boundaries.ImportBoundaryTests.test_vendor_neutral_runtime_does_not_know_this_package"
+      ],
+      "note": "Vendor code lives only in tsn_dss.engine.seestar_provider; device_runtime is unchanged and vendor-free."
+    },
+    "DSS-CTR-013-REQ-055": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.discover"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_full_exercise_leaves_the_canonical_database_untouched",
+        "tests.test_seestar_provider.DiscoveryTests.test_discovery_creates_no_persistent_identity_and_no_commands"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-056": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_capabilities"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-057": {
+      "classification": "primary",
+      "status": "partial_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.describe_capabilities"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.CapabilityTests.test_connection_report_is_backed_by_a_fresh_read_and_timestamped",
+        "tests.test_seestar_provider.CapabilityTests.test_failed_availability_read_is_connection_evidence_not_a_fabricated_report"
+      ],
+      "note": "Availability is evidence from a fresh authenticated read, and a failed read yields no report. Enforcing the obligation against safety-sensitive Commands is DB-04 (REQ-051, REQ-060)."
+    },
+    "DSS-CTR-013-REQ-058": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.normalize.device_items",
+        "tsn_dss.engine.seestar_provider.normalize.app_items",
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_absent_fields_are_unavailable_and_null_or_wrong_types_are_unknown",
+        "tests.test_seestar_provider.TelemetryTests.test_device_defaults_are_unknown_not_measurements",
+        "tests.test_seestar_provider.TelemetryTests.test_partial_failure_returns_stale_then_unavailable_never_fresh_looking_values",
+        "tests.test_seestar_provider.TelemetryTests.test_nothing_known_before_failure_is_unavailable_not_stale",
+        "tests.test_seestar_provider.TelemetryTests.test_wide_cam_setting_is_labelled_a_setting_not_live_state"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-059": {
+      "classification": "primary",
+      "status": "offline_verified",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_telemetry_reads_submit_no_commands_and_change_no_state",
+        "tests.test_seestar_provider.SafetyAndRedactionTests.test_full_session_uses_only_allow_listed_transport_calls"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-060": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-061": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-062": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-04, DB-05",
+      "note": "Not a DB-02 requirement; planned stage: DB-04, DB-05."
+    },
+    "DSS-CTR-013-REQ-063": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "planned_stage": "DB-01, DB-03, DB-04",
+      "note": "Not a DB-02 requirement; planned stage: DB-01, DB-03, DB-04."
+    },
+    "DSS-CTR-013-REQ-064": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-065": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.normalize.device_items",
+        "tsn_dss.engine.seestar_provider.normalize.app_items"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-066": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_seestar_provider.TelemetryTests.test_provider_native_target_data_is_not_mapped",
+        "tests.test_seestar_boundaries.OwnershipBoundaryTests.test_runtime_evidence_has_no_domain_identity_fields"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-067": {
+      "classification": "boundary",
+      "status": "boundary_offline",
+      "components": [
+        "tsn_dss.engine.seestar_provider.provider.SeestarProvider"
+      ],
+      "tests": [
+        "tests.test_seestar_boundaries.ReadOnlySafetyTests.test_no_acquisition_or_capture_surface"
+      ],
+      "note": "DB-02 preserves the boundary by exposing no Acquisition Execution surface."
+    }
+  }
+}
