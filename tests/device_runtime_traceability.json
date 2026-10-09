@@ -1,0 +1,777 @@
+{
+  "schema_version": 1,
+  "contract_id": "DSS-CTR-013",
+  "contract_version": "0.2",
+  "contract_status": "Draft",
+  "source_path": "Contracts/DSS-CTR-013-Device-Provider-Runtime-Contract.md",
+  "stage": "DB-01",
+  "roadmap": "ROADMAP_DEVICE_BACKEND.md",
+  "note": "DSS-CTR-013 REQ-ID traceability for DB-01. Separate from the legacy SHALL-anchor manifest tests/contract_traceability.json.",
+  "status_definitions": {
+    "verified": "The full normative obligation is exercised by DB-01 tests against the simulator and runtime model.",
+    "partially_verified": "DB-01 verifies the runtime-model or non-Command part; the remainder needs Command execution or safety gates and is verified in a later stage (see note).",
+    "boundary_verified": "Structural and behavioral tests show DB-01 does not cross the stated ownership or scope boundary. This is not verification of obligations on future work.",
+    "type_level_only": "Only data types exist in DB-01. The requirement is NOT verified here; DB-04 verifies it.",
+    "deferred": "Not a DB-01 requirement."
+  },
+  "requirements": {
+    "DSS-CTR-013-REQ-001": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ProviderDescriptor",
+        "tsn_dss.engine.device_runtime.registry.ProviderRegistry.register"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderIdentityTests.test_descriptor_declares_identity_kind_label_simulation_and_configuration",
+        "tests.test_device_runtime_providers.ProviderRegistryTests.test_register_get_and_list_are_deterministic",
+        "tests.test_device_runtime_providers.ProviderRegistryTests.test_duplicate_and_unknown_provider_ids_are_rejected"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-002": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ProviderDescriptor"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderIdentityTests.test_descriptor_declares_identity_kind_label_simulation_and_configuration",
+        "tests.test_device_runtime_providers.ProviderIdentityTests.test_descriptor_rejects_missing_declarations"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-003": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.registry.ProviderRegistry"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderRegistryTests.test_registration_has_no_domain_collaborators",
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_full_runtime_exercise_leaves_the_canonical_database_untouched"
+      ],
+      "note": "Primary evidence is structural: the registry holds no database or domain handle. The database-digest test corroborates but cannot by itself prove absence of writes."
+    },
+    "DSS-CTR-013-REQ-004": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.lifecycle.PROVIDER_TRANSITIONS",
+        "tsn_dss.engine.device_runtime.lifecycle.provider_next_state",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderLifecycleTableTests.test_every_contract_transition_is_present",
+        "tests.test_device_runtime_providers.ProviderLifecycleTableTests.test_invalid_transitions_raise",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_provider_event_enum_is_unaffected_by_connection_events"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-005": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ProviderLifecycleState"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderLifecycleTableTests.test_provider_lifecycle_has_no_device_level_states"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-006": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.discover",
+        "tsn_dss.engine.device_runtime.models.DeviceReference",
+        "tsn_dss.engine.device_runtime.models.DiscoveryResult"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.DiscoveryTests.test_successful_discovery_returns_provider_native_references"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-007": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.discover"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.DiscoveryTests.test_discovery_submits_no_commands_and_makes_only_discover_calls"
+      ],
+      "note": "Verifies the runtime issues only the Provider discover call and no Command-like operation exists. That a physical Provider's discover moves no hardware is a Provider property validated in DB-02."
+    },
+    "DSS-CTR-013-REQ-008": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.DeviceReference"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.DiscoveryTests.test_device_reference_is_not_a_domain_identity",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_successful_discovery_returns_provider_native_references"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-009": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.connection.Connection",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.open_connection"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionIdentityTests.test_connection_has_runtime_id_one_provider_and_one_device"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-010": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.connection.Connection"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionIdentityTests.test_connection_has_runtime_id_one_provider_and_one_device",
+        "tests.test_device_runtime_connection.ConnectionIdentityTests.test_device_of_another_provider_is_rejected",
+        "tests.test_device_runtime_connection.ConnectionIdentityTests.test_connection_must_belong_to_the_runtime"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-011": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ConnectionState",
+        "tsn_dss.engine.device_runtime.models.CommandState"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionCommandIndependenceTests.test_connection_model_holds_no_command_reference",
+        "tests.test_device_runtime_connection.ConnectionCommandIndependenceTests.test_runtime_operations_never_accept_or_return_command_types",
+        "tests.test_device_runtime_connection.ConnectionCommandIndependenceTests.test_command_identity_is_unaffected_by_every_connection_outcome",
+        "tests.test_device_runtime_connection.ConnectionCommandIndependenceTests.test_connection_state_values_exclude_command_outcomes",
+        "tests.test_device_runtime_connection.ConnectionTableTests.test_connection_state_and_command_state_are_independent_types",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_transport_loss_resolves_independently_of_provider_calls"
+      ],
+      "note": "Verified as a modeling requirement: Connection and Command models share no type, field, event or runtime signature, and the contract-defined coupling (busy, loss during a Command) is not implemented. The dynamic case, Connection loss leaving an active Command in unknown_result, needs Command execution and is verified in DB-04 (REQ-026, REQ-046)."
+    },
+    "DSS-CTR-013-REQ-012": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ConnectionState",
+        "tsn_dss.engine.device_runtime.lifecycle.ConnectionEvent"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionTableTests.test_connection_lifecycle_excludes_unknown_result"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-013": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CapabilityEntry",
+        "tsn_dss.engine.device_runtime.models.CapabilityReport"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_separates_support_from_current_availability",
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_provider_level_report_makes_no_availability_claim",
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_inconsistent_entries_are_rejected"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-014": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CapabilityReport",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.capability_report"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_identifies_provider_and_connection_and_carries_observation_time"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-015": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CapabilityReport.proves_command_success"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_is_never_proof_of_command_success"
+      ],
+      "note": "The report exposes a constant False proof property and no success or guarantee field. There is no consumer to misuse it before DB-04."
+    },
+    "DSS-CTR-013-REQ-016": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.TelemetrySample",
+        "tsn_dss.engine.device_runtime.models.PreviewDescriptor",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.read_telemetry",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.describe_preview"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_telemetry_reads_do_not_submit_commands_or_change_state",
+        "tests.test_device_runtime_simulator.PreviewTests.test_preview_descriptor_is_runtime_evidence_only"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-017": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.TelemetryItem",
+        "tsn_dss.engine.device_runtime.models.TelemetrySource",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.read_telemetry"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_provider_reported_and_host_observed_evidence_are_distinguished",
+        "tests.test_device_runtime_simulator.TelemetryTests.test_provider_cannot_claim_host_observed_evidence"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-018": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.PreviewDescriptor"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.PreviewTests.test_preview_descriptor_has_no_capture_frame_or_file_fields",
+        "tests.test_device_runtime_simulator.PreviewTests.test_preview_descriptor_is_runtime_evidence_only"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-019": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.TelemetrySample"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_telemetry_is_not_a_domain_fact"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-020": {
+      "classification": "type_level_only",
+      "status": "type_level_only",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CommandRef",
+        "tsn_dss.engine.device_runtime.models.CommandId"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.CommandTypeTests.test_command_ref_binds_command_provider_and_connection"
+      ],
+      "note": "Type-level preparation only; not requirement verification. Verified in DB-04."
+    },
+    "DSS-CTR-013-REQ-021": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-022": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-023": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-024": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-025": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-026": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-027": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-028": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-029": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-030": {
+      "classification": "primary",
+      "status": "partially_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.simulator.SimulatorProvider",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_every_artifact_is_marked_simulated",
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_unsimulated_provider_artifacts_are_not_marked_simulated",
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_misreporting_provider_is_rejected"
+      ],
+      "note": "DB-01 covers Provider, Device, Connection, Capability, Telemetry and Preview only. Command outcomes are DB-04."
+    },
+    "DSS-CTR-013-REQ-031": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.simulator.SimulatorProvider",
+        "tsn_dss.engine.device_runtime.support.ManualClock",
+        "tsn_dss.engine.device_runtime.support.SequentialIdGenerator"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_behavior_is_deterministic_for_identical_input",
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_ids_are_injectable_and_sequential",
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_manual_clock_is_deterministic_and_requires_timezone"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-032": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_full_runtime_exercise_leaves_the_canonical_database_untouched",
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_runtime_models_expose_no_domain_identity_fields",
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_no_import_of_domain_storage_gui_mcp_or_telescope_code"
+      ],
+      "note": "Structural (no import path, no handle) plus a database-digest corroboration."
+    },
+    "DSS-CTR-013-REQ-033": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.PreviewDescriptor"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.PreviewTests.test_preview_descriptor_has_no_capture_frame_or_file_fields",
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_no_acquisition_execution_surface"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-034": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-06A, DB-06B.",
+      "planned_stage": "DB-06A, DB-06B"
+    },
+    "DSS-CTR-013-REQ-035": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ProviderDescriptor"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.ProviderIdentityTests.test_provider_identity_is_independent_of_devices_connections_and_endpoints",
+        "tests.test_device_runtime_providers.ProviderIdentityTests.test_provider_with_zero_or_many_devices"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-036": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.discover",
+        "tsn_dss.engine.device_runtime.lifecycle.PROVIDER_TRANSITIONS"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.DiscoveryTests.test_successful_discovery_returns_provider_native_references",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_valid_empty_discovery_is_not_a_failure",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_nonfatal_failure_degrades_and_recovers_on_refresh",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_fatal_failure_fails_the_provider_until_reset",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_refresh_from_available_and_from_degraded",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_recovery_after_empty_required_device_missing",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_lifecycle_history_records_evidence_in_order"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-037": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.discover",
+        "tsn_dss.engine.device_runtime.models.ProviderDescriptor.device_required"
+      ],
+      "tests": [
+        "tests.test_device_runtime_providers.DiscoveryTests.test_valid_empty_discovery_is_not_a_failure",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_empty_discovery_degrades_when_a_specific_device_is_required"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-038": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.ConnectionId",
+        "tsn_dss.engine.device_runtime.connection.Connection"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionIdentityTests.test_connection_id_is_not_any_other_identity"
+      ],
+      "note": "Verified at model level: distinct typed fields and runtime-generated ids. By-value distinctness is shown only for generated ids."
+    },
+    "DSS-CTR-013-REQ-039": {
+      "classification": "type_level_only",
+      "status": "type_level_only",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CommandState"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.CommandTypeTests.test_command_states_match_the_contract_and_terminal_set",
+        "tests.test_device_runtime_connection.CommandTypeTests.test_no_command_execution_surface_exists"
+      ],
+      "note": "Type-level preparation only: DB-01 defines Command state types and asserts no execution/enforcement surface. Exclusivity is verified in DB-04."
+    },
+    "DSS-CTR-013-REQ-040": {
+      "classification": "type_level_only",
+      "status": "type_level_only",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CommandState"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.CommandTypeTests.test_command_states_match_the_contract_and_terminal_set",
+        "tests.test_device_runtime_connection.CommandTypeTests.test_no_command_execution_surface_exists"
+      ],
+      "note": "Type-level preparation only: DB-01 defines Command state types and asserts no execution/enforcement surface. Exclusivity is verified in DB-04."
+    },
+    "DSS-CTR-013-REQ-041": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.lifecycle.CONNECTION_TRANSITIONS",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.connect",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.disconnect"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionTableTests.test_repeated_requests_never_require_a_provider_call",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_repeated_connect_is_idempotent_without_duplicate_provider_calls",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_repeated_connect_while_connecting_makes_no_duplicate_call",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_disconnect_then_repeated_disconnect_is_idempotent",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_repeated_disconnect_while_disconnecting_makes_no_duplicate_call",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_disconnect_of_new_connection_is_a_no_op_without_provider_call"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-042": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.open_connection",
+        "tsn_dss.engine.device_runtime.lifecycle.CONNECTION_TRANSITIONS"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionTableTests.test_terminal_states_are_never_reactivated",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_reconnect_creates_a_new_connection_id_and_never_reactivates"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-043": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.replace_failed_connection"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_failed_connection_is_replaced_not_reset",
+        "tests.test_device_runtime_connection.ConnectionBehaviorTests.test_only_failed_connections_can_be_replaced",
+        "tests.test_device_runtime_connection.ConnectionTableTests.test_terminal_states_are_never_reactivated"
+      ],
+      "note": "Replacement preserving unresolved physical uncertainty is DB-04 (REQ-049)."
+    },
+    "DSS-CTR-013-REQ-044": {
+      "classification": "type_level_only",
+      "status": "type_level_only",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CommandRef",
+        "tsn_dss.engine.device_runtime.models.CommandId"
+      ],
+      "tests": [
+        "tests.test_device_runtime_connection.CommandTypeTests.test_command_ref_binds_command_provider_and_connection"
+      ],
+      "note": "Type-level preparation only; not requirement verification. Verified in DB-04."
+    },
+    "DSS-CTR-013-REQ-045": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-046": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-047": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-048": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-049": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-050": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-051": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-052": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_only_standard_library_and_intra_package_imports",
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_no_import_of_domain_storage_gui_mcp_or_telescope_code",
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_runtime_objects_hold_no_database_or_domain_handles"
+      ],
+      "note": "Structural: standard-library-only imports, no domain, storage, GUI or telescope import."
+    },
+    "DSS-CTR-013-REQ-053": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-06A, DB-06B.",
+      "planned_stage": "DB-06A, DB-06B"
+    },
+    "DSS-CTR-013-REQ-054": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.simulator.SimulatorProvider"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_no_vendor_specific_behavior_in_the_core"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-055": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.discover"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_full_runtime_exercise_leaves_the_canonical_database_untouched",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_discovery_submits_no_commands_and_makes_only_discover_calls"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-056": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CapabilityReport"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_identifies_provider_and_connection_and_carries_observation_time"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-057": {
+      "classification": "primary",
+      "status": "partially_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.CapabilityReport",
+        "tsn_dss.engine.device_runtime.models.CapabilityEntry"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_is_a_point_in_time_snapshot_not_live_state",
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_is_never_proof_of_command_success",
+        "tests.test_device_runtime_simulator.CapabilityReportTests.test_report_separates_support_from_current_availability"
+      ],
+      "note": "partially_verified is justified: the obligation applies when a safety-sensitive Command requires current physical evidence, and DB-01 has no Command safety evaluation. DB-01 verifies only the model facts that make it satisfiable: support is separate from availability (REQ-013), the report is timestamped (REQ-014), it is a point-in-time snapshot with no freshness or proof claim. Enforcement is DB-04 (REQ-051, REQ-060)."
+    },
+    "DSS-CTR-013-REQ-058": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.TelemetrySample",
+        "tsn_dss.engine.device_runtime.models.TelemetryItem"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_sample_has_host_observation_time_and_optional_provider_time",
+        "tests.test_device_runtime_simulator.TelemetryTests.test_unknown_stale_and_unavailable_state_is_preserved_not_fabricated"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-059": {
+      "classification": "primary",
+      "status": "verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.read_telemetry",
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime.describe_preview"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_telemetry_reads_do_not_submit_commands_or_change_state",
+        "tests.test_device_runtime_connection.CommandTypeTests.test_no_command_execution_surface_exists"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-060": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-061": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-062": {
+      "classification": "deferred",
+      "status": "deferred",
+      "components": [],
+      "tests": [],
+      "note": "Not a DB-01 requirement; planned stage: DB-04, DB-05.",
+      "planned_stage": "DB-04, DB-05"
+    },
+    "DSS-CTR-013-REQ-063": {
+      "classification": "primary",
+      "status": "partially_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.simulator.SimulatorProvider",
+        "tsn_dss.engine.device_runtime.provider.DeviceProvider"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_simulator_implements_the_same_concepts_as_a_physical_provider",
+        "tests.test_device_runtime_simulator.SimulatorConformanceTests.test_every_artifact_is_marked_simulated"
+      ],
+      "note": "Provider, Device Reference, Connection, Capability Report, Telemetry and Preview concepts only; the Command concept beyond identity/state types is DB-04."
+    },
+    "DSS-CTR-013-REQ-064": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_provider_runtime_state_proves_no_domain_fact",
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_runtime_models_expose_no_domain_identity_fields"
+      ],
+      "note": "Structural: runtime models carry no domain identity fields and expose no domain-record attributes."
+    },
+    "DSS-CTR-013-REQ-065": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.DeviceReference"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.NoCanonicalWriteTests.test_provider_native_labels_do_not_replace_target_identity",
+        "tests.test_device_runtime_providers.DiscoveryTests.test_device_reference_is_not_a_domain_identity"
+      ],
+      "note": "Structural: Device Reference has no Target fields; the label is a plain string."
+    },
+    "DSS-CTR-013-REQ-066": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.models.TelemetrySample"
+      ],
+      "tests": [
+        "tests.test_device_runtime_simulator.TelemetryTests.test_telemetry_is_not_a_domain_fact"
+      ],
+      "note": ""
+    },
+    "DSS-CTR-013-REQ-067": {
+      "classification": "boundary",
+      "status": "boundary_verified",
+      "components": [
+        "tsn_dss.engine.device_runtime.runtime.ProviderRuntime"
+      ],
+      "tests": [
+        "tests.test_device_runtime_boundaries.PackageIsolationTests.test_no_acquisition_execution_surface"
+      ],
+      "note": "DB-01 preserves the boundary by exposing no Acquisition Execution surface. The obligation on future work is not verifiable until that work exists."
+    }
+  }
+}

@@ -3,7 +3,7 @@
   "contracts": [
     {
       "contract_id": "DSS-CTR-001",
-      "source_path": "../Contracts/DSS-CTR-001-Session-Contract.md",
+      "source_path": "Contracts/DSS-CTR-001-Session-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -346,7 +346,7 @@
     },
     {
       "contract_id": "DSS-CTR-002",
-      "source_path": "../Contracts/DSS-CTR-002-Session-Member-Contract.md",
+      "source_path": "Contracts/DSS-CTR-002-Session-Member-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -566,7 +566,7 @@
     },
     {
       "contract_id": "DSS-CTR-003",
-      "source_path": "../Contracts/DSS-CTR-003-Observation-Contract.md",
+      "source_path": "Contracts/DSS-CTR-003-Observation-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -809,7 +809,7 @@
     },
     {
       "contract_id": "DSS-CTR-004",
-      "source_path": "../Contracts/DSS-CTR-004-Target-Contract.md",
+      "source_path": "Contracts/DSS-CTR-004-Target-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -964,7 +964,7 @@
     },
     {
       "contract_id": "DSS-CTR-005",
-      "source_path": "../Contracts/DSS-CTR-005-Session-Context-Contract.md",
+      "source_path": "Contracts/DSS-CTR-005-Session-Context-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -1077,7 +1077,7 @@
     },
     {
       "contract_id": "DSS-CTR-006",
-      "source_path": "../Contracts/DSS-CTR-006-Session-Event-Contract.md",
+      "source_path": "Contracts/DSS-CTR-006-Session-Event-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -1261,7 +1261,7 @@
     },
     {
       "contract_id": "DSS-CTR-007",
-      "source_path": "../Contracts/DSS-CTR-007-Session-Plan-Contract.md",
+      "source_path": "Contracts/DSS-CTR-007-Session-Plan-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -1491,7 +1491,7 @@
     },
     {
       "contract_id": "DSS-CTR-008",
-      "source_path": "../Contracts/DSS-CTR-008-Project-Contract.md",
+      "source_path": "Contracts/DSS-CTR-008-Project-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -1718,7 +1718,7 @@
     },
     {
       "contract_id": "DSS-CTR-009",
-      "source_path": "../Contracts/DSS-CTR-009-Capture-Frame-Provenance-Contract.md",
+      "source_path": "Contracts/DSS-CTR-009-Capture-Frame-Provenance-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -1944,7 +1944,7 @@
     },
     {
       "contract_id": "DSS-CTR-010",
-      "source_path": "../Contracts/DSS-CTR-010-Acquisition-Plan-Contract.md",
+      "source_path": "Contracts/DSS-CTR-010-Acquisition-Plan-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -2096,7 +2096,7 @@
     },
     {
       "contract_id": "DSS-CTR-011",
-      "source_path": "../Contracts/DSS-CTR-011-Mosaic-Plan-Contract.md",
+      "source_path": "Contracts/DSS-CTR-011-Mosaic-Plan-Contract.md",
       "status": "Draft",
       "requirements": [
         {
@@ -2278,7 +2278,7 @@
     },
     {
       "contract_id": "DSS-CTR-012",
-      "source_path": "../Contracts/DSS-CTR-012-Dataset-Processing-Contract.md",
+      "source_path": "Contracts/DSS-CTR-012-Dataset-Processing-Contract.md",
       "status": "Draft",
       "requirements": [
         {
