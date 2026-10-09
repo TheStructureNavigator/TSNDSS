@@ -56,13 +56,27 @@ Provider identity, runtime Device References, discovery outcomes, Connection ide
 
 ### Contract requirement coverage
 
-Primary: REQ-001 through REQ-015, REQ-030, REQ-031, REQ-035 through REQ-043, REQ-056, REQ-063.
+Primary: REQ-001 through REQ-017, REQ-030 (partial), REQ-031, REQ-035 through REQ-038, REQ-041 through REQ-043, REQ-055 through REQ-059, REQ-063 (partial).
 
-Boundary: REQ-032, REQ-052, REQ-054, REQ-064, REQ-067.
+Boundary: REQ-018, REQ-019, REQ-032, REQ-033, REQ-052, REQ-054, REQ-064, REQ-065, REQ-066, REQ-067.
+
+Type-level preparation only, NOT requirement verification: REQ-020, REQ-039, REQ-040, REQ-044.
+
+REQ-030 and REQ-063 are covered in DB-01 only for Provider, Device, Connection, Capability, Telemetry and Preview. Their Command-outcome portions remain DB-04 responsibilities.
+
+Preparing Command identity and state types in DB-01 does not verify DB-04 command execution, per-Connection exclusivity or safety requirements. REQ-039 and REQ-040 are verified in DB-04, not in DB-01.
 
 ### Dependencies
 
 Accepted DSS-CTR-013 v0.2 and the existing telescope adapter scaffold.
+
+### Planned package location
+
+`tsn_dss/engine/device_runtime/`. The package must remain standard-library-only and must not modify `tsn_dss/engine/__init__.py`. It is introduced beside the existing `TelescopeAdapter` runtime in `tsn_dss/engine/telescope.py`, which DB-01 does not change.
+
+### Legacy telescope path
+
+The legacy `TelescopeStateService.slew_to_coordinates` / `slew_to_planned_pointing` path operates on the `TelescopeAdapter` protocol, not on the Provider/Command runtime. It is outside DB-01 and is left unaltered. How it is migrated, wrapped or restricted must be adjudicated during DB-04/DB-05 integration.
 
 ### Deliverables
 
@@ -350,12 +364,18 @@ Every DSS-CTR-013 requirement has at least one planned verification stage. Simul
 | REQ-016, REQ-017, REQ-018, REQ-019, REQ-058, REQ-059 | DB-01, DB-02, DB-03 | Runtime telemetry/preview tests; RTSP hardware validation |
 | REQ-020, REQ-021, REQ-022, REQ-023, REQ-024, REQ-025, REQ-026, REQ-027 | DB-04, DB-05 | Simulator command runtime; controlled hardware commands |
 | REQ-028, REQ-029, REQ-060, REQ-061, REQ-062 | DB-04, DB-05 | Simulator safety gates; operator-gated hardware validation |
-| REQ-030, REQ-031, REQ-063 | DB-01, DB-03, DB-04 | Simulator conformance tests |
-| REQ-033, REQ-034, REQ-064, REQ-066, REQ-067 | DB-03, DB-06A, DB-06B | Preview/acquisition boundary tests; future contract gate |
+| REQ-030, REQ-031, REQ-063 | DB-01, DB-03, DB-04 | Simulator conformance tests; in DB-01 REQ-030 and REQ-063 cover Provider, Device, Connection, Capability, Telemetry and Preview only, Command outcomes are DB-04 |
+| REQ-033, REQ-066 | DB-01, DB-03, DB-06A, DB-06B | Boundary tests: preview and telemetry do not become Capture, Frame or SessionContextFact; future contract gate |
+| REQ-034, REQ-064, REQ-067 | DB-03, DB-06A, DB-06B | Preview/acquisition boundary tests; future contract gate |
 | REQ-039, REQ-040, REQ-044, REQ-045, REQ-046, REQ-047, REQ-048, REQ-049, REQ-050, REQ-051 | DB-04, DB-05 | Simulator command safety; controlled hardware validation |
 | REQ-053 | DB-06A, DB-06B | Future SessionEvent handoff boundary |
 | REQ-054 | DB-02, DB-03, DB-05 | Seestar integration stays outside provider-neutral core |
 | REQ-065 | DB-01, DB-02, DB-06B | Target identity boundary tests |
+
+Notes:
+
+- Type-level preparation in DB-01 (REQ-020, REQ-039, REQ-040, REQ-044) is not verification of the DB-04/DB-05 rows above.
+- DSS-CTR-013 normative traceability uses the contract's own requirement IDs (`DSS-CTR-013-REQ-001` through `REQ-067`) and is separate from the legacy SHALL-anchor manifest `tests/contract_traceability.json`, which covers DSS-CTR-001 through DSS-CTR-012 only and does not include DSS-CTR-013.
 
 ## Hardware safety gates
 
