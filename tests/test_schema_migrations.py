@@ -45,6 +45,7 @@ from tsn_dss.engine.sqlite.mosaics import MosaicRepository
 from tsn_dss.engine.sqlite.observation import ObservationRepository
 from tsn_dss.engine.sqlite.planning import PlanningRepository
 from tsn_dss.engine.sqlite.processing import ProcessingRunRepository
+from tsn_dss.engine.sqlite.project_repository import ProjectRepository
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
@@ -746,6 +747,7 @@ class LegacyNormalizationTests(TempDirTestCase):
         connection = self.open_initialized()
         planning = PlanningRepository(connection)
         mosaics = MosaicRepository(connection)
+        ProjectRepository(connection).register_project(dir_key="M27 — Dumbbell Nebula")
 
         site = planning.create_site(
             Site(

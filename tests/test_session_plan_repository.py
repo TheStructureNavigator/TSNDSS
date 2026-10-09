@@ -41,6 +41,7 @@ class SessionPlanRepositoryTests(unittest.TestCase):
         self.mosaics = MosaicRepository(self.connection)
         self.projects = ProjectRepository(self.connection)
         self.project_sessions = ProjectSessionRepository(self.connection)
+        self.projects.register_project(dir_key="m42_project")
         self.session = self.sessions.create_session(Session(id="session:test", started_at=STARTED))
         self.target = self.planning.create_target(
             Target(target_type="fixed_coordinate", id="target:m42", catalog="M", catalog_id="42", name="Orion Nebula", ra_deg=83.8, dec_deg=-5.4)

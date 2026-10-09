@@ -238,7 +238,10 @@ Contracts:
 DSS-CTR-011, DSS-CTR-008.
 
 Status:
-READY
+COMPLETE
+
+Completion note:
+Wave 8 canonicalized MosaicPlan Project ownership without a schema migration. New canonical MosaicPlans require an existing Project and persist ownership through canonical `Project.id`; linked MosaicPlans cannot be orphaned or reassigned. Legacy unresolved `project_slug` records remain readable, are not assigned fabricated ownership, and require valid ownership resolution before mutation. Exact historical backfill remains deterministic and idempotent. MosaicPanel ownership by MosaicPlan and SessionPlan reference-only semantics remain distinct. Independent acceptance completed after targeted remediation.
 
 ### Wave 9 — Contract Conformance Suite
 
@@ -300,7 +303,7 @@ For every future implementation wave:
 | 5 | SessionContext | DSS-CTR-005, DSS-CTR-003 | Wave 1 | COMPLETE — NO SNAPSHOT ENTITY REQUIRED | Medium |
 | 6 | SessionEvent | DSS-CTR-006 | Wave 1 | COMPLETE | Medium |
 | 7 | Target Reconciliation | DSS-CTR-004 | Partially independent | COMPLETE | Medium |
-| 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | READY | Medium |
+| 8 | Mosaic Project Canonicalization | DSS-CTR-011, DSS-CTR-008 | Partially independent | COMPLETE | Medium |
 | 9 | Contract Conformance Suite | DSS-CTR-001 through DSS-CTR-012 | Waves 1–8 for finalization | ONGOING THROUGH WAVES, FINALIZED AFTER WAVES 1–8 | Low |
 
 ## 9. Definition of Done
@@ -321,8 +324,8 @@ TSN DSS contract-driven implementation is complete when:
 
 ## 10. Next Action
 
-NEXT: Wave 8 — Mosaic Project Canonicalization planning / implementation planning
+NEXT: Wave 9 — Contract Conformance Suite planning / implementation planning
 
-Next work is planning and implementation planning for Mosaic Project Canonicalization.
+Next work is planning and implementation planning for the final contract conformance suite.
 
-Do not begin Wave 8 implementation now.
+Do not begin Wave 9 implementation now.

@@ -326,10 +326,11 @@ class RegistryTestCase(TempDirTestCase):
         return path
 
     def plan(self, plan_id: str, slug: str, **extra) -> MosaicPlan:
+        name = extra.pop("name", f"plan {plan_id}")
         return MosaicPlan(
             id=plan_id,
             project_slug=slug,
-            name=f"plan {plan_id}",
+            name=name,
             imaging_profile_id="simulator-default",
             imaging_profile_label="Seestar",
             fov_width_deg=2.59,
@@ -807,23 +808,34 @@ class MosaicProjectLinkTests(RegistryTestCase):
         self.assertEqual(saved.project_slug, "M31")  # legacy field is untouched
         self.assertEqual(self.mosaics.get_mosaic_plan("a").project_id, self.m31.id)
 
-    def test_new_plan_stays_unlinked_when_the_project_is_unknown(self) -> None:
-        saved = self.mosaics.save_mosaic_plan(self.plan("b", "Unknown Project"))
-        self.assertIsNone(saved.project_id)
-        self.assertEqual(saved.project_slug, "Unknown Project")
+    def test_new_plan_is_rejected_when_the_project_is_unknown(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.mosaics.save_mosaic_plan(self.plan("b", "Unknown Project"))
+        self.assertIsNone(self.mosaics.get_mosaic_plan("b"))
 
     def test_slug_resolution_is_exact(self) -> None:
         for slug in ("m31", "M31 ", " M31", "M3"):
             with self.subTest(slug):
-                self.assertIsNone(self.mosaics.save_mosaic_plan(self.plan(f"x-{len(slug)}-{slug!r}", slug)).project_id)
+                with self.assertRaises(ValidationError):
+                    self.mosaics.save_mosaic_plan(self.plan(f"x-{len(slug)}-{slug!r}", slug))
 
-    def test_updating_a_plan_relinks_by_slug(self) -> None:
-        self.mosaics.save_mosaic_plan(self.plan("c", "Unknown"))
+    def test_updating_a_linked_plan_cannot_orphan_or_reassign_it(self) -> None:
+        self.mosaics.save_mosaic_plan(self.plan("c", "M31"))
         _, other = self.registry.create_project("Other")
-        moved = self.mosaics.save_mosaic_plan(self.plan("c", "Other"))
-        self.assertEqual(moved.project_id, other.id)
-        back = self.mosaics.save_mosaic_plan(self.plan("c", "Unknown"))
-        self.assertIsNone(back.project_id)
+        before = self.mosaics.get_mosaic_plan("c")
+        assert before is not None
+
+        for candidate in (
+            self.plan("c", "Other"),
+            self.plan("c", "Unknown"),
+            self.plan("c", "Other", project_id=other.id),
+        ):
+            with self.assertRaises(ValidationError):
+                self.mosaics.save_mosaic_plan(candidate)
+
+        after = self.mosaics.get_mosaic_plan("c")
+        assert after is not None
+        self.assertEqual((after.project_id, after.project_slug, after.name), (before.project_id, "M31", before.name))
 
     def test_resaving_a_linked_plan_without_a_project_id_keeps_the_link(self) -> None:
         first = self.mosaics.save_mosaic_plan(self.plan("d", "M31"))
@@ -841,10 +853,125 @@ class MosaicProjectLinkTests(RegistryTestCase):
 
     def test_listing_by_slug_still_works_for_linked_and_unlinked_plans(self) -> None:
         self.mosaics.save_mosaic_plan(self.plan("h", "M31"))
-        self.mosaics.save_mosaic_plan(self.plan("i", "Unknown"))
+        self.connection.execute(
+            "INSERT INTO mosaic_plans (id, project_slug, name, imaging_profile_id, imaging_profile_label, "
+            "fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg) "
+            "VALUES ('i', 'Unknown', 'legacy', 'profile', 'Profile', 1, 1, 1, 1, 1, 1)"
+        )
+        self.connection.commit()
         self.assertEqual([p.id for p in self.mosaics.list_mosaic_plans(project_slug="M31")], ["h"])
         self.assertEqual([p.id for p in self.mosaics.list_mosaic_plans(project_slug="Unknown")], ["i"])
         self.assertEqual(len(self.mosaics.list_mosaic_plans()), 2)
+
+    def test_unresolved_legacy_plan_is_readable_reportable_and_not_metadata_editable(self) -> None:
+        self.connection.execute(
+            "INSERT INTO mosaic_plans (id, project_slug, name, imaging_profile_id, imaging_profile_label, "
+            "fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg) "
+            "VALUES ('legacy:ghost', 'Ghost', 'Legacy', 'profile', 'Profile', 1, 1, 1, 1, 1, 1)"
+        )
+        self.connection.commit()
+
+        legacy = self.mosaics.get_mosaic_plan("legacy:ghost")
+        assert legacy is not None
+        self.assertIsNone(legacy.project_id)
+        self.assertEqual(self.mosaics.list_unlinked_plans(), [("legacy:ghost", "Ghost")])
+
+        legacy.name = "Edited"
+        with self.assertRaises(ValidationError):
+            self.mosaics.save_mosaic_plan(legacy)
+        self.assertEqual(self.mosaics.get_mosaic_plan("legacy:ghost").name, "Legacy")
+
+    def test_legacy_plan_can_be_resolved_by_exact_backfill_or_matching_explicit_project(self) -> None:
+        self.connection.executescript(
+            """
+            INSERT INTO mosaic_plans (
+                id, project_slug, name, imaging_profile_id, imaging_profile_label,
+                fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg
+            ) VALUES ('legacy:m31', 'M31', 'Legacy M31', 'profile', 'Profile', 1, 1, 1, 1, 1, 1);
+            INSERT INTO mosaic_panels (
+                id, mosaic_plan_id, panel_index, panel_label, center_ra_deg, center_dec_deg, fov_width_deg, fov_height_deg
+            ) VALUES ('panel:legacy', 'legacy:m31', 0, 'P01', 1, 1, 1, 1);
+            """
+        )
+        self.connection.commit()
+
+        linked, unmatched = self.mosaics.link_plans_to_projects()
+        self.assertEqual((linked, unmatched), (["legacy:m31"], []))
+        resolved = self.mosaics.get_mosaic_plan("legacy:m31")
+        assert resolved is not None
+        self.assertEqual((resolved.project_id, [panel.id for panel in resolved.panels]), (self.m31.id, ["panel:legacy"]))
+
+        self.connection.execute(
+            "INSERT INTO mosaic_plans (id, project_slug, name, imaging_profile_id, imaging_profile_label, "
+            "fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg) "
+            "VALUES ('legacy:explicit', 'M31', 'Legacy explicit', 'profile', 'Profile', 1, 1, 1, 1, 1, 1)"
+        )
+        self.connection.commit()
+        explicit = self.mosaics.save_mosaic_plan(self.plan("legacy:explicit", "M31", project_id=self.m31.id, name="Resolved"))
+        self.assertEqual((explicit.project_id, explicit.name), (self.m31.id, "Resolved"))
+
+    def test_unresolved_legacy_plan_resolution_uses_persisted_slug_only(self) -> None:
+        _, other = self.registry.create_project("Other")
+        self.connection.executescript(
+            """
+            INSERT INTO mosaic_plans (
+                id, project_slug, name, imaging_profile_id, imaging_profile_label,
+                fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg
+            ) VALUES ('legacy:hist', 'M31', 'Legacy Hist', 'profile', 'Profile', 1, 1, 1, 1, 1, 1);
+            INSERT INTO mosaic_panels (
+                id, mosaic_plan_id, panel_index, panel_label, center_ra_deg, center_dec_deg, fov_width_deg, fov_height_deg
+            ) VALUES ('panel:hist', 'legacy:hist', 0, 'P01', 1, 1, 1, 1);
+            """
+        )
+        self.connection.commit()
+
+        resolved = self.mosaics.save_mosaic_plan(self.plan("legacy:hist", "M31", name="Resolved"))
+        self.assertEqual((resolved.project_id, resolved.project_slug, resolved.name), (self.m31.id, "M31", "Resolved"))
+        self.assertEqual([panel.id for panel in resolved.panels], ["panel:hist"])
+
+        self.connection.execute("UPDATE mosaic_plans SET project_id = NULL, name = 'Legacy Hist' WHERE id = 'legacy:hist'")
+        self.connection.commit()
+
+        for candidate in (
+            self.plan("legacy:hist", "Other", name="Changed slug"),
+            self.plan("legacy:hist", "Other", project_id=other.id, name="Changed slug explicit"),
+            self.plan("legacy:hist", "M31", project_id=other.id, name="Conflicting explicit"),
+        ):
+            with self.assertRaises(ValidationError):
+                self.mosaics.save_mosaic_plan(candidate)
+
+        unchanged = self.mosaics.get_mosaic_plan("legacy:hist")
+        assert unchanged is not None
+        self.assertEqual((unchanged.project_slug, unchanged.project_id, unchanged.name), ("M31", None, "Legacy Hist"))
+        self.assertEqual([panel.id for panel in unchanged.panels], ["panel:hist"])
+
+    def test_legacy_backfill_is_idempotent_and_leaves_unmatched_rows_unresolved(self) -> None:
+        self.connection.executescript(
+            """
+            INSERT INTO mosaic_plans (
+                id, project_slug, name, imaging_profile_id, imaging_profile_label,
+                fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg
+            ) VALUES
+                ('legacy:match', 'M31', 'Legacy Match', 'profile', 'Profile', 1, 1, 1, 1, 1, 1),
+                ('legacy:ghost', 'Ghost', 'Legacy Ghost', 'profile', 'Profile', 1, 1, 1, 1, 1, 1);
+            INSERT INTO mosaic_panels (
+                id, mosaic_plan_id, panel_index, panel_label, center_ra_deg, center_dec_deg, fov_width_deg, fov_height_deg
+            ) VALUES ('panel:match', 'legacy:match', 0, 'P01', 1, 1, 1, 1);
+            """
+        )
+        self.connection.commit()
+
+        linked, unmatched = self.mosaics.link_plans_to_projects()
+        self.assertEqual((linked, unmatched), (["legacy:match"], [("legacy:ghost", "Ghost")]))
+        linked_again, unmatched_again = self.mosaics.link_plans_to_projects()
+        self.assertEqual((linked_again, unmatched_again), ([], [("legacy:ghost", "Ghost")]))
+
+        matched = self.mosaics.get_mosaic_plan("legacy:match")
+        ghost = self.mosaics.get_mosaic_plan("legacy:ghost")
+        assert matched is not None and ghost is not None
+        self.assertEqual((matched.project_id, [panel.id for panel in matched.panels]), (self.m31.id, ["panel:match"]))
+        self.assertIsNone(ghost.project_id)
+        self.assertIsNone(self.repo.get_project_by_dir_key("Ghost"))
 
     def test_generating_panels_keeps_the_link(self) -> None:
         self.mosaics.save_mosaic_plan(self.plan("j", "M31"))
@@ -1013,11 +1140,24 @@ class ProjectApiTests(unittest.TestCase):
         self.assertEqual(body["mosaic"]["project_id"], ids["M31"])
         self.assertEqual(body["mosaic"]["project_slug"], "M31")
 
-        _, unknown = self.call("POST", "/api/mosaics", self.plan_payload("Nobody"))
-        self.assertIsNone(unknown["mosaic"]["project_id"])
+        unknown_status, unknown = self.call("POST", "/api/mosaics", self.plan_payload("Nobody"))
+        self.assertEqual((unknown_status, unknown["error"]), (400, "mosaic_create_failed"))
+        self.assertEqual(ProjectRepository(self.db()).get_project_by_dir_key("Nobody"), None)
 
         _, listing = self.call("GET", "/api/mosaics?project_slug=M31")
         self.assertEqual([m["project_id"] for m in listing["mosaics"]], [ids["M31"]])
+
+    def test_mosaic_update_that_would_orphan_or_reassign_is_a_400(self) -> None:
+        ids = ProjectRepository(self.db()).dir_key_to_id()
+        _, created = self.call("POST", "/api/mosaics", self.plan_payload("M31"))
+        status, body = self.call("POST", "/api/projects", {"slug": "Other"})
+        self.assertEqual(status, 201)
+
+        status, body = self.call("POST", f"/api/mosaics/{created['mosaic']['id']}", {"project_slug": "Other"})
+        self.assertEqual((status, body["error"]), (400, "mosaic_update_failed"))
+
+        _, reloaded = self.call("GET", f"/api/mosaics/{created['mosaic']['id']}")
+        self.assertEqual((reloaded["mosaic"]["project_id"], reloaded["mosaic"]["project_slug"]), (ids["M31"], "M31"))
 
     def test_deleting_a_project_with_mosaic_plans_is_refused_with_a_clear_conflict(self) -> None:
         _, created = self.call("POST", "/api/mosaics", self.plan_payload("M31"))

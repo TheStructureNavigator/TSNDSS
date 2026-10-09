@@ -8,6 +8,7 @@ from tsn_dss.domain.models import MosaicPlan
 from tsn_dss.engine.sqlite.db import DEFAULT_SCHEMA_PATH, connect_database, initialize_database
 from tsn_dss.engine.sqlite.migrations import initialize_schema
 from tsn_dss.engine.sqlite.mosaics import MosaicRepository, ValidationError
+from tsn_dss.engine.sqlite.project_repository import ProjectRepository
 
 
 class MosaicRepositoryTests(unittest.TestCase):
@@ -16,10 +17,30 @@ class MosaicRepositoryTests(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "mosaics.db"
         self.connection = initialize_database(self.db_path)
         self.repository = MosaicRepository(self.connection)
+        self.projects = ProjectRepository(self.connection)
+        for slug in ("veil_project", "rosette_project", "legacy_project", "wrap_project", "orion_project"):
+            self.projects.register_project(dir_key=slug)
 
     def tearDown(self) -> None:
         self.connection.close()
         self.temp_dir.cleanup()
+
+    def plan(self, plan_id: str = "mosaic:test", project_slug: str = "veil_project", **overrides) -> MosaicPlan:
+        name = overrides.pop("name", "Test Mosaic")
+        return MosaicPlan(
+            id=plan_id,
+            project_slug=project_slug,
+            name=name,
+            imaging_profile_id="widefield",
+            imaging_profile_label="Widefield",
+            fov_width_deg=3.0,
+            fov_height_deg=2.0,
+            center_ra_deg=15.0,
+            center_dec_deg=41.0,
+            region_width_deg=4.0,
+            region_height_deg=3.0,
+            **overrides,
+        )
 
     def test_save_and_reload_mosaic_plan_round_trip(self) -> None:
         saved = self.repository.save_mosaic_plan(
@@ -135,6 +156,7 @@ class MosaicRepositoryTests(unittest.TestCase):
 
             reopened = initialize_database(self.db_path)
             try:
+                ProjectRepository(reopened).register_project(dir_key="legacy_project")
                 repository = MosaicRepository(reopened)
                 created = repository.save_mosaic_plan(
                     MosaicPlan(
@@ -164,6 +186,113 @@ class MosaicRepositoryTests(unittest.TestCase):
         assert restored is not None
         self.assertEqual(restored.observation_type, "broadband imaging")
         self.assertEqual(restored.filter, "UV/IR Cut")
+
+    def test_new_mosaic_plan_requires_existing_project_ownership(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "does not resolve"):
+            self.repository.save_mosaic_plan(self.plan("mosaic:unknown", "unknown_project"))
+        self.assertIsNone(self.repository.get_mosaic_plan("mosaic:unknown"))
+        self.assertEqual(self.connection.execute("SELECT COUNT(*) FROM mosaic_panels;").fetchone()[0], 0)
+
+    def test_explicit_project_id_must_exist_and_match_slug(self) -> None:
+        project = self.projects.get_project_by_dir_key("veil_project")
+        assert project is not None
+        saved = self.repository.save_mosaic_plan(
+            self.plan("mosaic:explicit", "veil_project", project_id=project.id)
+        )
+        self.assertEqual(saved.project_id, project.id)
+
+        with self.assertRaisesRegex(ValidationError, "refer to different projects"):
+            self.repository.save_mosaic_plan(
+                self.plan("mosaic:mismatch", "rosette_project", project_id=project.id)
+            )
+        with self.assertRaisesRegex(ValidationError, "Unknown project_id"):
+            self.repository.save_mosaic_plan(
+                self.plan("mosaic:missing-project", "veil_project", project_id="project:missing")
+            )
+
+    def test_linked_mosaic_plan_cannot_be_orphaned_or_reassigned(self) -> None:
+        veil = self.projects.get_project_by_dir_key("veil_project")
+        rosette = self.projects.get_project_by_dir_key("rosette_project")
+        assert veil is not None and rosette is not None
+        saved = self.repository.save_mosaic_plan(self.plan("mosaic:stable", "veil_project"))
+        panels = self.repository.generate_panels(saved.id)
+        before = self.repository.get_mosaic_plan(saved.id)
+        assert before is not None
+
+        allowed = self.repository.save_mosaic_plan(self.plan("mosaic:stable", "veil_project", name="Renamed"))
+        self.assertEqual((allowed.project_id, allowed.name), (veil.id, "Renamed"))
+
+        for label, candidate in (
+            ("unknown slug", self.plan("mosaic:stable", "unknown_project", name="Bad")),
+            ("different project slug", self.plan("mosaic:stable", "rosette_project", name="Bad")),
+            ("different explicit project", self.plan("mosaic:stable", "rosette_project", project_id=rosette.id, name="Bad")),
+        ):
+            with self.subTest(label), self.assertRaises(ValidationError):
+                self.repository.save_mosaic_plan(candidate)
+
+        after = self.repository.get_mosaic_plan(saved.id)
+        assert after is not None
+        self.assertEqual((after.project_id, after.project_slug, after.name), (veil.id, "veil_project", "Renamed"))
+        self.assertEqual([panel.id for panel in after.panels], [panel.id for panel in panels])
+
+    def test_unresolved_legacy_plan_rejects_alternate_write_paths_without_changes(self) -> None:
+        self.connection.executescript(
+            """
+            INSERT INTO mosaic_plans (
+                id, project_slug, name, imaging_profile_id, imaging_profile_label,
+                fov_width_deg, fov_height_deg, center_ra_deg, center_dec_deg, region_width_deg, region_height_deg
+            ) VALUES ('legacy:ghost', 'Ghost', 'Legacy Ghost', 'profile', 'Profile', 3, 2, 15, 41, 4, 3);
+            INSERT INTO mosaic_panels (
+                id, mosaic_plan_id, panel_index, panel_label, center_ra_deg, center_dec_deg, fov_width_deg, fov_height_deg
+            ) VALUES ('panel:ghost', 'legacy:ghost', 0, 'P01', 15, 41, 3, 2);
+            """
+        )
+        self.connection.commit()
+
+        before_plan = self.repository.get_mosaic_plan("legacy:ghost")
+        before_panel = self.repository.get_mosaic_panel("panel:ghost")
+        assert before_plan is not None and before_panel is not None
+
+        with self.assertRaises(ValidationError):
+            self.repository.generate_panels("legacy:ghost")
+        with self.assertRaises(ValidationError):
+            self.repository.select_active_panel("legacy:ghost", "panel:ghost")
+
+        edited_panel = self.repository.get_mosaic_panel("panel:ghost")
+        assert edited_panel is not None
+        edited_panel.panel_label = "Edited"
+        edited_panel.status = "complete"
+        with self.assertRaises(ValidationError):
+            self.repository.update_mosaic_panel(edited_panel)
+
+        with self.assertRaises(ValidationError):
+            self.repository.delete_mosaic_plan("legacy:ghost")
+
+        after_plan = self.repository.get_mosaic_plan("legacy:ghost")
+        after_panel = self.repository.get_mosaic_panel("panel:ghost")
+        assert after_plan is not None and after_panel is not None
+        self.assertIsNone(after_plan.project_id)
+        self.assertIsNone(after_plan.selected_panel_id)
+        self.assertEqual((after_plan.project_slug, after_plan.name), (before_plan.project_slug, before_plan.name))
+        self.assertEqual((after_panel.panel_label, after_panel.status), (before_panel.panel_label, before_panel.status))
+        self.assertEqual([panel.id for panel in after_plan.panels], ["panel:ghost"])
+
+    def test_linked_plan_allows_alternate_write_paths(self) -> None:
+        saved = self.repository.save_mosaic_plan(self.plan("mosaic:linked", "veil_project"))
+        panels = self.repository.generate_panels(saved.id)
+        first = panels[0]
+
+        selected = self.repository.select_active_panel(saved.id, first.id)
+        self.assertEqual(selected.selected_panel_id, first.id)
+
+        first.panel_label = "Updated"
+        first.status = "complete"
+        updated = self.repository.update_mosaic_panel(first)
+        self.assertEqual((updated.panel_label, updated.status), ("Updated", "complete"))
+
+        self.repository.delete_mosaic_plan(saved.id)
+        self.assertIsNone(self.repository.get_mosaic_plan(saved.id))
+        self.assertIsNotNone(self.projects.get_project_by_dir_key("veil_project"))
 
     def test_generate_panels_persists_selected_panel_and_geometry(self) -> None:
         self.repository.save_mosaic_plan(

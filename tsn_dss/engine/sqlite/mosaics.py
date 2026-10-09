@@ -22,14 +22,10 @@ class MosaicRepository:
 
     def save_mosaic_plan(self, plan: MosaicPlan) -> MosaicPlan:
         _validate_mosaic_plan(plan)
-        project_id = self._resolve_project_id(plan)
+        current = self.get_mosaic_plan(plan.id)
+        project_id = self._resolve_project_id(plan, current=current)
         with transaction(self.connection):
-            exists = self.connection.execute(
-                "SELECT 1 FROM mosaic_plans WHERE id = ?;",
-                (plan.id,),
-            ).fetchone()
-
-            if exists:
+            if current is not None:
                 self.connection.execute(
                     """
                     UPDATE mosaic_plans
@@ -224,13 +220,22 @@ class MosaicRepository:
 
         return [_row_to_mosaic_plan(row, self.list_mosaic_panels(row["id"])) for row in rows]
 
-    def _resolve_project_id(self, plan: MosaicPlan) -> str | None:
-        """The canonical Project a plan belongs to, resolved by exact ``dir_key``.
+    def _resolve_project_id(self, plan: MosaicPlan, *, current: MosaicPlan | None = None) -> str:
+        """Resolve and authorize the canonical Project ownership for a MosaicPlan.
 
-        A supplied ``project_id`` must exist and agree with ``project_slug``. Without one,
-        the slug is matched exactly against ``projects.dir_key``; no match means the plan
-        stays unlinked (None). There is no fuzzy matching.
+        New canonical plans must resolve to an existing Project. Legacy unresolved plans
+        (persisted with project_id NULL) can only resolve from persisted
+        project_slug evidence; caller-modified slugs cannot invent historical ownership.
+        Linked plans cannot be orphaned or reassigned in Wave 8.
         """
+        resolver_slug = plan.project_slug
+        if current is not None and current.project_id is None:
+            resolver_slug = current.project_slug
+            if plan.project_slug != current.project_slug:
+                raise ValidationError(
+                    "Unresolved legacy mosaic plan project_slug cannot be changed during ownership resolution."
+                )
+
         if plan.project_id is not None:
             row = self.connection.execute(
                 "SELECT dir_key FROM projects WHERE id = ?;",
@@ -238,15 +243,31 @@ class MosaicRepository:
             ).fetchone()
             if row is None:
                 raise ValidationError(f"Unknown project_id for mosaic plan: {plan.project_id}")
-            if row["dir_key"] != plan.project_slug:
+            if row["dir_key"] != resolver_slug:
                 raise ValidationError("Mosaic plan project_id and project_slug refer to different projects.")
-            return plan.project_id
+            requested_project_id = plan.project_id
+        else:
+            row = self.connection.execute(
+                "SELECT id FROM projects WHERE dir_key = ?;",
+                (resolver_slug,),
+            ).fetchone()
+            if row is None:
+                raise ValidationError(f"Mosaic plan project_slug does not resolve to a Project: {resolver_slug}")
+            requested_project_id = str(row["id"])
 
+        if current is not None and current.project_id is not None and requested_project_id != current.project_id:
+            raise ValidationError("Mosaic plan Project ownership cannot be changed in this wave.")
+        return requested_project_id
+
+    def _require_mutable_mosaic_plan(self, plan_id: str) -> None:
         row = self.connection.execute(
-            "SELECT id FROM projects WHERE dir_key = ?;",
-            (plan.project_slug,),
+            "SELECT project_id FROM mosaic_plans WHERE id = ?;",
+            (plan_id,),
         ).fetchone()
-        return row["id"] if row else None
+        if row is None:
+            raise KeyError(f"Mosaic plan not found: {plan_id}")
+        if row["project_id"] is None:
+            raise ValidationError("Unresolved legacy mosaic plan cannot be modified until Project ownership is resolved.")
 
     def list_unlinked_plans(self) -> list[tuple[str, str]]:
         """Read-only: ``(plan_id, project_slug)`` for plans that have no project_id yet."""
@@ -289,10 +310,12 @@ class MosaicRepository:
         return [str(match["plan_id"]) for match in matches], unmatched
 
     def delete_mosaic_plan(self, plan_id: str) -> None:
+        self._require_mutable_mosaic_plan(plan_id)
         with transaction(self.connection):
             self.connection.execute("DELETE FROM mosaic_plans WHERE id = ?;", (plan_id,))
 
     def generate_panels(self, plan_id: str) -> list[MosaicPanel]:
+        self._require_mutable_mosaic_plan(plan_id)
         plan = self.get_mosaic_plan(plan_id)
         if plan is None:
             raise KeyError(f"Mosaic plan not found: {plan_id}")
@@ -364,6 +387,13 @@ class MosaicRepository:
 
     def update_mosaic_panel(self, panel: MosaicPanel) -> MosaicPanel:
         _validate_mosaic_panel(panel)
+        row = self.connection.execute(
+            "SELECT mosaic_plan_id FROM mosaic_panels WHERE id = ?;",
+            (panel.id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Mosaic panel not found: {panel.id}")
+        self._require_mutable_mosaic_plan(str(row["mosaic_plan_id"]))
         with transaction(self.connection):
             cursor = self.connection.execute(
                 """
@@ -406,6 +436,7 @@ class MosaicRepository:
         panel = self.get_mosaic_panel(panel_id)
         if panel is None or panel.mosaic_plan_id != plan_id:
             raise KeyError(f"Mosaic panel not found for plan: {panel_id}")
+        self._require_mutable_mosaic_plan(panel.mosaic_plan_id)
 
         with transaction(self.connection):
             self.connection.execute(
