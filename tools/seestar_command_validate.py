@@ -13,6 +13,9 @@ Physical mode needs ALL of: --allow-physical-motion, an interactive terminal, an
 in memory only, bound to the one device that was identified, valid for --permit-validity seconds, and the arm moves (deploy, park) each
 need a further ARM confirmation. Clear the arm's path and the cameras' field first.
 
+--step-by-step (physical mode only) asks GO before and NEXT after every command, shows the fresh arm/camera state each time, and never advances on its
+own; declining, a failure, an uncertain result or an unexpected state stops progression and leaves the usual fail-closed handling in place.
+
 Sequence (stop at the first failure; cleanup only when the run itself sent a command and no uncertainty is open):
     IDENTIFY -> BASELINE -> DEPLOY ARM -> START SCENERY -> PREVIEW (DB-03 isolated manager, read-only) -> STOP SCENERY -> PARK ARM
 The starting state must be: arm folded, mount stationary, all camera items stopped. Anything else is refused (nothing is sent).
@@ -57,6 +60,13 @@ from tsn_dss.engine.seestar_control.states import (  # noqa: E402
 )
 
 CAMERA_ITEMS_ORDERED = ("app.main.state", "app.main.rtsp_state", "app.wide.state", "app.wide.rtsp_state")
+STEP_GO, STEP_NEXT = "GO", "NEXT"
+EXPECTED_AFTER = {  # the state each command should leave, as state words; anything else stops step-by-step progression
+    ARM_DEPLOY: {"arm": "open", "cameras": "stopped"},
+    SCENERY_START: {"arm": "open", "cameras": "ready"},
+    SCENERY_STOP: {"arm": "open", "cameras": "stopped"},
+    ARM_PARK: {"arm": "closed", "cameras": "stopped"},
+}
 STAGES = ("identify", "baseline", "deploy_arm", "start_scenery", "preview", "stop_scenery", "park_arm")
 
 
@@ -104,7 +114,8 @@ def observed_items(sample: Any) -> dict:
 class Run:
     def __init__(self, control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str],
                  preview: Callable[[int], dict] | None, frames: int, deadline: timedelta, poll_interval: timedelta,
-                 clock: Callable[[], Any]) -> None:
+                 clock: Callable[[], Any], step: bool = False) -> None:
+        self.step = step
         self.control, self.permit, self.operator, self.physical, self.ask = control, permit, operator, physical, ask
         self.preview, self.frames, self.deadline, self.poll, self.clock = preview, frames, deadline, poll_interval, clock
         self.began = clock()
@@ -141,6 +152,8 @@ class Run:
 
     def command(self, kind_id: str) -> None:
         """One command through the driver. Raises ``Unsafe`` unless it succeeded; an open uncertainty closes the cleanup path."""
+        if self.step:
+            self.confirm_before(kind_id)
         if kind_id in (ARM_DEPLOY, ARM_PARK):
             self.permit.confirm_arm_motion(kind_id, lambda: self.ask(f"Type {ARM_PHRASE} to allow this arm movement ({kind_id}): "))
         self.commands.append(kind_id)
@@ -156,7 +169,30 @@ class Run:
         if outcome.uncertainty_open:
             self.recovery_required = True
         if not outcome.succeeded:
+            if self.step:
+                print(f"[STEP] {kind_id}: {outcome.classification}; stopping. Nothing further is sent.")
             raise Unsafe(f"command_{outcome.classification}")
+        if self.step:
+            self.confirm_after(kind_id, outcome)
+
+    # ---- step-by-step mode (the same command path; these only ask the operator and look)
+    def confirm_before(self, kind_id: str) -> None:
+        words = self.words()  # unreadable state: Unsafe, and the command is not admitted
+        print(f"[STEP] next command: {kind_id}; arm={words['arm']} cameras={words['cameras']}")
+        if self.ask(f"Type {STEP_GO} to send {kind_id} now (anything else stops): ").strip() != STEP_GO:
+            raise Unsafe("operator_declined_command")
+
+    def confirm_after(self, kind_id: str, outcome: Any) -> None:
+        try:
+            words = self.words()
+        except Unsafe:
+            words = {"arm": "unreadable", "cameras": "unreadable"}
+        print(f"[STEP] {kind_id}: {outcome.classification} after {outcome.polls} polls; arm={words['arm']} cameras={words['cameras']}")
+        if words != EXPECTED_AFTER[kind_id]:
+            print("[STEP] the fresh state is not the one this command should leave; stopping. Nothing further is sent.")
+            raise Unsafe("unexpected_state_after_command")
+        if kind_id != ARM_PARK and self.ask(f"Type {STEP_NEXT} to continue (anything else stops): ").strip() != STEP_NEXT:
+            raise Unsafe("operator_stopped_after_command")
 
     # ---- steps
     def identify(self) -> str:
@@ -305,10 +341,10 @@ def _is_token(text: str) -> bool:
 
 def run_validation(control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str] | None,
                    preview: Callable[[int], dict] | None = None, frames: int = 0, deadline: timedelta = timedelta(0),
-                   poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now) -> dict:
+                   poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now, step: bool = False) -> dict:
     """Run the supervised sequence (or the read-only report) and return the JSON-ready report. Every timing value is the caller's."""
     run = Run(control, permit, operator=operator, physical=physical, ask=ask, preview=preview, frames=frames, deadline=deadline,
-              poll_interval=poll_interval, clock=clock)
+              poll_interval=poll_interval, clock=clock, step=step)
     try:
         return run.execute()
     except _Stop:
@@ -357,6 +393,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     parser.add_argument("--permit-validity", type=float, default=None, help="seconds the operator permit stays valid (physical mode)")
     parser.add_argument("--frames", type=int, default=None, help="frames per camera in the preview stage (physical mode)")
     parser.add_argument("--preview-max-seconds", type=float, default=None, help="time limit of the preview stage (physical mode)")
+    parser.add_argument("--step-by-step", action="store_true", help="physical mode: confirm before and after every command")
     parser.add_argument("--no-preview", action="store_true", help="skip the preview stage")
     parser.add_argument("--key-env", default="TSNDSS_SEESTAR_KEY_PATH")
     parser.add_argument("--out", type=Path, default=Path("seestar_command_validation.json"))
@@ -380,6 +417,8 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
                 problems.append("OpenCV (opencv-python >= 4.8) is not installed in this interpreter")
         if ask is None and not (sys.stdin and sys.stdin.isatty()):
             problems.append("an interactive terminal is required for the confirmation prompts")
+    if args.step_by_step and not physical:
+        problems.append("--step-by-step needs --allow-physical-motion")
     if control_factory is None:
         if sys.version_info < (3, 13) and physical and not args.no_preview:
             problems.append("Python 3.13 or newer is required for the preview")
@@ -412,7 +451,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     result = run_validation(
         control, permit if physical else None, operator=args.operator, physical=physical, ask=(ask or input) if physical else None,
         preview=preview, frames=args.frames or 0, deadline=_seconds(args.command_deadline) or timedelta(0),
-        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock)
+        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     for stage in result["stages"]:
         print(f"[{stage['status']}] {stage['name']}: {stage['detail']}")

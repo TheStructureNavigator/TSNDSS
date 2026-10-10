@@ -354,6 +354,106 @@ class UncertaintyTests(unittest.TestCase):
         self.assertEqual(sim.control_calls, [ARM_DEPLOY])
 
 
+def scripted(log, *, decline=(), go="GO", nxt="NEXT"):
+    """An operator who answers every prompt correctly except the ones whose text contains a ``decline`` marker."""
+    def ask(prompt: str) -> str:
+        log.append(prompt)
+        if any(marker in prompt for marker in decline):
+            return "no"
+        for phrase, answer in (("DEPLOY", "DEPLOY"), ("ARM", "ARM"), ("GO", go), ("NEXT", nxt)):
+            if f"Type {phrase} " in prompt:
+                return answer
+        return "no"
+    return ask
+
+
+class StepByStepTests(unittest.TestCase):
+    def test_every_command_is_confirmed_before_and_after_and_nothing_advances_alone(self) -> None:
+        log = []
+        rig = Rig()
+        with redirect_stdout(io.StringIO()) as out:
+            report = rig.run(ask=scripted(log), step=True)
+        self.assertEqual(report["overall"], "PASS")
+        self.assertEqual(rig.sim.control_calls, [ARM_DEPLOY, SCENERY_START, SCENERY_STOP, ARM_PARK])
+        kinds = [p.split()[1] for p in log]  # the phrase asked for: DEPLOY, GO, ARM, NEXT, ...
+        self.assertEqual(kinds, ["DEPLOY", "GO", "ARM", "NEXT", "GO", "NEXT", "GO", "NEXT", "GO", "ARM"])
+        shown = out.getvalue()
+        self.assertIn("next command: seestar.arm.deploy; arm=closed cameras=stopped", shown)
+        self.assertIn("seestar.scenery.start: succeeded", shown)
+        self.assertIn("arm=open cameras=ready", shown)
+
+    def test_declining_the_first_command_sends_nothing(self) -> None:
+        log = []
+        rig = Rig()
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=scripted(log, decline=("Type GO",)), step=True)
+        self.assertEqual(rig.sim.control_calls, [])
+        self.assertEqual(rig.stage(report, "deploy_arm")["detail"], "operator_declined_command")
+        self.assertTrue(report["device_left_as_found"])
+        self.assertFalse(any("Type ARM" in p for p in log))  # the arm confirmation is only asked once the operator said GO
+
+    def test_cleanup_commands_are_confirmed_too(self) -> None:
+        log = []
+        rig = Rig()
+        answer = scripted(log, decline=("Type NEXT",))
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=answer, step=True)
+        # after the operator stopped, cleanup still needs GO (and ARM) per command; here they were given
+        self.assertEqual(rig.stage(report, "start_scenery")["status"], "NOT_RUN")
+        self.assertEqual(rig.stage(report, "deploy_arm")["detail"], "operator_stopped_after_command")
+        self.assertEqual(rig.sim.control_calls, [ARM_DEPLOY, ARM_PARK])  # cameras were already stopped: only the park is needed
+        self.assertEqual([p.split()[1] for p in log], ["DEPLOY", "GO", "ARM", "NEXT", "GO", "ARM"])
+        self.assertFalse(report["unsafe_or_unknown_final_state"])
+
+        rig = Rig()
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=scripted([], decline=("Type NEXT", "Type GO to send seestar.arm.park")), step=True)
+        self.assertEqual(rig.sim.control_calls, [ARM_DEPLOY])
+        self.assertTrue(report["unsafe_or_unknown_final_state"])  # the arm is open and the tool says so
+
+    def test_an_unexpected_state_stops_progression(self) -> None:
+        rig = Rig()
+        wrong = dict(CV.EXPECTED_AFTER, **{ARM_DEPLOY: {"arm": "closed", "cameras": "stopped"}})
+        with mock.patch.object(CV, "EXPECTED_AFTER", wrong), redirect_stdout(io.StringIO()):
+            report = rig.run(ask=scripted([], decline=("Type GO to send seestar.arm.park",)), step=True)
+        self.assertEqual(rig.stage(report, "deploy_arm")["detail"], "unexpected_state_after_command")
+        self.assertNotIn(SCENERY_START, rig.sim.control_calls)
+
+    def test_an_uncertain_result_stops_without_cleanup_or_further_prompts(self) -> None:
+        log = []
+        sim = SimSeestar()
+        sim.modes[SCENERY_START] = "ack_only"
+        rig = Rig(sim)
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=scripted(log), step=True)
+        self.assertTrue(report["recovery_required"])
+        self.assertEqual(report["cleanup"], "not_attempted_recovery_required")
+        self.assertEqual(sim.control_calls, [ARM_DEPLOY, SCENERY_START])
+        self.assertEqual(log[-1].split()[1], "GO")  # the last prompt was the one before the uncertain command; nothing was asked after it
+
+    def test_a_failed_command_stops_without_asking_to_continue(self) -> None:
+        log = []
+        sim = SimSeestar()
+        sim.modes[ARM_DEPLOY] = "pre_send"
+        rig = Rig(sim)
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=scripted(log), step=True)
+        self.assertEqual(sim.control_calls, [ARM_DEPLOY])
+        self.assertFalse(any("Type NEXT" in p for p in log))
+        self.assertEqual(rig.stage(report, "start_scenery")["status"], "NOT_RUN")
+
+    def test_the_step_flag_needs_physical_mode_and_the_plain_mode_is_unchanged(self) -> None:
+        rig = Rig()
+        built = []
+        code, out, _ = run_main(rig, ["--telemetry-max-age", "300", "--capability-max-age", "300", "--step-by-step"], built=built)
+        self.assertEqual((code, built), (2, []))
+        self.assertIn("--step-by-step needs --allow-physical-motion", out)
+        log = []
+        rig = Rig()
+        rig.run(ask=answers(log=log))
+        self.assertEqual(len(log), 3)  # DEPLOY + two ARM: no GO / NEXT prompts without the flag
+
+
 class MainTests(unittest.TestCase):
     PHYS = ["--telemetry-max-age", "300", "--capability-max-age", "300", "--allow-physical-motion", "--command-deadline", "600",
             "--poll-interval", "30", "--permit-validity", "21600", "--no-preview"]
