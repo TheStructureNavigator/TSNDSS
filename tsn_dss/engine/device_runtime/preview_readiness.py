@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 from .models import ConnectionId, PreviewAvailability, ProviderId
 from .preview_models import _require_aware, _require_label
@@ -167,17 +167,28 @@ class ReadinessGate:
         self,
         identity: ReadinessIdentity,
         source_label: str,
-        now: datetime,
+        now: datetime | Callable[[], datetime],
         *,
         not_before: datetime | None = None,
     ) -> GateDecision:
-        """Every call reads evidence anew; a provider failure is a denial, never an allowance."""
+        """Every call reads evidence anew; a provider failure is a denial, never an allowance.
+
+        ``now`` is a time or, preferably, a clock. A clock is read AFTER the evidence: a provider may take a fresh reading from the
+        device and stamp it with the host time at that moment, which is later than any time the caller took before asking. Evaluating
+        against a time taken earlier would make that normal sequence look like a clock regression. A genuine regression (the clock
+        after the read is still earlier than the evidence) is still denied, and a clock that fails is a denial.
+        """
         try:
             evidence = self._provider.read_evidence(source_label)
         except Exception:
             return GateDecision(False, GateReason.EVIDENCE_ERROR, source_label)
         if evidence is not None and not isinstance(evidence, ReadinessEvidence):
             return GateDecision(False, GateReason.EVIDENCE_ERROR, source_label)
+        if callable(now):
+            try:
+                now = now()
+            except Exception:
+                return GateDecision(False, GateReason.EVIDENCE_ERROR, source_label)
         return evaluate_readiness(
             evidence, identity=identity, source_label=source_label, now=now, max_age=self._max_age, not_before=not_before
         )

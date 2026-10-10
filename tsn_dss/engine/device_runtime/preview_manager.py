@@ -238,7 +238,7 @@ class PreviewStreamManager:
         if previous is not None:
             self._note_end(label, previous)  # a LOST or CLOSED stream: evidence must postdate its end
         try:
-            decision = self._gate.check(self._identity, label, now, not_before=self._ended_at.get(label))
+            decision = self._gate.check(self._identity, label, self._clock, not_before=self._ended_at.get(label))  # clock read after the evidence
         except Exception:
             decision = GateDecision(False, GateReason.EVIDENCE_ERROR, label)
         if not decision.allowed:

@@ -92,6 +92,57 @@ class _Provider:
         return self.result
 
 
+class GateClockTests(unittest.TestCase):
+    """The gate can take a clock and reads it AFTER the evidence (a fresh device read is stamped later than the caller's earlier time)."""
+
+    class Slow:
+        """A provider whose read takes ``delay`` of host time and stamps the evidence at the end of the read."""
+
+        def __init__(self, clock, delay, **changes):
+            self.clock, self.delay, self.changes = clock, delay, changes
+
+        def read_evidence(self, label):
+            self.clock[0] += self.delay
+            return ev(source_label=label, host_observed_at=self.clock[0], **self.changes)
+
+    def test_evidence_stamped_during_the_read_is_not_a_clock_regression(self) -> None:
+        clock = [T0]
+        before = clock[0]                                                  # what a caller captured before asking
+        gate = ReadinessGate(self.Slow(clock, timedelta(milliseconds=300)), max_age=MAX)
+        old = gate.check(IDENT, "cam_a", before)                           # the old call shape: the time was taken first
+        self.assertEqual((old.allowed, old.reason), (False, G.CLOCK_REGRESSION))
+        clock[0] = T0
+        new = gate.check(IDENT, "cam_a", lambda: clock[0])                 # a clock, read after the evidence
+        self.assertEqual((new.allowed, new.reason), (True, G.ALLOWED))
+        self.assertEqual(new.evidence_age, timedelta(0))
+
+    def test_a_genuine_regression_is_still_denied_with_a_clock(self) -> None:
+        gate = ReadinessGate(_Provider(ev(host_observed_at=T0 + timedelta(seconds=5))), max_age=MAX)
+        d = gate.check(IDENT, "cam_a", lambda: T0)                         # the clock after the read is earlier than the evidence
+        self.assertEqual((d.allowed, d.reason), (False, G.CLOCK_REGRESSION))
+
+    def test_freshness_identity_and_not_before_still_apply_with_a_clock(self) -> None:
+        clock = [T0]
+        stale = ReadinessGate(self.Slow(clock, timedelta(0)), max_age=MAX).check(IDENT, "cam_a", lambda: T0 + MAX + timedelta(microseconds=1))
+        self.assertEqual((stale.allowed, stale.reason), (False, G.STALE_EVIDENCE))
+        mismatch = ReadinessGate(self.Slow(clock, timedelta(0), connection_id="other"), max_age=MAX).check(IDENT, "cam_a", lambda: T0)
+        self.assertEqual(mismatch.reason, G.IDENTITY_MISMATCH)
+        lost = ReadinessGate(_Provider(ev()), max_age=MAX).check(IDENT, "cam_a", lambda: T0, not_before=T0)
+        self.assertEqual(lost.reason, G.PREDATES_LOSS)
+
+    def test_a_failing_or_naive_clock_is_a_denial_or_an_error_never_an_allowance(self) -> None:
+        gate = ReadinessGate(_Provider(ev()), max_age=MAX)
+        def broken():
+            raise RuntimeError("clock")
+        d = gate.check(IDENT, "cam_a", broken)
+        self.assertEqual((d.allowed, d.reason), (False, G.EVIDENCE_ERROR))
+        with self.assertRaises(ValueError):
+            gate.check(IDENT, "cam_a", lambda: datetime(2026, 1, 1))       # naive time: rejected as before
+
+    def test_a_plain_datetime_still_works(self) -> None:
+        self.assertTrue(ReadinessGate(_Provider(ev()), max_age=MAX).check(IDENT, "cam_a", T0).allowed)
+
+
 class GateObjectTests(unittest.TestCase):
     def test_provider_protocol(self) -> None:
         self.assertIsInstance(_Provider(None), ReadinessEvidenceProvider)
