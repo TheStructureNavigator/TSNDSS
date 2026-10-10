@@ -6,7 +6,7 @@ here is wired to a hardware path yet: it is exercised only against scripted fake
 """
 
 from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, SCENERY_PARAMS, SCENERY_START, SCENERY_STOP, ControlCommand
-from .composition import ControlAttachError, ControlHandle, SeestarControl
+from .composition import ControlAttachError, ControlHandle, PendingRecovery, SeestarControl
 from .driver import CommandDriver, CommandOutcome
 from .errors import ControlPostSendError, ControlPreSendError
 from .kinds import ControlFreshness, build_command_kinds, register_command_kinds
@@ -15,7 +15,8 @@ from .transport import SeestarControlTransport
 
 __all__ = [
     "ARM_DEPLOY", "ARM_PARK", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError", "ControlCommand",
-    "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "SCENERY_PARAMS", "SCENERY_START",
+    "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "PendingRecovery", "SCENERY_PARAMS",
+    "SCENERY_START",
     "SCENERY_STOP", "SeestarCommandProvider", "SeestarControl", "SeestarControlTransport", "build_command_kinds",
     "register_command_kinds",
 ]

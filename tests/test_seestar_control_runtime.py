@@ -62,6 +62,8 @@ class SimSeestar:
         self.control_calls: list[str] = []
         self.pending: deque = deque()
         self.fail_app_reads = 0
+        self.reads = 0
+        self.serial: str | None = None  # a different value simulates a different physical device at the same address
         self.lock = threading.Lock()
 
     # control side
@@ -103,6 +105,9 @@ class SimSeestar:
     def read_device_state(self, host, keys):
         frame = copy.deepcopy(load_fixture("device_state_full_unfiltered.json"))
         frame["result"]["mount"] = self._mount()
+        if self.serial is not None:
+            frame["result"]["device"]["sn"] = self.serial
+        self.reads += 1
         return parse_reply(frame)
 
     def read_app_state(self, host):
@@ -159,7 +164,7 @@ def build(sim=None, *, authorizer=None, clearance=None, store=None, baseline=Tru
         from tsn_dss.engine.device_runtime.uncertainty import Resolution, ResolutionKind
 
         handle.executor.uncertainty_store.establish_baseline(
-            handle.executor._runtime.provider_id, handle.connection.device.device_ref,
+            control.runtime.provider_id, handle.connection.device.device_ref,
             Resolution(ResolutionKind.OPERATOR_CLEARANCE, T0, "test setup", resolved_by="setup"))
     elif baseline:
         handle.executor.establish_baseline_by_recovery(handle.connection)
@@ -311,7 +316,7 @@ class CompositionTests(unittest.TestCase):
                     continue
                 value = getattr(owner, name)
                 self.assertNotIsInstance(value, (SeestarCommandProvider, SeestarControlTransport), name)
-        self.assertEqual({n for n in dir(handle) if not n.startswith("_")}, {"connection", "driver", "executor"})
+        self.assertEqual({n for n in dir(handle) if not n.startswith("_")}, {"connection", "driver", "executor", "pending_recoveries", "recover"})
         self.assertEqual({n for n in dir(control) if not n.startswith("_")}, {"attach", "runtime", "uncertainty_store"})
         runtime_names = {n.lower() for n in dir(control.runtime) if not n.startswith("_")}
         self.assertFalse([n for n in runtime_names if "submit" in n or "command" in n and "capab" not in n])
@@ -595,8 +600,10 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(blocked.classification, "safety_blocked", kind)
             self.assertIn("uncertainty_unresolved", blocked.last_evidence)
         self.assertEqual(sim.control_calls, calls)  # nothing was sent while the uncertainty was open
-        # the executor that recorded the command resolves it, using the new Connection's fresh evidence
-        handle.executor.resolve_uncertainty_by_recovery(again.connection, started.command_id)
+        # the new handle recovers it with its own Connection's fresh evidence; the replaced handle is stale
+        with self.assertRaises(ControlAttachError):
+            handle.executor.resolve_uncertainty_by_recovery(again.connection, started.command_id)
+        again.recover(started.command_id)
         self.assertTrue(run(again, clock, SCENERY_STOP).succeeded)
         self.assertTrue(run(again, clock, ARM_PARK).succeeded)
         self.assertEqual((sim.arm_closed, sim.cameras), (True, "stopped"))
