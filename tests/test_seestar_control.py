@@ -210,7 +210,7 @@ class AllowListTests(unittest.TestCase):
         import inspect
 
         public = {n for n in dir(SeestarControlTransport) if not n.startswith("_")}
-        self.assertEqual(public, {"send_command", "read_device_state", "read_app_state", "test_connection", "read_equ_coord", "read_camera_state", "open_goto", "discover_via_udp"})
+        self.assertEqual(public, {"send_command", "read_device_state", "read_app_state", "test_connection", "read_equ_coord", "read_camera_state", "read_user_location", "read_pi_time", "open_goto", "discover_via_udp"})
         self.assertEqual(list(inspect.signature(SeestarControlTransport.send_command).parameters), ["self", "host", "kind_id"])
         for cls in (SeestarCommandProvider, SeestarControlTransport):
             names = {n.lower() for n in dir(cls) if not n.startswith("_")}
@@ -775,7 +775,7 @@ class BoundaryTests(unittest.TestCase):
     def test_the_read_only_allow_list_is_untouched(self) -> None:
         from tsn_dss.engine.seestar_provider.protocol import READ_METHODS
 
-        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord", "get_camera_state"})
+        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord", "get_camera_state", "get_user_location", "pi_get_time"})
 
 
 if __name__ == "__main__":

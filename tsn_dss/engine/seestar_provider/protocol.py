@@ -61,6 +61,10 @@ READ_METHODS: Mapping[str, ReadMethod] = {
     "scope_get_equ_coord": ReadMethod("scope_get_equ_coord", True, _no_params),
     # Camera activity word. Read-only diagnostic; which camera it describes, if any, is not verified on hardware.
     "get_camera_state": ReadMethod("get_camera_state", True, _no_params),
+    # Device-stored observing location. Separate RPC; never requested through the forbidden device-state location block.
+    "get_user_location": ReadMethod("get_user_location", True, _no_params),
+    # Device Pi/system time. Read-only; setting time is intentionally not allow-listed.
+    "pi_get_time": ReadMethod("pi_get_time", True, _no_params),
 }
 
 

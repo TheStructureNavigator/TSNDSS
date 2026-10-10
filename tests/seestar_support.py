@@ -168,6 +168,8 @@ class ScriptedDevice:
         self.app_reply = load_fixture("app_state_scenery_ready.json")
         self.equ_reply: dict[str, Any] = {"method": "scope_get_equ_coord", "code": 0, "result": {"ra": 5.5, "dec": -5.25}}  # synthetic
         self.camera_reply: dict[str, Any] = {"method": "get_camera_state", "code": 0, "result": {"state": "idle", "name": "synthetic-camera"}}  # synthetic
+        self.location_reply: dict[str, Any] = {"method": "get_user_location", "code": 0, "result": [14.7908, 47.9539]}  # synthetic lon, lat
+        self.time_reply: dict[str, Any] = {"method": "pi_get_time", "code": 0, "result": {"year": 2026, "mon": 10, "day": 10, "hour": 22, "min": 30, "sec": 5, "time_zone": "Europe/Warsaw"}}  # synthetic
         self.goto_calls: list[Any] = []
         self.goto_events: list[dict[str, Any]] = []  # frames the device sends right after it answers scope_goto
         self.events_before_reply = 0
@@ -231,6 +233,10 @@ class ScriptedDevice:
             frames.extend(dict(event) for event in self.goto_events)
         elif method == "get_camera_state":
             frames.append(dict(self.camera_reply, id=request_id))
+        elif method == "get_user_location":
+            frames.append(dict(self.location_reply, id=request_id))
+        elif method == "pi_get_time":
+            frames.append(dict(self.time_reply, id=request_id))
         else:
             self.unexpected.append(str(method))
         return frames

@@ -62,13 +62,13 @@ BANNED_METHODS = (
     "scope_set_track_state", "iscope_start_view", "iscope_stop_view", "iscope_start_stack",
     "pi_output_set2", "pi_reboot", "pi_shutdown", "move_focuser", "set_setting", "set_control_value",
     "start_auto_focuse", "start_solve", "start_polar_align", "play_sound", "send_command",
-    "random_command", "begin_streaming", "get_verify_str", "verify_client", "pi_is_verified",
+    "set_user_location", "pi_set_time", "random_command", "begin_streaming", "get_verify_str", "verify_client", "pi_is_verified",
 )
 
 
 class AllowListTests(unittest.TestCase):
-    def test_allow_list_is_exactly_five_idempotent_reads(self) -> None:
-        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord", "get_camera_state"})
+    def test_allow_list_is_exactly_seven_idempotent_reads(self) -> None:
+        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord", "get_camera_state", "get_user_location", "pi_get_time"})
         self.assertTrue(all(spec.idempotent for spec in READ_METHODS.values()))
 
     def test_encoding_uses_documented_frame_shape(self) -> None:
@@ -105,7 +105,7 @@ class AllowListTests(unittest.TestCase):
 
     def test_transport_public_surface_is_only_typed_reads_and_udp_discovery(self) -> None:
         public = {n for n in dir(TcpSeestarTransport) if not n.startswith("_") and callable(getattr(TcpSeestarTransport, n))}
-        self.assertEqual(public, {"read_device_state", "read_app_state", "test_connection", "read_equ_coord", "read_camera_state", "discover_via_udp"})
+        self.assertEqual(public, {"read_device_state", "read_app_state", "test_connection", "read_equ_coord", "read_camera_state", "read_user_location", "read_pi_time", "discover_via_udp"})
 
 
 class WireExchangeTests(unittest.TestCase):

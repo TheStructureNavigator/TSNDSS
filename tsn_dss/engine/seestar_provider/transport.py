@@ -95,6 +95,14 @@ class TcpSeestarTransport:
         """The device's reported camera state. Read-only; which camera it describes is not verified."""
         return self._exchange(host, "get_camera_state", {})
 
+    def read_user_location(self, host: str) -> RpcReply:
+        """The device's stored user location. Read-only; the coordinate order is reported, not converted."""
+        return self._exchange(host, "get_user_location", {})
+
+    def read_pi_time(self, host: str) -> RpcReply:
+        """The device's reported Pi/system time. Read-only; the shape is firmware-defined."""
+        return self._exchange(host, "pi_get_time", {})
+
     # --- opt-in UDP discovery ----------------------------------------------------
 
     def discover_via_udp(self) -> Sequence[SeestarAnnouncement]:
