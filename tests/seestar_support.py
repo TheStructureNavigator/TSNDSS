@@ -166,6 +166,7 @@ class ScriptedDevice:
         self.unexpected: list[str] = []
         self.state_reply = load_fixture("device_state_full_unfiltered.json")
         self.app_reply = load_fixture("app_state_scenery_ready.json")
+        self.equ_reply: dict[str, Any] = {"method": "scope_get_equ_coord", "code": 0, "result": {"ra": 5.5, "dec": -5.25}}  # synthetic
         self.events_before_reply = 0
         self.chunk_size: int | None = None
         self.close_when_empty = False
@@ -219,6 +220,8 @@ class ScriptedDevice:
             frames.append(dict(self.app_reply, id=request_id))
         elif method == "test_connection":
             frames.append({"id": request_id, "method": method, "code": 0, "result": "ok"})
+        elif method == "scope_get_equ_coord":
+            frames.append(dict(self.equ_reply, id=request_id))
         else:
             self.unexpected.append(str(method))
         return frames

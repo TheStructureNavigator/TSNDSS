@@ -87,6 +87,10 @@ class TcpSeestarTransport:
     def test_connection(self, host: str) -> RpcReply:
         return self._exchange(host, "test_connection", {})
 
+    def read_equ_coord(self, host: str) -> RpcReply:
+        """The mount's reported equatorial coordinates. Read-only; the reply is returned as the device sent it."""
+        return self._exchange(host, "scope_get_equ_coord", {})
+
     # --- opt-in UDP discovery ----------------------------------------------------
 
     def discover_via_udp(self) -> Sequence[SeestarAnnouncement]:
