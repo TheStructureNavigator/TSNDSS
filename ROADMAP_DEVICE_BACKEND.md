@@ -247,7 +247,7 @@ Preview runtime is provider-neutral and simulator-testable, and real RTSP behavi
 
 ## DB-04 — Safe Command Runtime
 
-**Status:** IMPLEMENTED (offline), simulator-only. Not hardware-verified (this stage requires no hardware validation) and not production readiness. Contract discrepancy D1 awaits an owner decision on a proposed DSS-CTR-013 amendment (not applied); the independent-evidence branches of REQ-025 and REQ-046 are `partially_verified` (D3). See the record below.
+**Status:** IMPLEMENTED (offline), simulator-only. Not hardware-verified (this stage requires no hardware validation) and not production readiness. Contract discrepancy D1 is closed by the owner-approved DSS-CTR-013 amendment A1 (Provider-reported failure with a possible physical effect is `unknown_result`); the independent-evidence branches of REQ-025 and REQ-046 remain `partially_verified` (D3, no independent evidence source). See the record below.
 
 ### Implementation and validation record
 
@@ -256,7 +256,7 @@ Offline evidence (deterministic Linux tests, simulator only; no hardware, networ
 - Provider-neutral modules in `tsn_dss/engine/device_runtime/`: `command_models.py` (kind policy and registry, freshness requirements with no defaults), `command_lifecycle.py` (the section 9 transition table and `CommandRecord`), `command_effects.py`, `command_executor.py` (the only Provider command path: admission, authorization, per-Connection exclusivity, controlled `busy`, submission, outcomes, deadlines, cancellation, transport-loss classification, uncertainty resolution and baseline), `safety_gates.py` (pure gates and freshness predicates), `uncertainty.py` (in-process uncertainty store), and `SimulatorCommandProvider` in `simulator.py`. `DeviceProvider` stays read-only; commands use the separate `CommandCapableProvider`. DB-01 touch points: the `busy` transitions, a transport-loss observer, an unresolved-condition check on `refresh_evidence`, and the disconnect rejection record.
 - Restart safety: a device whose history this process has not established is `unknown` and blocks safety-sensitive Commands; history is established only by fresh recovery evidence or an authorized operator clearance, which is never proof of a physical effect.
 - Tests: `tests/test_device_command_lifecycle.py`, `test_device_command_executor.py`, `test_device_safety_gates.py`, `test_device_command_submission.py`, `test_device_uncertainty.py`, `test_device_command_conformance.py` (contract tables parsed and compared with the code), `test_device_command_traceability.py` with the DB-04 manifest `tests/device_command_traceability.json` (separate from the DB-01 manifest).
-- Audit, discrepancy register, restart-safety review and mutation review: `docs/DB-04_CONFORMANCE_AUDIT.md`, `docs/DB-04_CONTRACT_DISCREPANCIES.md`; D1 amendment proposal (not applied): `docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md`.
+- Audit, discrepancy register, restart-safety review and mutation review: `docs/DB-04_CONFORMANCE_AUDIT.md`, `docs/DB-04_CONTRACT_DISCREPANCIES.md`; D1 amendment A1 (applied): `docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md`.
 
 Known limits: single executor per Connection (no global arbitration); in-process only (a restart loses uncertainty state, hence the baseline gate); no command-kind-specific controlled shutdown or cancellation; no cancellation of a not-yet-submitted Command; no independent no-effect or failure evidence source; package exports intentionally unchanged (the interfaces are not stable until a real Provider uses them in DB-05).
 
@@ -482,14 +482,14 @@ Production readiness: no stage may claim production readiness from simulator tes
 - Whether MCP/API exposure should be planned after backend maturity.
 - Which physical movement safety policies apply to telescope and mount operations.
 - What exact Acquisition Execution contract governs Capture, Frame, Observation and provenance handoff.
-- Whether the DSS-CTR-013 section 9 table should be amended for D1 (Provider-reported failure of a possibly effecting Command).
+- Whether the DSS-CTR-013 version number is bumped for amendment A1 (the header still reads Draft 0.2 with an `Amendments` line).
 - Whether, and when, the DB-04 command interfaces become a stable public export of the device runtime package (deferred until DB-05 exercises them).
 
 ## Next action
 
-Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 implemented (offline, simulator-only) with D1 pending an owner decision; DB-05 PLANNED; DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
+Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 implemented (offline, simulator-only), merged, D1 closed by amendment A1; DB-05 PLANNED; DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
 
-NEXT: owner decisions that close DB-04 on the default branch: (1) approve or reject the D1 amendment proposal and (2) merge the DB-04 branch. Then DB-05 begins with its own design and safety gate (Seestar command kinds, their freshness requirements, `EffectVerifier`, `RecoveryAssessor` and `BaselineRecovery` implementations, operator authorization), simulator-first; no physical command is issued before that design is approved.
+NEXT: DB-05 begins with its own design and safety gate (Seestar command kinds, their freshness requirements, `EffectVerifier`, `RecoveryAssessor` and `BaselineRecovery` implementations, operator authorization), simulator-first; no physical command is issued before that design is approved.
 
 DB-03 acceptance remains open in parallel and independent of DB-04: stream loss and recovery and frame freshness on hardware (G1, G2) and a repository acceptance record (G7). DB-05 depends on DB-03 where preview or camera state is a precondition.
 

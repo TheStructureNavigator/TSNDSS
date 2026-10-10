@@ -1,9 +1,11 @@
-# DSS-CTR-013 amendment proposal — D1 (NOT APPLIED)
+# DSS-CTR-013 amendment A1 — D1 (APPLIED)
 
-Status: **NOT APPLIED.** Proposal for owner approval. `Contracts/DSS-CTR-013-Device-Provider-Runtime-Contract.md`
-(v0.2, Draft) is unchanged by DB-04. Nothing in the code depends on this text being accepted: the
-implementation already behaves as the amendment would require, and the transition table in code is the
-contract's v0.2 table.
+Status: **APPLIED** (owner approval received; closes D1). Applied identically to
+`Contracts/DSS-CTR-013-Device-Provider-Runtime-Contract.md` and `docs/contracts/DSS-CTR-013-Device-Provider-Runtime-Contract.md`
+(the two tracked copies stay byte-identical; a test checks it). The contract stays **Draft 0.2**: a line
+`**Amendments:** A1` records the change and the version bump is left to the owner. The text below is what was applied,
+plus one consequential edit: the `failed` row of the section 9 state-meaning table now reads "Evidence proves failure,
+or Provider reports a terminal failure and no physical effect was possible". The optional REQ-046 extension was not applied.
 
 ## Problem
 
@@ -41,7 +43,7 @@ No new REQ-ID is needed. Optionally extend REQ-046 to read "A timeout, or a Prov
 after acceptance, after possible physical execution **SHALL** produce `unknown_result` unless independent
 evidence proves success, proves failure or proves that no physical effect occurred."
 
-## Effect on the implementation if approved
+## Effect on the implementation (done)
 
 * Add one Command event (for example `PROVIDER_FAILURE_EFFECT_POSSIBLE`, `acknowledged`/`in_progress` ->
   `unknown_result`) and one table row; `poll` applies it at once instead of leaving the Command open until its
@@ -49,7 +51,7 @@ evidence proves success, proves failure or proves that no physical effect occurr
 * Update `tests/test_device_command_conformance.py` (22 contract rows) and `ProgressAndVerificationTests`.
 * Re-run the DB-04 mutation set (`docs/DB-04_CONFORMANCE_AUDIT.md`).
 
-## Behavior today without the amendment
+## Behavior before the amendment (historical)
 
 A physical Command's failure report with `effect_possible` other than an explicit `False` leaves the Command
 `acknowledged`/`in_progress`; `enforce_deadline` then resolves it to `unknown_result`. Non-physical kinds and

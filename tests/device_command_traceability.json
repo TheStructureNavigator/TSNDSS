@@ -75,7 +75,8 @@
     "tests.test_device_command_lifecycle.AcknowledgementIsNotSuccessTests.test_success_needs_a_verification_event",
     "tests.test_device_command_submission.SubmissionTests.test_submit_acknowledges_and_an_acknowledgement_is_not_success",
     "tests.test_device_command_submission.ProgressAndVerificationTests.test_provider_completion_alone_is_never_success",
-    "tests.test_device_command_submission.ProgressAndVerificationTests.test_success_is_only_ever_reached_through_a_verification_event"
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_success_is_only_ever_reached_through_a_verification_event",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_a_failure_report_never_establishes_physical_truth_or_resolves_uncertainty"
    ]
   },
   "DSS-CTR-013-REQ-025": {
@@ -113,7 +114,8 @@
     "tests.test_device_command_submission.SubmissionTests.test_a_command_is_submitted_at_most_once",
     "tests.test_device_command_submission.UncertaintyAndRetryTests.test_an_uncertain_physical_command_is_never_retried",
     "tests.test_device_command_submission.UncertaintyAndRetryTests.test_idempotent_kinds_are_not_retried_either_and_do_not_latch",
-    "tests.test_device_command_submission.ConcurrencyAndBusyTests.test_simultaneous_submit_calls_reach_the_provider_once"
+    "tests.test_device_command_submission.ConcurrencyAndBusyTests.test_simultaneous_submit_calls_reach_the_provider_once",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_physical_failure_report_with_a_possible_effect_is_unknown_result_at_once"
    ]
   },
   "DSS-CTR-013-REQ-028": {
@@ -220,9 +222,13 @@
    ],
    "tests": [
     "tests.test_device_command_submission.DeadlineTests.test_physical_command_past_its_deadline_is_unknown_result_never_timed_out_or_failed",
-    "tests.test_device_command_lifecycle.TimeoutAndUncertaintyTests.test_physical_kind_deadline_after_possible_submission_is_unknown_result"
+    "tests.test_device_command_lifecycle.TimeoutAndUncertaintyTests.test_physical_kind_deadline_after_possible_submission_is_unknown_result",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_physical_failure_report_with_a_possible_effect_is_unknown_result_at_once",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_physical_failure_report_with_no_possible_effect_is_failed",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_a_provider_failure_report_without_a_deadline_does_not_wait_forever",
+    "tests.test_device_command_conformance.DocumentedDeviationTests.test_d1_is_closed_by_amendment_a1_and_the_table_has_both_failure_rows"
    ],
-   "note": "The 'unless independent evidence proves success, failure or no effect' exceptions are not implemented: DB-04 has no independent evidence source (D3), so the conservative unknown_result branch is the only one produced."
+   "note": "Provider-reported terminal failure with a possible physical effect is classified unknown_result at once (amendment A1, D1 closed). The 'unless independent evidence proves success, proves failure or proves that no physical effect occurred' exceptions are still not implemented: DB-04 has no independent evidence source (D3), so the conservative unknown_result branch is the only one produced. The Provider's explicit effect_possible=False is Provider-reported and relied on only to allow `failed` (see the provider trust model in docs/DB-04_CONFORMANCE_AUDIT.md)."
   },
   "DSS-CTR-013-REQ-047": {
    "classification": "primary",
@@ -279,7 +285,8 @@
     "tests.test_device_uncertainty.RestartTests.test_operator_baseline_establishes_unknown_history_and_freshness_is_still_required",
     "tests.test_device_uncertainty.RestartTests.test_recovery_baseline_needs_fresh_evidence_and_an_assessor_verdict",
     "tests.test_device_uncertainty.RestartTests.test_established_history_survives_reconnect_but_not_a_new_store",
-    "tests.test_device_safety_gates.UncertaintyViewTests.test_nothing_recorded_is_not_verified_absence_of_uncertainty"
+    "tests.test_device_safety_gates.UncertaintyViewTests.test_nothing_recorded_is_not_verified_absence_of_uncertainty",
+    "tests.test_device_uncertainty.RestartTests.test_an_unestablished_history_blocks_even_when_the_configured_view_says_established"
    ],
    "note": "In-process only: a restart is modelled by a new empty store, which blocks until the device history is explicitly established."
   },
@@ -343,7 +350,9 @@
     "tests.test_device_safety_gates.GatePassTests.test_a_pass_never_claims_physical_truth_or_operator_proof",
     "tests.test_device_uncertainty.ClearanceTests.test_clearance_does_not_replace_fresh_evidence",
     "tests.test_device_uncertainty.ClearanceTests.test_recovery_and_clearance_stay_distinguishable",
-    "tests.test_device_uncertainty.RecoveryTests.test_fresh_recovery_evidence_resolves_without_touching_the_command_or_the_provider"
+    "tests.test_device_uncertainty.RecoveryTests.test_fresh_recovery_evidence_resolves_without_touching_the_command_or_the_provider",
+    "tests.test_device_command_submission.ProgressAndVerificationTests.test_a_failure_report_never_establishes_physical_truth_or_resolves_uncertainty",
+    "tests.test_device_command_conformance.DocumentedDeviationTests.test_the_effect_possible_false_reliance_is_documented_in_the_provider_trust_model"
    ]
   },
   "DSS-CTR-013-REQ-062": {
@@ -388,5 +397,8 @@
    ],
    "note": "No Acquisition Execution surface: Commands are provider-neutral and simulator-only."
   }
- }
+ },
+ "contract_amendments": [
+  "A1: DSS-CTR-013 section 9, Provider-reported terminal failure with a possible physical effect -> unknown_result (DB-04 D1, owner-approved)"
+ ]
 }

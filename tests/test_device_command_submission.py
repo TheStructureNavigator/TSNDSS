@@ -312,27 +312,67 @@ class ProgressAndVerificationTests(unittest.TestCase):
         rig.executor.poll(record.command_id)
         self.assertIs(record.state, S.FAILED)
 
-    def test_provider_failure_report(self) -> None:
-        rig = Rig()
-        _, plain = rig.started("config", polls=(PS.REPORTED_FAILED,))
-        rig.executor.poll(plain.command_id)
-        self.assertIs(plain.state, S.FAILED)
-        rig = Rig()
-        _, move = rig.started("move", polls=(PS.REPORTED_FAILED,))
-        rig.executor.poll(move.command_id)
-        self.assertIs(move.state, S.ACKNOWLEDGED)  # a possible physical effect is not "failed"
-        rig = Rig()
-        _, clean = rig.started("move", polls=(ProviderCommandReport(PS.REPORTED_FAILED, effect_possible=False),))
-        rig.executor.poll(clean.command_id)
-        self.assertIs(clean.state, S.FAILED)
+    def test_provider_failure_report_of_a_kind_that_cannot_have_a_physical_effect_is_failed(self) -> None:
+        for effect_possible in (True, False, None):
+            rig = Rig()
+            _, record = rig.started("config", polls=(ProviderCommandReport(PS.REPORTED_FAILED, effect_possible=effect_possible),))
+            rig.executor.poll(record.command_id)
+            self.assertIs(record.state, S.FAILED, effect_possible)
 
-    def test_a_physical_failure_report_with_possible_effect_ends_as_unknown_result_at_the_deadline(self) -> None:
+    def test_physical_failure_report_with_no_possible_effect_is_failed(self) -> None:
+        """Amendment A1, first row: only the Provider's explicit statement lets a physical failure be `failed`."""
+        for polls_before in (0, 1):
+            rig = Rig()
+            polls = (PS.IN_PROGRESS,) * polls_before + (ProviderCommandReport(PS.REPORTED_FAILED, effect_possible=False),)
+            connection, record = rig.started("move", polls=polls)
+            for _ in polls:
+                rig.executor.poll(record.command_id)
+            self.assertIs(record.state, S.FAILED, polls_before)
+            self.assertIs(connection.state, C.READY)
+            self.assertEqual(rig.executor.unresolved_devices(), frozenset())
+            self.assertIn("no physical effect possible", record.history[-1].evidence)
+
+    def test_physical_failure_report_with_a_possible_effect_is_unknown_result_at_once(self) -> None:
+        """Amendment A1, second row: classified immediately, not left open until the deadline."""
+        for stated in (True, None, 0, "no", "false"):
+            for stage in ("acknowledged", "in_progress"):
+                rig = Rig()
+                polls = ((PS.IN_PROGRESS,) if stage == "in_progress" else ()) + (
+                    ProviderCommandReport(PS.REPORTED_FAILED, effect_possible=stated, detail="axis stalled"),)
+                connection, record = rig.started("move", polls=polls)
+                for _ in polls:
+                    rig.executor.poll(record.command_id)
+                self.assertIs(record.state, S.UNKNOWN_RESULT, (stated, stage))
+                self.assertEqual(record.history[-1].event, CommandEvent.PROVIDER_FAILURE_EFFECT_POSSIBLE.value)
+                self.assertIn("physical effect may have occurred", record.history[-1].evidence)
+                self.assertEqual(len(rig.executor.unresolved_devices()), 1, (stated, stage))
+                self.assertIs(connection.state, C.DEGRADED)
+                self.assertIsNone(rig.executor.active_command(connection))
+                self.assertEqual(len(rig.submits()), 1)  # never retried
+
+    def test_the_default_provider_report_assumes_a_possible_effect(self) -> None:
+        self.assertIs(ProviderCommandReport(PS.REPORTED_FAILED).effect_possible, True)
+        rig = Rig()
+        _, record = rig.started("move", polls=(PS.REPORTED_FAILED,))
+        rig.executor.poll(record.command_id)
+        self.assertIs(record.state, S.UNKNOWN_RESULT)
+
+    def test_a_provider_failure_report_without_a_deadline_does_not_wait_forever(self) -> None:
+        rig = Rig()
+        connection = rig.ready()
+        rig.script(polls=(PS.REPORTED_FAILED,))
+        record = rig.admit(connection, "move")  # no deadline
+        rig.executor.submit(record.command_id)
+        rig.executor.poll(record.command_id)
+        self.assertIs(record.state, S.UNKNOWN_RESULT)
+
+    def test_a_failure_report_never_establishes_physical_truth_or_resolves_uncertainty(self) -> None:
         rig = Rig()
         connection, record = rig.started("move", polls=(PS.REPORTED_FAILED,))
         rig.executor.poll(record.command_id)
-        rig.clock.advance(timedelta(minutes=5))
-        rig.executor.enforce_deadline(record.command_id)
-        self.assertIs(record.state, S.UNKNOWN_RESULT)
+        entries = rig.executor.uncertainty_store.entries(rig.runtime.provider_id, connection.device.device_ref)
+        self.assertEqual([e.unresolved for e in entries], [True])
+        self.assertIs(rig.admit(rig.ready(), "move").state, S.SAFETY_BLOCKED)
 
     def test_polling_requires_an_acknowledged_or_in_progress_command(self) -> None:
         rig = Rig()

@@ -62,6 +62,8 @@ class CommandTraceabilityTests(unittest.TestCase):
         in_contract = set(re.findall(r"DSS-CTR-013-REQ-\d{3}", text))
         self.assertTrue(set(manifest["requirements"]) <= in_contract)
         self.assertEqual(manifest["stage"], "DB-04")
+        self.assertIn("**Amendments:** A1", text)
+        self.assertEqual(len(manifest["contract_amendments"]), 1)
 
     def test_manifest_classification_equals_the_roadmap_db04_coverage(self) -> None:
         coverage = _roadmap_db04_coverage()

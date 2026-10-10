@@ -37,7 +37,8 @@ ROW_EVENTS = {
     "Effect requires monitoring": [E.MONITORING_STARTED],
     "Acknowledgement itself": [E.ACKNOWLEDGEMENT_IS_VERIFIED_EFFECT],
     "Required effect is verified": [E.EFFECT_VERIFIED],
-    "Provider reports terminal failure": [E.EFFECT_FAILED],
+    "Host observes failed effect, or Provider reports terminal failure and no": [E.EFFECT_FAILED],
+    "Provider reports terminal failure but a physical effect": [E.PROVIDER_FAILURE_EFFECT_POSSIBLE],
     "Deadline elapses and the state-changing effect": [E.DEADLINE_EFFECT_UNDETERMINED],
     "Deadline elapses for an operation": [E.DEADLINE_NON_PHYSICAL],
     "Transport is lost before effect": [E.TRANSPORT_LOST_EFFECT_UNKNOWN],
@@ -70,8 +71,8 @@ def events_for(condition: str) -> list[E]:
 class CommandTableConformanceTests(unittest.TestCase):
     def test_the_contract_table_has_the_expected_shape(self) -> None:
         rows = contract_rows()
-        self.assertEqual(len(rows), 21)
-        self.assertEqual(len(ROW_EVENTS), 21)
+        self.assertEqual(len(rows), 22)
+        self.assertEqual(len(ROW_EVENTS), 22)
         self.assertEqual({events_for(cond)[0] for _, cond, _ in rows}, {e[0] for e in ROW_EVENTS.values()})
 
     def test_every_contract_cell_is_implemented_with_an_allowed_next_state(self) -> None:
@@ -121,10 +122,20 @@ class DocumentedDeviationTests(unittest.TestCase):
         for state in (CommandState.REQUESTED, CommandState.VALIDATED):
             self.assertFalse([k for k in COMMAND_TRANSITIONS if k[0] is state and "cancel" in k[1].value])
 
-    def test_d1_a_provider_failure_report_is_never_turned_into_failed_for_a_possible_physical_effect(self) -> None:
-        text = (PACKAGE / "command_executor.py").read_text(encoding="utf-8")
-        self.assertIn("record.policy.physical is False or report.effect_possible is False", text)
-        self.assertEqual(COMMAND_TRANSITIONS[(CommandState.ACKNOWLEDGED, E.EFFECT_FAILED)].next_state, CommandState.FAILED)
+    def test_d1_is_closed_by_amendment_a1_and_the_table_has_both_failure_rows(self) -> None:
+        for state in (CommandState.ACKNOWLEDGED, CommandState.IN_PROGRESS):
+            self.assertEqual(COMMAND_TRANSITIONS[(state, E.EFFECT_FAILED)].next_state, CommandState.FAILED)
+            self.assertEqual(COMMAND_TRANSITIONS[(state, E.PROVIDER_FAILURE_EFFECT_POSSIBLE)].next_state, CommandState.UNKNOWN_RESULT)
+        self.assertNotIn((CommandState.SUBMITTED, E.PROVIDER_FAILURE_EFFECT_POSSIBLE), COMMAND_TRANSITIONS)
+
+    def test_the_effect_possible_false_reliance_is_documented_in_the_provider_trust_model(self) -> None:
+        provider = (PACKAGE / "provider.py").read_text(encoding="utf-8")
+        errors = (PACKAGE / "errors.py").read_text(encoding="utf-8")
+        for text in (provider, errors):
+            self.assertIn("Provider trust model", text)
+            self.assertIn("effect_possible", text)
+        audit = (ROOT / "docs" / "DB-04_CONFORMANCE_AUDIT.md").read_text(encoding="utf-8")
+        self.assertIn("Provider trust model", audit)
 
 
 class ConnectionBusyConformanceTests(unittest.TestCase):
@@ -226,9 +237,13 @@ class Db04BoundaryTests(unittest.TestCase):
         for marker in ("D1", "D2", "D3", "D4", "D5", "D6", "restart", "mutation"):
             self.assertIn(marker, audit)
         proposal = (ROOT / "docs" / "DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md").read_text(encoding="utf-8")
-        self.assertIn("NOT APPLIED", proposal)
+        self.assertIn("APPLIED", proposal)
+        self.assertNotIn("NOT APPLIED**", proposal)
         contract = CONTRACT.read_text(encoding="utf-8")
-        self.assertNotIn("Provider reports terminal failure and a physical effect may have occurred", contract)
+        self.assertIn("Provider reports terminal failure but a physical effect may have occurred", contract)
+        self.assertIn("**Amendments:** A1", contract)
+        copy = ROOT / "docs" / "contracts" / CONTRACT.name
+        self.assertEqual(copy.read_bytes(), CONTRACT.read_bytes())  # the two tracked copies stay identical
 
 
 if __name__ == "__main__":

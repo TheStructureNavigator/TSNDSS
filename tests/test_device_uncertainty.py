@@ -458,6 +458,12 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(fresh.submits(), [])
         self.assertIs(again.state, C.READY)
 
+    def test_an_unestablished_history_blocks_even_when_the_configured_view_says_established(self) -> None:
+        rig = Rig(baseline=False)  # the executor's own empty store plus a separate, permissive configured view
+        blocked = rig.admit(rig.ready(), "move")
+        self.assertIs(blocked.state, S.SAFETY_BLOCKED)
+        self.assertIn("uncertainty_unknown", blocked.history[-1].evidence)
+
     def test_passive_reads_and_non_safety_kinds_are_unaffected(self) -> None:
         fresh = self.fresh_rig()
         connection = fresh.ready()

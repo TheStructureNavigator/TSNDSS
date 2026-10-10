@@ -382,10 +382,17 @@ class CommandExecutor:
             elif status is ProviderCommandStatus.REPORTED_COMPLETE:
                 self._verify(record, connection)
             elif status is ProviderCommandStatus.REPORTED_FAILED:
-                # a physical Command whose failure leaves a possible effect is not "failed": it stays open
-                # until the deadline resolves it to unknown_result
+                # DSS-CTR-013 amendment A1: a Provider-reported failure is `failed` only when no physical effect
+                # was possible (a kind that cannot produce one, or the Provider's explicit `effect_possible=False`,
+                # which is provider-reported and relied on only in that direction). Anything else is unknown_result
+                # at once, not at the deadline.
                 if record.policy.physical is False or report.effect_possible is False:
-                    self._finish(record, CommandEvent.EFFECT_FAILED, f"provider reports failure:{report.detail}")
+                    self._finish(record, CommandEvent.EFFECT_FAILED, f"provider reports failure, no physical effect possible:{report.detail}")
+                else:
+                    self._finish(
+                        record, CommandEvent.PROVIDER_FAILURE_EFFECT_POSSIBLE,
+                        f"provider reports failure, physical effect may have occurred:{report.detail}",
+                    )
             return record
 
     def _verify(self, record: CommandRecord, connection) -> None:

@@ -3,10 +3,10 @@
 Status: S6 owner decisions recorded below. Nothing here changes the normative table of DSS-CTR-013 v0.2 (Draft).
 Each item says what the contract text is, what the implementation does, and what is needed to close it.
 
-## D1 — Provider-reported failure of a physical Command after acceptance (amendment proposed, NOT APPLIED)
+## D1 — Provider-reported failure of a physical Command after acceptance (CLOSED by amendment A1)
 
-Owner decision (S6): such reports must not become ordinary `failed`; conservative unknown-result behavior is kept.
-The minimal amendment is in `docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md` and awaits owner approval.
+Owner decision: such reports must not become ordinary `failed`. The owner approved the minimal amendment in
+`docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md`; it is applied to DSS-CTR-013 (both tracked copies) as A1.
 
 Contract (section 9 table, row for `acknowledged` or `in_progress`):
 "Provider reports terminal failure or host observes failed effect -> `failed`; evidence: Failure evidence".
@@ -19,13 +19,10 @@ is "failure evidence" and yields `failed`, although REQ-061 says Provider-report
 proof of physical truth and REQ-046 / section 11 say a possible physical effect that cannot be determined is
 `unknown_result`.
 
-Implementation (S4, kept in S5): for a physical Command a Provider failure report with `effect_possible`
-other than an explicit `False` does not produce `failed`; the Command stays open and the deadline resolves it
-to `unknown_result` (`enforce_deadline`). Non-physical kinds and explicit no-effect reports follow the table
-(`failed`). The transition table itself is unchanged.
-
-To close: either add a row (`acknowledged`/`in_progress`, Provider-reported failure with possible physical
-effect -> `unknown_result`) or state that Provider-reported failure is `failed` for physical Commands.
+Implementation (after A1): the table has a second row (`PROVIDER_FAILURE_EFFECT_POSSIBLE`, `acknowledged`/`in_progress` ->
+`unknown_result`). `poll` applies it at once when a physical Command's failure report does not carry an explicit
+`effect_possible=False`; the explicit `False` and non-physical kinds give `failed`. `effect_possible=False` is a
+Provider-reported statement relied on in that one direction only (provider trust model, audit section 2a).
 
 ## D2 — When `busy` begins
 

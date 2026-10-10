@@ -63,6 +63,7 @@ for _s in PRE:
 for _s in (S.ACKNOWLEDGED, S.IN_PROGRESS):
     EXPECTED[(_s, E.EFFECT_VERIFIED)] = S.SUCCEEDED
     EXPECTED[(_s, E.EFFECT_FAILED)] = S.FAILED
+    EXPECTED[(_s, E.PROVIDER_FAILURE_EFFECT_POSSIBLE)] = S.UNKNOWN_RESULT
 for _s in LIVE:
     EXPECTED[(_s, E.DEADLINE_EFFECT_UNDETERMINED)] = S.UNKNOWN_RESULT
     EXPECTED[(_s, E.DEADLINE_NON_PHYSICAL)] = S.TIMED_OUT
@@ -85,7 +86,7 @@ def record(kind: CommandKindPolicy = NON_PHYSICAL, path: tuple[E, ...] = ()) -> 
 class TransitionTableTests(unittest.TestCase):
     def test_table_equals_the_contract_rows_exactly(self) -> None:
         self.assertEqual({k: v.next_state for k, v in COMMAND_TRANSITIONS.items()}, EXPECTED)
-        self.assertEqual(len(EXPECTED), 34)
+        self.assertEqual(len(EXPECTED), 36)
 
     def test_every_contract_row_is_reachable_with_the_right_outcome(self) -> None:
         for (state, event), nxt in EXPECTED.items():

@@ -37,6 +37,7 @@ class CommandEvent(str, Enum):
     ACKNOWLEDGEMENT_IS_VERIFIED_EFFECT = "acknowledgement_is_verified_effect"
     EFFECT_VERIFIED = "effect_verified"
     EFFECT_FAILED = "effect_failed"
+    PROVIDER_FAILURE_EFFECT_POSSIBLE = "provider_failure_effect_possible"
     DEADLINE_EFFECT_UNDETERMINED = "deadline_effect_undetermined"
     DEADLINE_NO_EFFECT_PROVEN = "deadline_no_effect_proven"
     DEADLINE_NON_PHYSICAL = "deadline_non_physical"
@@ -80,7 +81,12 @@ for _s in _PRE:
     )
 for _s in (S.ACKNOWLEDGED, S.IN_PROGRESS):
     COMMAND_TRANSITIONS[(_s, E.EFFECT_VERIFIED)] = _T(S.SUCCEEDED, "fresh post-command evidence")
-    COMMAND_TRANSITIONS[(_s, E.EFFECT_FAILED)] = _T(S.FAILED, "failure evidence")
+    COMMAND_TRANSITIONS[(_s, E.EFFECT_FAILED)] = _T(
+        S.FAILED, "failure evidence; for a Provider-reported failure, the Provider's statement that no physical effect was possible"
+    )
+    COMMAND_TRANSITIONS[(_s, E.PROVIDER_FAILURE_EFFECT_POSSIBLE)] = _T(
+        S.UNKNOWN_RESULT, "provider failure report and uncertainty classification"
+    )
 for _s in _LIVE:
     COMMAND_TRANSITIONS[(_s, E.DEADLINE_EFFECT_UNDETERMINED)] = _T(
         S.UNKNOWN_RESULT, "deadline record and uncertainty classification"

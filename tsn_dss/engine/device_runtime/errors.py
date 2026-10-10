@@ -62,7 +62,9 @@ class ProviderCommandRejected(DeviceRuntimeError):
     """A Provider refused a submitted Command before accepting it (DSS-CTR-013 section 9).
 
     ``effect_possible`` is the Provider's statement of whether a physical effect may nevertheless have
-    occurred; the runtime treats anything but an explicit ``False`` as possible.
+    occurred. Provider trust model: an explicit ``False`` is Provider-reported, not independent proof (REQ-061);
+    the runtime relies on it only to classify the refusal as ``failed`` (section 9), and treats anything else
+    (``True``, ``None``, any other value) as a possible effect, hence ``unknown_result``.
     """
 
     def __init__(self, category: str, *, effect_possible: bool = True) -> None:

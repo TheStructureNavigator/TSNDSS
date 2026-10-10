@@ -91,6 +91,16 @@ class ProviderCommandReceipt:
 
 @dataclass(slots=True, frozen=True)
 class ProviderCommandReport:
+    """A Provider's status report.
+
+    Provider trust model: ``effect_possible=False`` is a Provider-reported statement, not independent proof
+    (REQ-061). The runtime relies on it in exactly one direction, to let a Provider-reported terminal failure
+    be ``failed`` (DSS-CTR-013 section 9, amendment A1). Only an explicit ``False`` counts; ``True``, ``None``
+    or any other value means "a physical effect may have occurred" and yields ``unknown_result``. A Provider
+    must therefore state ``False`` only when it can support it, and a Provider that cannot say so leaves the
+    Command uncertain, which is the safe default.
+    """
+
     status: ProviderCommandStatus
     effect_possible: bool = True
     detail: str = ""
