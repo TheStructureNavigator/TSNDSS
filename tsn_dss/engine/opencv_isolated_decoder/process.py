@@ -45,13 +45,14 @@ from .shm import ParentSegment, SegmentClosed, SegmentUnavailable, crc32_of
 from .states import WorkerEvent, WorkerState, worker_next_state
 
 __all__ = [
-    "MAX_LIVE_WORKERS", "MIN_PYTHON", "PRODUCTION_ENTRY", "IsolationUnsupported", "StopReport", "WorkerConfig",
+    "DECODER_ENTRY", "MAX_LIVE_WORKERS", "MIN_PYTHON", "PRODUCTION_ENTRY", "IsolationUnsupported", "StopReport", "WorkerConfig",
     "WorkerError", "WorkerImage", "WorkerProcess", "abandoned_worker_count", "child_environment", "live_worker_count",
     "reclaim_abandoned_workers", "require_supported_python", "stop_all_workers",
 ]
 
 MIN_PYTHON = (3, 13)
 PRODUCTION_ENTRY = "tsn_dss.engine.opencv_isolated_decoder.worker_main"
+DECODER_ENTRY = "tsn_dss.engine.opencv_isolated_decoder.decoder_main"      # 4B-3a: the same protocol with a real decoder behind it
 _REPO_ROOT = Path(__file__).resolve().parents[3]          # the directory that contains the ``tsn_dss`` package
 _ENV_KEYS = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "LANG", "LC_ALL")
 _POLL_SLICE_S = 0.05
@@ -97,8 +98,13 @@ class WorkerConfig:
     max_width: int = 4096
     max_height: int = 4096
     max_live_workers: int = MAX_LIVE_WORKERS
+    decoder_worker: bool = False          # 4B-3a: start the decoder entry point instead of the handshake-only one (needs a slot)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.decoder_worker, bool):
+            raise ValueError("decoder_worker must be a bool.")
+        if self.decoder_worker and (isinstance(self.slot_bytes, bool) or not isinstance(self.slot_bytes, int) or self.slot_bytes <= 0):
+            raise ValueError("a decoder worker needs a shared slot (slot_bytes > 0).")
         for name in ("start_deadline_s", "ping_deadline_s", "close_graceful_s", "terminate_wait_s", "kill_wait_s",
                      "open_margin_s", "read_margin_s"):
             value = getattr(self, name)
@@ -204,7 +210,8 @@ class WorkerProcess:
                  _extra_args: tuple = (), _extra_pythonpath: tuple = ()) -> None:
         require_supported_python(python_version)
         self._config = config or WorkerConfig()
-        self._entry = _entry_module                      # test seam: production code always uses PRODUCTION_ENTRY
+        # test seam: production code never passes ``_entry_module``; the two production entries are chosen by the config flag
+        self._entry = _entry_module if _entry_module != PRODUCTION_ENTRY else (DECODER_ENTRY if self._config.decoder_worker else PRODUCTION_ENTRY)
         self._extra_args = tuple(_extra_args)
         self._extra_pythonpath = tuple(_extra_pythonpath)
         self._lock = threading.RLock()

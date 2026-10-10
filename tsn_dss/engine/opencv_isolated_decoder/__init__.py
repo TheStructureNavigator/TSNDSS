@@ -8,8 +8,9 @@ is connected to the preview manager yet.
 """
 
 from .process import (
-    PRODUCTION_ENTRY,
+    DECODER_ENTRY,
     MAX_LIVE_WORKERS,
+    PRODUCTION_ENTRY,
     IsolationUnsupported,
     StopReport,
     WorkerConfig,
@@ -26,7 +27,7 @@ from .protocol import PROTOCOL_VERSION, STATUS_TABLE_VERSION, ProtocolError, Sta
 from .states import WorkerEvent, WorkerState
 
 __all__ = [
-    "MAX_LIVE_WORKERS", "PRODUCTION_ENTRY", "PROTOCOL_VERSION", "STATUS_TABLE_VERSION", "IsolationUnsupported", "ProtocolError", "Status",
+    "DECODER_ENTRY", "MAX_LIVE_WORKERS", "PRODUCTION_ENTRY", "PROTOCOL_VERSION", "STATUS_TABLE_VERSION", "IsolationUnsupported", "ProtocolError", "Status",
     "StopReport", "UnknownStatus", "WorkerConfig", "WorkerError", "WorkerEvent", "WorkerImage", "WorkerProcess",
     "WorkerState", "abandoned_worker_count", "live_worker_count", "reclaim_abandoned_workers", "require_supported_python",
     "stop_all_workers",

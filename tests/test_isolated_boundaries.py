@@ -23,9 +23,16 @@ ALLOWED_STDLIB = {
     "process.py": {"__future__", "atexit", "contextlib", "os", "secrets", "subprocess", "sys", "tempfile", "threading", "time", "dataclasses",
                    "datetime", "pathlib", "multiprocessing"},
     "worker_main.py": {"__future__", "os", "queue", "sys", "threading", "multiprocessing"},
+    "worker_decoder.py": {"__future__", "os", "time", "typing"},
+    "decoder_main.py": {"__future__", "sys"},
 }
 FORBIDDEN_EVERYWHERE = {"cv2", "numpy", "PIL", "av", "socket", "ssl", "select", "selectors", "asyncio", "http", "urllib", "ftplib", "ctypes",
                         "pickle", "shelve", "sqlite3", "shutil", "io", "signal", "requests", "seestarpy", "astropy", "mcp"}
+LEVEL2_DEFAULT = {"device_runtime.errors", "device_runtime.lifecycle"}
+# Owner decision E2: coupling to the Wave 3/4 packages only in the four modules decoder.py, worker_decoder.py, decoder_main.py and
+# integration.py. 4B-3a contains the worker-side ones; the others arrive in 4B-3b/4B-3c and extend ONLY this table.
+LEVEL2_ALLOWED = {"worker_decoder.py": {"opencv_preview_decoder", "seestar_preview", "device_runtime.preview_models"}}
+COUPLED_MODULES = {"decoder.py", "worker_decoder.py", "decoder_main.py", "integration.py"}
 COMMAND_WORDS = {"start_view", "stop_view", "start_scan", "scope", "park", "slew", "goto", "arm"}
 
 
@@ -51,7 +58,8 @@ def imports(path: Path):
 
 class ImportBoundaryTests(unittest.TestCase):
     def test_the_package_has_exactly_the_planned_files(self) -> None:
-        self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "shm.py", "states.py", "process.py", "worker_main.py"})
+        self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "shm.py", "states.py", "process.py", "worker_main.py",
+                                    "worker_decoder.py", "decoder_main.py"})
 
     def test_each_file_imports_only_what_it_is_allowed_to(self) -> None:
         for name, path in FILES.items():
@@ -61,10 +69,10 @@ class ImportBoundaryTests(unittest.TestCase):
                     self.assertIn(top, ALLOWED_STDLIB[name], (name, module))
                     self.assertNotIn(top, FORBIDDEN_EVERYWHERE, (name, module))
                 elif level == 1:
-                    self.assertIn(module, {"", "process", "protocol", "segment", "shm", "states"}, (name, module))
+                    self.assertIn(module, {"", "process", "protocol", "segment", "shm", "states", "worker_main", "worker_decoder"}, (name, module))
                 else:
                     self.assertEqual(level, 2)
-                    self.assertIn(module, {"device_runtime.errors", "device_runtime.lifecycle"}, (name, module))
+                    self.assertIn(module, LEVEL2_ALLOWED.get(name, LEVEL2_DEFAULT), (name, module))
 
     def test_multiprocessing_is_limited_to_the_connection_and_shared_memory_modules(self) -> None:
         for name, path in FILES.items():
@@ -111,13 +119,35 @@ class ImportBoundaryTests(unittest.TestCase):
                 returns = [ast.unparse(r.value) for r in ast.walk(method) if isinstance(r, ast.Return)]
                 self.assertTrue(all("buf" not in r.replace("bytes(part)", "") for r in returns), (method.name, returns))
 
-    def test_no_opencv_decoder_and_no_preview_runtime_coupling(self) -> None:
+    def test_no_opencv_decoder_and_no_preview_runtime_coupling_outside_the_four_modules(self) -> None:
         for name, path in FILES.items():
             text = code_only(path)
-            self.assertNotIn("opencv_preview_decoder", text, name)
-            self.assertNotIn("seestar_preview", text, name)
-            self.assertNotIn("PreviewStreamManager", text, name)
-            self.assertNotIn("cv2", text, name)
+            self.assertNotIn("cv2", text, name)                                              # never, in any module
+            if name != "integration.py":
+                self.assertNotIn("PreviewStreamManager", text, name)
+            if name not in COUPLED_MODULES:
+                self.assertNotIn("opencv_preview_decoder", text, name)
+                self.assertNotIn("seestar_preview", text, name)
+                self.assertNotIn("preview_models", text, name)
+
+    def test_the_handshake_only_worker_and_the_lower_modules_do_not_know_the_decoder_handler(self) -> None:
+        for name in ("worker_main.py", "protocol.py", "segment.py", "shm.py", "states.py"):
+            code = code_only(PACKAGE / name)
+            self.assertNotIn("DecoderHandler", code, name)
+            self.assertNotIn("worker_decoder", code, name)
+        self.assertIn('PRODUCTION_ENTRY = "tsn_dss.engine.opencv_isolated_decoder.worker_main"', (PACKAGE / "process.py").read_text(encoding="utf-8"))
+
+    def test_the_decoder_worker_has_its_own_entry_module_and_the_same_numeric_command_line(self) -> None:
+        text = code_only(PACKAGE / "decoder_main.py")
+        self.assertIn("DecoderHandler()", text)
+        self.assertIn("--ctl", text)
+        self.assertNotIn("rtsp", text)
+
+    def test_the_decoder_handler_sends_no_text_and_uses_the_slot_api_only(self) -> None:
+        code = code_only(PACKAGE / "worker_decoder.py")
+        self.assertIn(".publish(", code)
+        for banned in ("shared_memory", "SharedMemory", "struct", "send_bytes", "print(", "str(exc", "repr(exc", "format("):
+            self.assertNotIn(banned, code, banned)
 
     def test_lower_layers_do_not_know_this_package(self) -> None:
         for directory in ("device_runtime", "seestar_provider", "seestar_preview", "opencv_preview_decoder"):
