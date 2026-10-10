@@ -45,6 +45,7 @@ for _path in (str(ROOT), str(Path(__file__).resolve().parent)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from tsn_dss.engine.device_runtime import TelemetrySource, ValueState  # noqa: E402
 from tsn_dss.engine.device_runtime.errors import DeviceRuntimeError  # noqa: E402
 from tsn_dss.engine.device_runtime.support import utc_now  # noqa: E402
 from tsn_dss.engine.seestar_control import (  # noqa: E402
@@ -52,9 +53,10 @@ from tsn_dss.engine.seestar_control import (  # noqa: E402
     SeestarControlTransport,
 )
 from tsn_dss.engine.seestar_control.states import (  # noqa: E402
-    CAMERA_ITEMS, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count,
+    ARM_CLOSED, CAMERA_ITEMS, MOVE_TYPE, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count,
 )
 
+CAMERA_ITEMS_ORDERED = ("app.main.state", "app.main.rtsp_state", "app.wide.state", "app.wide.rtsp_state")
 STAGES = ("identify", "baseline", "deploy_arm", "start_scenery", "preview", "stop_scenery", "park_arm")
 
 
@@ -87,6 +89,15 @@ def state_words(sample: Any) -> dict:
     return {"arm": arm, "cameras": cameras}
 
 
+def observed_items(sample: Any) -> dict:
+    """The six state items as the provider normalized them: value state (known/stale/unknown/unavailable/missing) and, if known, the value."""
+    out = {}
+    for name in (MOVE_TYPE, ARM_CLOSED, *CAMERA_ITEMS_ORDERED):
+        item = sample.get(name, TelemetrySource.PROVIDER_REPORTED)
+        out[name] = {"state": "missing"} if item is None else {"state": item.state.value, **({"value": item.value} if item.state is ValueState.KNOWN else {})}
+    return out
+
+
 # --- the supervised run ------------------------------------------------------------------------------------------------------------
 
 
@@ -106,6 +117,8 @@ class Run:
         self.recovery_required = False
         self.cleanup = "not_needed"
         self.preview_summary: list = []
+        self.observed: dict | None = None
+        self.read_seconds: float | None = None
 
     # ---- helpers
     def words(self) -> dict:
@@ -131,8 +144,13 @@ class Run:
         if kind_id in (ARM_DEPLOY, ARM_PARK):
             self.permit.confirm_arm_motion(kind_id, lambda: self.ask(f"Type {ARM_PHRASE} to allow this arm movement ({kind_id}): "))
         self.commands.append(kind_id)
-        outcome = self.handle.driver.execute(
-            self.handle.connection, kind_id, self.operator, deadline=self.clock() + self.deadline, poll_interval=self.poll)
+        try:
+            outcome = self.handle.driver.execute(
+                self.handle.connection, kind_id, self.operator, deadline=self.clock() + self.deadline, poll_interval=self.poll)
+        except Exception as exc:  # possibly after submission: the result is unknown, so no cleanup and no safe verdict
+            self.recovery_required = True
+            self.outcomes.append({"kind": kind_id, "classification": "exception", "error": type(exc).__name__})
+            raise
         self.outcomes.append({"kind": kind_id, "classification": outcome.classification, "final_state": outcome.final_state,
                               "submitted": outcome.submitted, "polls": outcome.polls, "uncertainty_open": outcome.uncertainty_open})
         if outcome.uncertainty_open:
@@ -143,7 +161,14 @@ class Run:
     # ---- steps
     def identify(self) -> str:
         self.handle = self.control.attach()
-        self.initial = self.words()
+        began = self.clock()
+        try:
+            sample = self.control.runtime.read_telemetry(self.handle.connection)
+        except Exception:
+            raise Unsafe("state_unreadable") from None
+        self.read_seconds = round((self.clock() - began).total_seconds(), 3)
+        self.observed = observed_items(sample)
+        self.initial = state_words(sample)
         return f"arm_{self.initial['arm']}_cameras_{self.initial['cameras']}"
 
     def baseline(self) -> str:
@@ -261,6 +286,8 @@ class Run:
             "commands_sent": list(self.commands),
             "outcomes": self.outcomes,
             "initial_state": self.initial,
+            "observed_items": self.observed,
+            "read_seconds": self.read_seconds,
             "final_state": final,
             "cleanup": self.cleanup,
             "preview": self.preview_summary,

@@ -94,6 +94,23 @@ class ReadOnlyTests(unittest.TestCase):
         self.assertTrue(report["device_left_as_found"])
         self.assertEqual(rig.control.uncertainty_store.unresolved_devices(), frozenset())
 
+    def test_the_report_carries_the_six_raw_state_items_and_the_read_duration(self) -> None:
+        sim = SimSeestar()
+        sim.serial = SERIAL
+        rig = Rig(sim)
+        report = rig.run(physical=False, ask=None)
+        items = report["observed_items"]
+        self.assertEqual(set(items), {"mount.move_type", "mount.arm_closed", "app.main.state", "app.main.rtsp_state",
+                                      "app.wide.state", "app.wide.rtsp_state"})
+        self.assertEqual(items["mount.move_type"], {"state": "known", "value": "none"})
+        self.assertEqual(items["mount.arm_closed"], {"state": "known", "value": True})
+        self.assertEqual(items["app.main.state"], {"state": "known", "value": "cancel"})
+        self.assertGreaterEqual(report["read_seconds"], 0)
+        self.assertNotIn(SERIAL, json.dumps(report))
+        # a missing or unknown item keeps its distinction instead of becoming a guess
+        sample = type("S", (), {"get": lambda self, name, source: None})()
+        self.assertEqual(CV.observed_items(sample)["app.main.state"], {"state": "missing"})
+
     def test_main_without_the_flag_is_read_only_and_never_asks(self) -> None:
         rig = Rig()
         asked = []
@@ -287,6 +304,35 @@ class UncertaintyTests(unittest.TestCase):
         self.assertNotIn(SCENERY_STOP, rig.sim.control_calls)  # no blind commands
         self.assertEqual(report["final_state"], {"arm": "unknown", "cameras": "unknown"})
         self.assertTrue(report["unsafe_or_unknown_final_state"])
+        self.assertNotIn("192.0.2.99", json.dumps(report))
+
+    def test_an_exception_after_possible_submission_requires_recovery_and_stays_unsafe(self) -> None:
+        rig = Rig()
+
+        def explode(*args, **kwargs):
+            rig.sim.control_calls.append("noted")
+            raise RuntimeError("secret detail 192.0.2.99")
+
+        run = CV.Run(rig.control, rig.permit, operator="op", physical=True, ask=answers(), preview=None, frames=0,
+                     deadline=DEADLINE, poll_interval=POLL, clock=rig.clock)
+        original = run.command
+
+        def command(kind_id):
+            if kind_id == SCENERY_START:
+                run.handle.driver.execute = explode  # raised by the driver after the deploy command succeeded
+            return original(kind_id)
+
+        run.command = command
+        run.execute()
+        while rig.sim.pending:
+            rig.sim.tick()
+        report = run.report()  # the device now reads as folded and stopped, which must not downgrade the verdict
+        self.assertTrue(report["recovery_required"])
+        self.assertTrue(report["unsafe_or_unknown_final_state"])
+        self.assertEqual(report["cleanup"], "not_attempted_recovery_required")
+        self.assertEqual(rig.sim.control_calls, [ARM_DEPLOY, "noted"])  # no stop, no park
+        self.assertEqual(rig.stage(report, "start_scenery")["detail"], "error_RuntimeError")
+        self.assertEqual(report["outcomes"][-1], {"kind": SCENERY_START, "classification": "exception", "error": "RuntimeError"})
         self.assertNotIn("192.0.2.99", json.dumps(report))
 
     def test_an_interrupt_mid_command_is_recovery_required_without_cleanup(self) -> None:
