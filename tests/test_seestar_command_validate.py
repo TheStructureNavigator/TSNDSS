@@ -18,6 +18,7 @@ from unittest import mock
 
 from tsn_dss.engine.device_runtime import ManualClock, SequentialIdGenerator
 from tsn_dss.engine.device_runtime.command_executor import ClearanceNotAuthorized
+from tsn_dss.engine.seestar_provider.protocol import parse_reply
 from tsn_dss.engine.seestar_control import (
     ARM_DEPLOY, ARM_PARK, COMMANDS, SCENERY_START, SCENERY_STOP, OperatorPermit, SeestarControl,
 )
@@ -452,6 +453,158 @@ class StepByStepTests(unittest.TestCase):
         rig = Rig()
         rig.run(ask=answers(log=log))
         self.assertEqual(len(log), 3)  # DEPLOY + two ARM: no GO / NEXT prompts without the flag
+
+
+class ColdSim(SimSeestar):
+    """A cold-booted device: the app state carries no View and no SecondView."""
+
+    def read_app_state(self, host):
+        return parse_reply({"method": "iscope_get_app_state", "code": 0, "id": 1, "result": {"FocuserMove": {"state": "idle"}, "selected_cam": "View"}})
+
+
+SINGLE_ARGS = ["--telemetry-max-age", "300", "--capability-max-age", "300", "--allow-physical-motion", "--command-deadline", "600",
+               "--poll-interval", "30", "--permit-validity", "21600"]
+
+
+class SingleCommandTests(unittest.TestCase):
+    def one(self, command, sim, *, ask=None, **over):
+        rig = Rig(sim)
+        with redirect_stdout(io.StringIO()):
+            return rig, rig.run(ask=ask or scripted([]), single=command, **over)
+
+    def test_each_command_runs_alone_with_no_sequence_and_no_cleanup(self) -> None:
+        cases = {
+            "deploy": (SimSeestar(), ARM_DEPLOY, {"arm": "open", "cameras": "stopped"}),
+            "start-scenery": (SimSeestar(arm_closed=False), SCENERY_START, {"arm": "open", "cameras": "ready"}),
+            "stop-scenery": (SimSeestar(arm_closed=False, cameras="ready"), SCENERY_STOP, {"arm": "open", "cameras": "stopped"}),
+            "park": (SimSeestar(arm_closed=False), ARM_PARK, {"arm": "closed", "cameras": "stopped"}),
+        }
+        for command, (sim, kind, expected) in cases.items():
+            with self.subTest(command=command):
+                rig, report = self.one(command, sim)
+                self.assertEqual(rig.sim.control_calls, [kind])  # exactly one command; the cameras left running or the arm left open are NOT cleaned up
+                self.assertEqual(report["overall"], "PASS")
+                self.assertEqual((report["mode"], report["command"]), ("physical_single_command", kind))
+                self.assertEqual(report["final_state"], expected)
+                self.assertTrue(report["final_matches_expected_after_command"])
+                self.assertFalse(report["unsafe_or_unknown_final_state"])
+                self.assertEqual(report["cleanup"], "not_needed")
+                self.assertEqual(report["outcomes"][0]["classification"], "succeeded")
+                self.assertTrue(report["outcomes"][0]["last_evidence"])  # what the verifier saw
+                self.assertEqual([s["status"] for s in report["stages"] if s["name"] not in ("identify", "baseline", SINGLE_COMMANDS_STAGE[command])],
+                                 ["NOT_RUN"] * 4)
+
+    def test_independent_invocations_each_take_a_fresh_baseline(self) -> None:
+        sim = SimSeestar()
+        _, first = self.one("deploy", sim)
+        rig, second = self.one("start-scenery", sim)  # a new process: new executor, empty history
+        self.assertEqual((first["overall"], second["overall"]), ("PASS", "PASS"))
+        self.assertEqual(sim.control_calls, [ARM_DEPLOY, SCENERY_START])
+        self.assertEqual(rig.stage(second, "baseline")["detail"], "established_by_recovery")
+
+    def test_authorization_and_confirmation_are_required(self) -> None:
+        for label, ask in (("no GO", scripted([], decline=("Type GO",))), ("no ARM", scripted([], decline=("Type ARM",))),
+                           ("no DEPLOY", scripted([], decline=("Type DEPLOY",)))):
+            with self.subTest(label):
+                rig, report = self.one("deploy", SimSeestar(), ask=ask)
+                self.assertEqual(rig.sim.control_calls, [])
+                self.assertEqual(report["overall"], "FAIL")
+                self.assertTrue(report["device_left_as_found"])
+        log = []
+        self.one("deploy", SimSeestar(), ask=scripted(log))
+        self.assertEqual([p.split()[1] for p in log], ["DEPLOY", "GO", "ARM"])
+        log = []
+        self.one("stop-scenery", SimSeestar(arm_closed=False, cameras="ready"), ask=scripted(log))
+        self.assertEqual([p.split()[1] for p in log], ["DEPLOY", "GO"])  # no arm movement, no ARM
+
+    def test_the_gate_refuses_a_command_the_state_does_not_allow(self) -> None:
+        for command, sim in (("deploy", SimSeestar(arm_closed=False)), ("park", SimSeestar(arm_closed=False, cameras="ready")),
+                             ("start-scenery", SimSeestar()), ("park", SimSeestar())):
+            with self.subTest(command=command):
+                rig, report = self.one(command, sim)
+                self.assertEqual(rig.sim.control_calls, [])  # nothing was sent
+                self.assertEqual(rig.stage(report, SINGLE_COMMANDS_STAGE[command])["detail"], "command_safety_blocked")
+                self.assertEqual(report["overall"], "FAIL")
+                self.assertFalse(report["unsafe_or_unknown_final_state"])
+
+    def test_a_cold_start_with_no_views_is_refused_and_never_read_as_stopped(self) -> None:
+        for command in SINGLE_COMMANDS_STAGE:
+            with self.subTest(command=command):
+                sim = ColdSim()
+                rig, report = self.one(command, sim)
+                self.assertEqual(sim.control_calls, [])
+                self.assertEqual(report["initial_state"], {"arm": "closed", "cameras": "unknown"})
+                self.assertEqual(rig.stage(report, "baseline")["detail"], "baseline_refused_arm_closed_cameras_unknown")
+                self.assertEqual(report["overall"], "FAIL")
+                self.assertTrue(report["device_left_as_found"])
+                self.assertEqual(report["observed_items"]["app.main.state"], {"state": "unavailable"})
+
+    def test_unreadable_or_stale_telemetry_sends_nothing(self) -> None:
+        sim = SimSeestar()
+        sim.fail_app_reads = 10_000  # the app-state read keeps failing: no camera evidence at all
+        rig, report = self.one("deploy", sim)
+        self.assertEqual(sim.control_calls, [])
+        self.assertNotEqual(report["overall"], "PASS")
+        self.assertTrue(report["device_left_as_found"])
+
+    def test_an_uncertain_result_is_reported_unsafe_and_nothing_else_is_sent(self) -> None:
+        sim = SimSeestar()
+        sim.modes[ARM_DEPLOY] = "ack_only"
+        rig, report = self.one("deploy", sim)
+        self.assertEqual(sim.control_calls, [ARM_DEPLOY])
+        self.assertTrue(report["recovery_required"])
+        self.assertTrue(report["unsafe_or_unknown_final_state"])
+        self.assertEqual(report["overall"], "FAIL")
+        self.assertEqual(len(rig.control.uncertainty_store.unresolved_devices()), 1)  # not cleared
+
+    def test_a_failed_command_is_a_plain_failure_and_is_not_retried(self) -> None:
+        sim = SimSeestar()
+        sim.modes[ARM_DEPLOY] = "pre_send"
+        rig, report = self.one("deploy", sim)
+        self.assertEqual(sim.control_calls, [ARM_DEPLOY])
+        self.assertEqual(report["final_state"], {"arm": "closed", "cameras": "stopped"})
+        self.assertEqual(report["overall"], "FAIL")
+        self.assertFalse(report["unsafe_or_unknown_final_state"])
+
+    def test_the_command_line(self) -> None:
+        for command, kind, sim in (("deploy", ARM_DEPLOY, SimSeestar()), ("park", ARM_PARK, SimSeestar(arm_closed=False))):
+            rig = Rig(sim)
+            code, out, report = run_main(rig, [*SINGLE_ARGS, "--command", command], ask=scripted([]))
+            self.assertEqual((code, report["command"], sim.control_calls), (0, kind, [kind]), out)
+        rig = Rig(ColdSim())
+        code, out, report = run_main(rig, [*SINGLE_ARGS, "--command", "deploy"], ask=scripted([]))
+        self.assertEqual((code, rig.sim.control_calls), (1, []))
+        for extra, text in ((["--command", "deploy", "--step-by-step"], "cannot be combined"),):
+            code, out, _ = run_main(Rig(), [*SINGLE_ARGS, *extra], ask=scripted([]))
+            self.assertEqual(code, 2)
+            self.assertIn(text, out)
+        code, out, _ = run_main(Rig(), ["--telemetry-max-age", "300", "--capability-max-age", "300", "--command", "park"])
+        self.assertEqual(code, 2)
+        self.assertIn("--command needs --allow-physical-motion", out)
+        argv = [a for a in SINGLE_ARGS if a not in ("--poll-interval", "30")]
+        code, out, _ = run_main(Rig(), [*argv, "--command", "park"], ask=scripted([]))
+        self.assertEqual(code, 2)
+        self.assertIn("--poll-interval", out)  # timing is still required
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            CV.main(["--host", HOST, "--operator", "op", "--telemetry-max-age", "1", "--capability-max-age", "1", "--command", "sweep"])
+
+    def test_uncertainty_exits_three(self) -> None:
+        rig = Rig(SimSeestar())
+        rig.sim.modes[ARM_DEPLOY] = "ack_only"
+        code, out, _ = run_main(rig, [*SINGLE_ARGS, "--command", "deploy"], ask=scripted([]))
+        self.assertEqual(code, 3)
+        self.assertIn("CHECK THE TELESCOPE", out)
+
+    def test_the_full_sequence_is_unchanged_by_the_new_option(self) -> None:
+        rig = Rig()
+        with redirect_stdout(io.StringIO()):
+            report = rig.run(ask=answers())
+        self.assertEqual(report["mode"], "physical")
+        self.assertNotIn("command", report)
+        self.assertEqual(rig.sim.control_calls, [ARM_DEPLOY, SCENERY_START, SCENERY_STOP, ARM_PARK])
+
+
+SINGLE_COMMANDS_STAGE = {"deploy": "deploy_arm", "start-scenery": "start_scenery", "stop-scenery": "stop_scenery", "park": "park_arm"}
 
 
 class MainTests(unittest.TestCase):

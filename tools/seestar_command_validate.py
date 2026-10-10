@@ -13,6 +13,11 @@ Physical mode needs ALL of: --allow-physical-motion, an interactive terminal, an
 in memory only, bound to the one device that was identified, valid for --permit-validity seconds, and the arm moves (deploy, park) each
 need a further ARM confirmation. Clear the arm's path and the cameras' field first.
 
+--command {deploy,start-scenery,stop-scenery,park} (physical mode only) sends exactly ONE of the four commands and exits: the same identify, consent,
+baseline-by-recovery, DB-04 gate, driver and verification, then the final observed state. No sequence, no cleanup, no preview. The baseline is
+still taken from fresh telemetry and is refused when the camera state is not fully known (for example cameras unknown on a cold start with
+View/SecondView absent); there is no clearance and no override, so that case stays blocked.
+
 --step-by-step (physical mode only) asks GO before and NEXT after every command, shows the fresh arm/camera state each time, and never advances on its
 own; declining, a failure, an uncertain result or an unexpected state stops progression and leaves the usual fail-closed handling in place.
 
@@ -67,6 +72,12 @@ EXPECTED_AFTER = {  # the state each command should leave, as state words; anyth
     SCENERY_STOP: {"arm": "open", "cameras": "stopped"},
     ARM_PARK: {"arm": "closed", "cameras": "stopped"},
 }
+SINGLE_COMMANDS = {  # --command value -> (kind id, stage it is reported under)
+    "deploy": (ARM_DEPLOY, "deploy_arm"),
+    "start-scenery": (SCENERY_START, "start_scenery"),
+    "stop-scenery": (SCENERY_STOP, "stop_scenery"),
+    "park": (ARM_PARK, "park_arm"),
+}
 STAGES = ("identify", "baseline", "deploy_arm", "start_scenery", "preview", "stop_scenery", "park_arm")
 
 
@@ -114,8 +125,8 @@ def observed_items(sample: Any) -> dict:
 class Run:
     def __init__(self, control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str],
                  preview: Callable[[int], dict] | None, frames: int, deadline: timedelta, poll_interval: timedelta,
-                 clock: Callable[[], Any], step: bool = False) -> None:
-        self.step = step
+                 clock: Callable[[], Any], step: bool = False, single: str | None = None) -> None:
+        self.step, self.single = step, single
         self.control, self.permit, self.operator, self.physical, self.ask = control, permit, operator, physical, ask
         self.preview, self.frames, self.deadline, self.poll, self.clock = preview, frames, deadline, poll_interval, clock
         self.began = clock()
@@ -152,7 +163,7 @@ class Run:
 
     def command(self, kind_id: str) -> None:
         """One command through the driver. Raises ``Unsafe`` unless it succeeded; an open uncertainty closes the cleanup path."""
-        if self.step:
+        if self.step or self.single:
             self.confirm_before(kind_id)
         if kind_id in (ARM_DEPLOY, ARM_PARK):
             self.permit.confirm_arm_motion(kind_id, lambda: self.ask(f"Type {ARM_PHRASE} to allow this arm movement ({kind_id}): "))
@@ -165,7 +176,8 @@ class Run:
             self.outcomes.append({"kind": kind_id, "classification": "exception", "error": type(exc).__name__})
             raise
         self.outcomes.append({"kind": kind_id, "classification": outcome.classification, "final_state": outcome.final_state,
-                              "submitted": outcome.submitted, "polls": outcome.polls, "uncertainty_open": outcome.uncertainty_open})
+                              "submitted": outcome.submitted, "polls": outcome.polls, "uncertainty_open": outcome.uncertainty_open,
+                              **({"last_evidence": outcome.last_evidence} if self.single else {})})
         if outcome.uncertainty_open:
             self.recovery_required = True
         if not outcome.succeeded:
@@ -249,13 +261,30 @@ class Run:
         self.command(ARM_PARK)
         return "parked"
 
+    def baseline_for_single(self) -> str:
+        """Baseline by recovery from fresh telemetry, with no start-state requirement of its own: the command's gate decides.
+        A refusal (for example cameras unknown on a cold start) is final; there is no clearance and no override."""
+        try:
+            self.handle.executor.establish_baseline_by_recovery(self.handle.connection)
+        except Exception:
+            raise Unsafe(f"baseline_refused_arm_{self.initial['arm']}_cameras_{self.initial['cameras']}") from None
+        return "established_by_recovery"
+
+    def single_command(self) -> str:
+        self.command(SINGLE_COMMANDS[self.single][0])
+        return "sent_and_verified"
+
     # ---- orchestration
     def execute(self) -> dict:
         try:
             if self.stage("identify", self.identify) and self.physical:
                 self.consent()
-                for name, body in (("baseline", self.baseline), ("deploy_arm", self.deploy), ("start_scenery", self.start),
-                                   ("preview", self.run_preview)):
+                if self.single:
+                    steps = (("baseline", self.baseline_for_single), (SINGLE_COMMANDS[self.single][1], self.single_command))
+                else:
+                    steps = (("baseline", self.baseline), ("deploy_arm", self.deploy), ("start_scenery", self.start),
+                             ("preview", self.run_preview))
+                for name, body in steps:
                     if not self.stage(name, body):
                         break
         except KeyboardInterrupt:
@@ -263,7 +292,7 @@ class Run:
             if len(self.outcomes) < len(self.commands):  # a command was in flight: its result is not known, so no cleanup
                 self.recovery_required = True
         finally:
-            if self.physical and self.handle is not None and self.commands:
+            if self.physical and self.handle is not None and self.commands and not self.single:  # one command means one command
                 self.run_cleanup()
         return self.report()
 
@@ -305,10 +334,23 @@ class Run:
         if not self.physical:
             overall = "READ_ONLY" if self.stages["identify"]["status"] == "PASS" else "FAIL"
             return self._body(overall, False, final)
+        if self.single:
+            return self._single_report(final)
         unsafe = self.owns_session() and (final != {"arm": "closed", "cameras": "stopped"} or self.recovery_required or self.cleanup_interrupted)
         passed = (all(s["status"] == "PASS" for s in self.stages.values()) and not unsafe and not self.interrupted
                   and final == {"arm": "closed", "cameras": "stopped"})
         return self._body("PASS" if passed else "FAIL", unsafe, final)
+
+    def _single_report(self, final: dict) -> dict:
+        """One command was asked for: the device is not expected to end folded and stopped, only readable and consistent."""
+        kind, stage = SINGLE_COMMANDS[self.single]
+        unreadable = any(v in ("unknown", "unreadable", "moving_or_unknown", "other", "never_read") for v in final.values())
+        unsafe = self.owns_session() and (self.recovery_required or unreadable or self.interrupted)
+        passed = self.stages[stage]["status"] == "PASS" and not unsafe and not self.interrupted
+        body = self._body("PASS" if passed else "FAIL", unsafe, final)
+        body.update({"mode": "physical_single_command", "command": kind,
+                     "final_matches_expected_after_command": final == EXPECTED_AFTER[kind] if passed else None})
+        return body
 
     def _body(self, overall: str, unsafe: bool, final: dict) -> dict:
         return {
@@ -341,10 +383,11 @@ def _is_token(text: str) -> bool:
 
 def run_validation(control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str] | None,
                    preview: Callable[[int], dict] | None = None, frames: int = 0, deadline: timedelta = timedelta(0),
-                   poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now, step: bool = False) -> dict:
+                   poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now, step: bool = False,
+                   single: str | None = None) -> dict:
     """Run the supervised sequence (or the read-only report) and return the JSON-ready report. Every timing value is the caller's."""
     run = Run(control, permit, operator=operator, physical=physical, ask=ask, preview=preview, frames=frames, deadline=deadline,
-              poll_interval=poll_interval, clock=clock, step=step)
+              poll_interval=poll_interval, clock=clock, step=step, single=single)
     try:
         return run.execute()
     except _Stop:
@@ -394,6 +437,8 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     parser.add_argument("--frames", type=int, default=None, help="frames per camera in the preview stage (physical mode)")
     parser.add_argument("--preview-max-seconds", type=float, default=None, help="time limit of the preview stage (physical mode)")
     parser.add_argument("--step-by-step", action="store_true", help="physical mode: confirm before and after every command")
+    parser.add_argument("--command", choices=sorted(SINGLE_COMMANDS), default=None,
+                        help="physical mode: send exactly ONE of the four commands and exit (no sequence, no cleanup, no preview)")
     parser.add_argument("--no-preview", action="store_true", help="skip the preview stage")
     parser.add_argument("--key-env", default="TSNDSS_SEESTAR_KEY_PATH")
     parser.add_argument("--out", type=Path, default=Path("seestar_command_validation.json"))
@@ -408,7 +453,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     if physical:
         needed = {"--command-deadline": args.command_deadline, "--poll-interval": args.poll_interval, "--permit-validity": args.permit_validity}
         problems += [f"{name} is required (there is no default) and must be positive" for name, v in needed.items() if not v or v <= 0]
-        if not args.no_preview:
+        if not args.no_preview and not args.command:
             if not args.frames or not 1 <= args.frames <= 30:
                 problems.append("--frames 1-30 is required unless --no-preview")
             if not args.preview_max_seconds or args.preview_max_seconds <= 0:
@@ -417,10 +462,14 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
                 problems.append("OpenCV (opencv-python >= 4.8) is not installed in this interpreter")
         if ask is None and not (sys.stdin and sys.stdin.isatty()):
             problems.append("an interactive terminal is required for the confirmation prompts")
+    if args.command and not physical:
+        problems.append("--command needs --allow-physical-motion")
+    if args.command and args.step_by_step:
+        problems.append("--command and --step-by-step cannot be combined (a single command already asks GO and ARM)")
     if args.step_by_step and not physical:
         problems.append("--step-by-step needs --allow-physical-motion")
     if control_factory is None:
-        if sys.version_info < (3, 13) and physical and not args.no_preview:
+        if sys.version_info < (3, 13) and physical and not args.no_preview and not args.command:
             problems.append("Python 3.13 or newer is required for the preview")
         if not (key_path and os.path.isfile(key_path)):
             problems.append(f"the PEM key file named by {args.key_env} is missing")
@@ -443,7 +492,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
         control = SeestarControl(config=config, read_transport=TcpSeestarTransport(config, authenticator=auth),
                                  control_transport=SeestarControlTransport(config, auth), freshness=freshness, authorizer=permit)
     preview = None
-    if physical and not args.no_preview:
+    if physical and not args.no_preview and not args.command:
         make = preview_factory or _real_preview(args.host, key_path)
         preview = (lambda frames: make(frames, args.preview_max_seconds))
     if physical:
@@ -451,7 +500,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     result = run_validation(
         control, permit if physical else None, operator=args.operator, physical=physical, ask=(ask or input) if physical else None,
         preview=preview, frames=args.frames or 0, deadline=_seconds(args.command_deadline) or timedelta(0),
-        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step)
+        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step, single=args.command)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     for stage in result["stages"]:
         print(f"[{stage['status']}] {stage['name']}: {stage['detail']}")
