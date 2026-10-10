@@ -765,9 +765,10 @@ class BoundaryTests(unittest.TestCase):
 
     def test_the_package_surface(self) -> None:
         self.assertEqual(set(seestar_control.__all__), {
-            "ARM_DEPLOY", "ARM_PARK", "COMMANDS", "ControlCommand", "ControlFreshness", "ControlPostSendError", "ControlPreSendError",
-            "SCENERY_PARAMS", "SCENERY_START", "SCENERY_STOP", "SeestarCommandProvider", "SeestarControlTransport",
-            "build_command_kinds", "register_command_kinds"})
+            "ARM_DEPLOY", "ARM_PARK", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError", "ControlCommand",
+            "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "SCENERY_PARAMS", "SCENERY_START",
+            "SCENERY_STOP", "SeestarCommandProvider", "SeestarControl", "SeestarControlTransport", "build_command_kinds",
+            "register_command_kinds"})
 
     def test_the_read_only_allow_list_is_untouched(self) -> None:
         from tsn_dss.engine.seestar_provider.protocol import READ_METHODS

@@ -312,6 +312,46 @@ class IntegrationTests(unittest.TestCase):
         self.assertIs(rig.admit(connection).state, S.VALIDATED)
 
 
+class RecoveryIgnoresValueConstraintsTests(unittest.TestCase):
+    """Recovery judges the state after an uncertain Command; the kind's pre-command value constraints must not apply to it."""
+
+    def uncertain(self):
+        from tsn_dss.engine.device_runtime.simulator import CommandScript
+        from tsn_dss.engine.device_runtime.uncertainty import RecoveryVerdict
+
+        rig = Rig()
+        connection = rig.ready()
+        rig.provider.script_next_command(CommandScript(submit="transport_loss"))
+        record = rig.admit(connection)
+        rig.executor.submit(record.command_id)
+        assert record.state is S.UNKNOWN_RESULT
+        rig.executor._assessors = {"act": lambda c, r, snap, now: RecoveryVerdict(True, "observed", (("mode", "provider_reported"),))}
+        return rig, connection, record
+
+    def test_an_observed_value_outside_the_pre_command_constraint_does_not_block_recovery_evidence(self) -> None:
+        rig, connection, record = self.uncertain()
+        rig.value = "gamma"  # not allowed before running; legitimate as an observed state afterwards
+        entry = rig.executor.resolve_uncertainty_by_recovery(connection, record.command_id)
+        self.assertFalse(entry.unresolved)
+        self.assertIs(record.state, S.UNKNOWN_RESULT)
+
+    def test_freshness_and_availability_still_apply_to_recovery_evidence(self) -> None:
+        from tsn_dss.engine.device_runtime.command_executor import RecoveryNotEstablished
+
+        rig, connection, record = self.uncertain()
+        original = rig.evidence
+
+        def stale(c):
+            snapshot = original(c)
+            t = snapshot.telemetry
+            return EvidenceSnapshot(TelemetrySample(t.provider_id, t.connection_id, t.host_observed_at - timedelta(hours=1), t.items, True))
+
+        rig.executor._evidence_source = stale
+        with self.assertRaises(RecoveryNotEstablished) as ctx:
+            rig.executor.resolve_uncertainty_by_recovery(connection, record.command_id)
+        self.assertIn("expired", str(ctx.exception))
+
+
 class BoundaryTests(unittest.TestCase):
     def test_the_neutral_runtime_names_no_device_states_and_adds_no_defaults(self) -> None:
         for name in ("command_models.py", "safety_gates.py", "command_executor.py"):

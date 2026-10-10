@@ -67,6 +67,7 @@ from typing import Callable, Protocol, runtime_checkable
 from .command_lifecycle import CommandEvent, CommandRecord
 from .command_effects import EffectVerdictKind, EffectVerifier
 from .command_models import (
+    FreshnessRequirement,
     CommandKindPolicy,
     CommandKindRegistry,
     CommandPolicyError,
@@ -514,7 +515,7 @@ class CommandExecutor:
                 raise RecoveryNotEstablished("evidence_unavailable") from None
             now = self._clock()  # after the evidence, as for the gate
             fresh = evaluate_gate(
-                self._kinds.get(entry.kind_id),
+                self._freshness_only(self._kinds.get(entry.kind_id)),
                 snapshot,
                 now,
                 provider_id=self._runtime.provider_id,
@@ -606,6 +607,20 @@ class CommandExecutor:
                 return self._store.establish_baseline(self._runtime.provider_id, device_ref, resolution)
             except ValueError as exc:
                 raise ClearanceNotAuthorized(str(exc)) from None
+
+    @staticmethod
+    def _freshness_only(policy: CommandKindPolicy) -> CommandKindPolicy:
+        """The kind's evidence requirements without their value constraints.
+
+        Recovery looks at the state *after* a Command whose outcome is unknown, which legitimately differs from the
+        preconditions the kind demands before running (DB-05 Slice 2). Freshness, availability and consistency still apply
+        in full; judging whether the observed value is an acceptable place to start from is the kind's recovery assessor's job.
+        """
+        return CommandKindPolicy(
+            policy.kind_id, state_changing=policy.state_changing, physical=policy.physical, idempotent=policy.idempotent,
+            safety_sensitive=policy.safety_sensitive,
+            freshness=tuple(FreshnessRequirement(r.item, r.max_age) for r in policy.freshness),
+        )
 
     def clear_uncertainty_by_operator(
         self, device_ref: str, command_id: CommandId, operator_id: str, reason: str
