@@ -49,7 +49,12 @@ from .models import (
 from .provider import DeviceProvider
 from .support import Clock, IdGenerator, random_id_generator, utc_now
 
-_ACTIVE_STATES = (ConnectionState.CONNECTED, ConnectionState.READY, ConnectionState.DEGRADED)
+_ACTIVE_STATES = (
+    ConnectionState.CONNECTED,
+    ConnectionState.READY,
+    ConnectionState.BUSY,
+    ConnectionState.DEGRADED,
+)
 _LOSS_EVENTS = {
     ConnectionState.DISCONNECTED: ConnectionEvent.TRANSPORT_LOST_DISCONNECTED,
     ConnectionState.DEGRADED: ConnectionEvent.TRANSPORT_LOST_DEGRADED,
@@ -301,7 +306,7 @@ class ProviderRuntime:
             self._capability_entries(connection.connection_id)
             self._provider.read_telemetry(connection.connection_id)
         except ProviderConnectionError as exc:
-            if connection.state is not ConnectionState.DEGRADED:
+            if connection.state not in (ConnectionState.DEGRADED, ConnectionState.BUSY):
                 connection.apply(ConnectionEvent.EVIDENCE_STALE_OR_PARTIAL, self._clock(), exc.category)
             return connection.state
         if connection.state in (ConnectionState.CONNECTED, ConnectionState.DEGRADED):

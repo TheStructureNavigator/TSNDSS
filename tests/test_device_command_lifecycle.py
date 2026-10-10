@@ -359,14 +359,6 @@ class IndependenceTests(unittest.TestCase):
 
         self.assertTrue({e.value for e in E}.isdisjoint({e.value for e in ConnectionEvent} | {e.value for e in ProviderEvent}))
 
-    def test_s1_adds_no_connection_transition(self) -> None:
-        from tsn_dss.engine.device_runtime.lifecycle import CONNECTION_TRANSITIONS
-        from tsn_dss.engine.device_runtime.models import ConnectionState
-
-        for (state, _), row in CONNECTION_TRANSITIONS.items():
-            self.assertIsNot(state, ConnectionState.BUSY)
-            self.assertIsNot(row.next_state, ConnectionState.BUSY)
-
     def test_s1_exposes_no_public_executable_api(self) -> None:
         import tsn_dss.engine.device_runtime as pkg
 

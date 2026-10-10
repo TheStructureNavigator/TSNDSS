@@ -121,7 +121,7 @@ class CommandRecord:
     __slots__ = ("_command_id", "_provider_id", "_connection_id", "_policy", "_state", "_history")
 
     def __init__(
-        self, *, command_id: CommandId, provider_id: ProviderId, connection_id: ConnectionId, policy: CommandKindPolicy
+        self, *, command_id: CommandId, provider_id: ProviderId, connection_id: ConnectionId, policy: CommandKindPolicy | None
     ) -> None:
         self._command_id = command_id
         self._provider_id = provider_id

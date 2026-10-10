@@ -48,7 +48,9 @@ class CommandKindPolicy:
 
     Invariants enforced at construction (fail closed):
 
-    * a physical Command is state-changing and safety-sensitive (REQ-062);
+    * a physical Command is state-changing and safety-sensitive. This is a conservative design
+      decision of this implementation: REQ-062 requires command-kind-specific safety gates for
+      Commands that affect physical equipment but does not mandate this exact implication;
     * a safety-sensitive kind declares at least one freshness requirement (REQ-051);
     * only a kind that is safely idempotent may use an idempotency key (section 9), and a
       physical Command is never treated as idempotent here, so it is never auto-retried (REQ-027).

@@ -1,8 +1,9 @@
 """Provider and Connection lifecycle tables (DSS-CTR-013 sections 4 and 6).
 
-The tables are data. Command-coupled Connection transitions (entering or leaving
-``busy``, ``unknown_result`` effects, disconnect during an active Command) are
-not part of DB-01 and are intentionally absent; DB-04 owns them.
+The tables are data. Entering and leaving ``busy`` is kept out of ``CONNECTION_TRANSITIONS``
+(``BUSY_TRANSITIONS``, DB-04 S2) so that the public connection events can never change it.
+``unknown_result`` effects and the disconnect rejection record while busy belong to later
+DB-04 slices; an ordinary disconnect from ``busy`` simply has no transition.
 """
 
 from __future__ import annotations
@@ -128,13 +129,45 @@ CONNECTION_TRANSITIONS: _Table = {
     (C.DISCONNECTED, V.DISCONNECT_REQUESTED): ConnectionTransition(C.DISCONNECTED),
     (C.DISCONNECTING, V.DISCONNECT_COMPLETED): ConnectionTransition(C.DISCONNECTED),
 }
-# Nonterminal states reachable in DB-01 (``busy`` is deferred to DB-04).
-_NONTERMINAL = (C.NEW, C.CONNECTING, C.CONNECTED, C.READY, C.DEGRADED, C.DISCONNECTING)
+# "Any nonterminal state" (section 6), including ``busy`` since DB-04 S2.
+_NONTERMINAL = (C.NEW, C.CONNECTING, C.CONNECTED, C.READY, C.BUSY, C.DEGRADED, C.DISCONNECTING)
 for _state in _NONTERMINAL:
     CONNECTION_TRANSITIONS[(_state, V.TRANSPORT_LOST_DISCONNECTED)] = ConnectionTransition(C.DISCONNECTED)
     CONNECTION_TRANSITIONS[(_state, V.TRANSPORT_LOST_DEGRADED)] = ConnectionTransition(C.DEGRADED)
     CONNECTION_TRANSITIONS[(_state, V.TRANSPORT_LOST_FAILED)] = ConnectionTransition(C.FAILED)
     CONNECTION_TRANSITIONS[(_state, V.CANNOT_CONTINUE)] = ConnectionTransition(C.FAILED)
+
+
+class BusyEvent(str, Enum):
+    """Events that enter and leave ``busy``. Deliberately not ``ConnectionEvent`` members: they are
+    reachable only through ``Connection.apply_busy`` with ``BUSY_CONTROL``, which the DB-04
+    executor alone holds (DB-04 S2)."""
+
+    BUSY_ENTERED = "busy_entered"
+    BUSY_LEFT_READY = "busy_left_ready"
+    BUSY_LEFT_DEGRADED = "busy_left_degraded"
+
+
+class _BusyControl:
+    """Marker type of the capability that authorizes ``busy`` transitions."""
+
+    __slots__ = ()
+
+
+BUSY_CONTROL = _BusyControl()
+
+BUSY_TRANSITIONS: dict[tuple[ConnectionState, BusyEvent], ConnectionTransition] = {
+    (C.READY, BusyEvent.BUSY_ENTERED): ConnectionTransition(C.BUSY),
+    (C.BUSY, BusyEvent.BUSY_LEFT_READY): ConnectionTransition(C.READY),
+    (C.BUSY, BusyEvent.BUSY_LEFT_DEGRADED): ConnectionTransition(C.DEGRADED),
+}
+
+
+def busy_next(state: ConnectionState, event: BusyEvent) -> ConnectionTransition:
+    try:
+        return BUSY_TRANSITIONS[(state, event)]
+    except KeyError:
+        raise InvalidTransition("connection", state.value, event.value) from None
 
 
 def connection_next(state: ConnectionState, event: ConnectionEvent) -> ConnectionTransition:
