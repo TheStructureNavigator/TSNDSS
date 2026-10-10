@@ -356,7 +356,10 @@ class ReportAndStaticTests(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
 
     def test_control_code_lives_only_in_this_tool_and_the_provider_stays_read_only(self) -> None:
-        for path in list((ROOT / "tsn_dss").rglob("*.py")):
+        # DB-05 Slice 1 (owner-approved): the one other holder of the four wire names is the control package's fixed allow-list;
+        # tests/test_seestar_control.py asserts it is the ONLY one in the engine.
+        allowed = ROOT / "tsn_dss" / "engine" / "seestar_control" / "commands.py"
+        for path in [p for p in (ROOT / "tsn_dss").rglob("*.py") if p != allowed]:
             text = path.read_text(encoding="utf-8")
             for command in ("scope_move_to_horizon", "scope_park", "iscope_start_view", "iscope_stop_view"):
                 self.assertNotIn(command, text, f"{path.name}: {command}")
