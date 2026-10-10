@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -29,6 +30,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tsn_dss.engine.device_runtime import ConnectionState, ProviderRuntime  # noqa: E402
+from tsn_dss.engine.seestar_provider.errors import SeestarError  # noqa: E402
 from tsn_dss.engine.seestar_provider import (  # noqa: E402
     RsaKeyFileAuthenticator,
     SeestarProvider,
@@ -37,6 +39,40 @@ from tsn_dss.engine.seestar_provider import (  # noqa: E402
 )
 
 STEADY_PREFIXES = ("mount.", "app.")  # evidence expected unchanged by a read-only session
+VIEWS = ("View", "SecondView")
+_WORD = re.compile(r"^[A-Za-z0-9_.-]{0,40}$")
+
+
+def _field(source, *path) -> dict:
+    """One field of an app-state view: ``absent`` (key not in the reply) is not the same as ``null`` (key present, value null)."""
+    current = source
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return {"present": False}
+        current = current[key]
+    if current is None:
+        return {"present": True, "null": True}
+    if isinstance(current, bool) or (isinstance(current, str) and _WORD.match(current)):
+        return {"present": True, "null": False, "value": current}
+    return {"present": True, "null": False, "value_type": type(current).__name__}  # never an arbitrary payload
+
+
+def app_state_shape(result) -> dict:
+    """The structure of an ``iscope_get_app_state`` result: key names and a few state words. No payloads, no addresses."""
+    if not isinstance(result, dict):
+        return {"result_type": type(result).__name__}
+    views = {}
+    for name in VIEWS:
+        view = result.get(name)
+        if name not in result:
+            views[name] = {"present": False}
+        elif not isinstance(view, dict):
+            views[name] = {"present": True, "null": view is None, "value_type": type(view).__name__}
+        else:
+            views[name] = {"present": True, "keys": sorted(str(k) for k in view),
+                           "fields": {label: _field(view, *path) for label, path in
+                                      (("state", ("state",)), ("stage", ("stage",)), ("mode", ("mode",)), ("RTSP.state", ("RTSP", "state")))}}
+    return {"top_level_keys": sorted(str(k) for k in result), "views": views}
 
 
 class Report:
@@ -55,7 +91,8 @@ def _steady(sample) -> dict[str, object]:
 
 def run(host: str, key_env: str, out: Path, udp: bool, overwrite: bool = False) -> int:
     # Refuse before anything else, so an existing report is never silently replaced.
-    if out.is_dir() or (out.exists() and not overwrite):
+    shape_path = out.with_name("app_state_" + out.name)  # does not match a report glob such as <stem>*.json
+    if out.is_dir() or (out.exists() and not overwrite) or shape_path.is_dir() or (shape_path.exists() and not overwrite):
         print("[FAIL] output file already exists; choose another name or pass --overwrite")
         return 2
     report = Report()
@@ -108,6 +145,15 @@ def run(host: str, key_env: str, out: Path, udp: bool, overwrite: bool = False) 
     preview = runtime.describe_preview(connection)
     report.record("preview availability is evidence only", preview.is_runtime_evidence_only and not preview.is_canonical_record,
                   availability=preview.availability.value)
+
+    # The same authenticated read-only transport, one allow-listed read. Written to a separate file so the audited report keeps its shape.
+    try:
+        app_reply = transport.read_app_state(host)
+        diagnostic = {"code_ok": app_reply.code == 0, "shape": app_state_shape(app_reply.result)}
+    except SeestarError as exc:
+        diagnostic = {"code_ok": False, "error_category": exc.category}
+    shape_path.write_text(json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8")
+    print(f"[INFO] app-state structure written to {shape_path.name} (field names and state words only)")
 
     after = runtime.read_telemetry(connection)
     unchanged = _steady(before) == _steady(after)

@@ -21,7 +21,7 @@ terminal flags equal the contract's.
 | Conflict with active state-changing Command -> rejected or safety_blocked | implemented; `rejected` chosen (owner decision), `safety_blocked` kept as an alternative event |
 | Request shape valid -> validated | implemented |
 | Deadline before submission -> timed_out | implemented (`check_deadline`, `submit`, admission) |
-| Authorization / safety evidence missing, stale, contradictory, unknown, unsafe -> safety_blocked | implemented (authorizer, readiness, gate) |
+| Authorization / safety evidence missing, stale, contradictory, unknown, unsafe -> safety_blocked | implemented (authorizer, readiness, gate). "Unsafe" values are evaluated since DB-05 Slice 0 (section 7) |
 | Unresolved-uncertainty recovery/clearance absent -> safety_blocked | implemented (store; unknown history also blocks, section 3) |
 | Gates pass, no conflict -> submitted | implemented; the gate re-runs immediately before the Provider call |
 | Provider rejects, no effect possible -> failed | implemented (only on an explicit `effect_possible=False`) |
@@ -130,3 +130,28 @@ ready. Open items that do not block offline closure: D1 is closed by amendment A
 decision (REQ-025, REQ-046 remain `partially_verified`); D4 not expanded; single executor per Connection (no global
 arbitration); no command-kind-specific controlled shutdown/cancellation procedure; in-process only (no persistence);
 `EffectVerifier`, `RecoveryAssessor` and `BaselineRecovery` implementations for real Providers belong to DB-05.
+
+## 7. Post-closure extension: value constraints (DB-05 Slice 0)
+
+Finding (from the DB-05 readiness research): through DB-04 closure the gate checked that required evidence was present,
+known, fresh and uncontradicted, but not its *value*, so the section 9 word "unsafe" (and preconditions such as "known
+non-moving state") could not be expressed in the neutral runtime.
+
+Change (additive, backward-compatible, provider-neutral):
+
+* `FreshnessRequirement` gains an optional `allowed_values` (default `None` = no value constraint, i.e. the previous
+  behavior). Accepted: a non-empty collection of `str`, `int`, `float` or `bool`; refused: empty, `None`, `NaN`, containers,
+  duplicates, and any use on a `capability:` item.
+* `evaluate_gate` reports `GateReasonCode.STATE_UNSAFE` (item and source only; the value is never echoed) for fresh,
+  known evidence whose value is not allowed. Matching is type-sensitive (`value_allowed`): `True` does not match `1`, `1` does
+  not match `1.0`, `"1"` matches neither, and strings are case-sensitive.
+* Expired, future-dated, stale, unknown, unavailable, missing and contradictory evidence keep their own reasons and are never
+  reported as merely unsafe or accepted. Contradictory readings stay `CONTRADICTORY` (plus `STATE_UNSAFE` for each disallowed
+  reading).
+* No executor change: the existing gate integration already runs at admission and again immediately before submission, so a
+  disallowed value blocks both (`safety_blocked`, event `SAFETY_EVIDENCE_INSUFFICIENT`, `busy` released, no Provider call).
+* The runtime defines no state names, values, thresholds or default freshness values (tested). Public exports and the
+  executor's public surface are unchanged.
+
+Contract note. Section 9 lists "unsafe" among the conditions that produce `safety_blocked` but does not define what makes a
+value unsafe; this extension leaves that to the registrant of each Command kind and does not amend the contract.

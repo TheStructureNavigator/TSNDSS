@@ -258,6 +258,8 @@ Offline evidence (deterministic Linux tests, simulator only; no hardware, networ
 - Tests: `tests/test_device_command_lifecycle.py`, `test_device_command_executor.py`, `test_device_safety_gates.py`, `test_device_command_submission.py`, `test_device_uncertainty.py`, `test_device_command_conformance.py` (contract tables parsed and compared with the code), `test_device_command_traceability.py` with the DB-04 manifest `tests/device_command_traceability.json` (separate from the DB-01 manifest).
 - Audit, discrepancy register, restart-safety review and mutation review: `docs/DB-04_CONFORMANCE_AUDIT.md`, `docs/DB-04_CONTRACT_DISCREPANCIES.md`; D1 amendment A1 (applied): `docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md`.
 
+Post-closure extension (DB-05 Slice 0): the neutral gate also validates allowed telemetry values (`STATE_UNSAFE`, optional per requirement, type-sensitive, no defaults); see `docs/DB-04_CONFORMANCE_AUDIT.md` section 7.
+
 Known limits: single executor per Connection (no global arbitration); in-process only (a restart loses uncertainty state, hence the baseline gate); no command-kind-specific controlled shutdown or cancellation; no cancellation of a not-yet-submitted Command; no independent no-effect or failure evidence source; package exports intentionally unchanged (the interfaces are not stable until a real Provider uses them in DB-05).
 
 ### Objective
@@ -300,11 +302,11 @@ Simulator proves command lifecycle, safety gates, uncertainty handling and exclu
 
 ## DB-05 — Seestar Physical Command Integration
 
-**Status:** PLANNED. Not started as a stage. The experimental E2E script described below is evidence toward this stage only; it does not complete DB-05 and does not substitute for DB-04.
+**Status:** IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION. Not hardware-accepted and not production readiness. Record: [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md). Implemented: Seestar command adapter, policies, verifiers, recovery assessors, composition over the DB-04 runtime, `OperatorPermit`, and the supervised CLI `tools/seestar_command_validate.py` (branch `feat/db05-slice0-gate-values`). Hardware-verified (operator-reported, one S30 Pro, firmware 9.31): the supervised happy path of the four commands (deploy, scenery start, stop, park) through the DB-04 runtime with explicit operator confirmation, plus a read-only H0. Not tested on hardware: unknown-result, lost-connection, deadline-expiry, recovery and clearance paths, a refusal on unavailable state, and preview through the DB-05 path. The standalone E2E validator (three physical cycles with preview) is DB-03/E2E evidence only. The exit criterion (hardware validation including failure and timeout paths) is not met.
 
 ### Experimental evidence toward DB-05
 
-`tools/seestar_e2e_validate.py` (commit `32546a1`, merge `f7300cc`) is a standalone, experimental validation tool, separate from the read-only provider. It issues four fixed commands only (`scope_move_to_horizon`, `iscope_start_view` in scenery mode, `iscope_stop_view`, `scope_park`) behind operator opt-in (`--allow-physical-motion`, a TTY and typing `DEPLOY`) and a `PhysicalPermit`, with fail-closed state checks, bounded waits, verified cleanup and an unsafe/unknown final-state report. It does not use the DB-04 Safe Command Runtime (implemented offline against the simulator, not yet used by any real Provider), has no command ledger, uncertainty tracking or provider-neutral command model, and is not a DB-05 provider integration. The operator-reported hardware run is recorded under DB-03; it is not independently reproduced. DB-05 still requires DB-04, the DB-02 read-only integration and DB-03, and its own operator-gated hardware validation.
+`tools/seestar_e2e_validate.py` (commit `32546a1`, merge `f7300cc`) is a standalone, experimental validation tool, separate from the read-only provider. It issues four fixed commands only (`scope_move_to_horizon`, `iscope_start_view` in scenery mode, `iscope_stop_view`, `scope_park`) behind operator opt-in (`--allow-physical-motion`, a TTY and typing `DEPLOY`) and a `PhysicalPermit`, with fail-closed state checks, bounded waits, verified cleanup and an unsafe/unknown final-state report. It does not use the DB-04 Safe Command Runtime (at the time of that tool; DB-05 has since used it with the real Seestar Provider, see the record), has no command ledger, uncertainty tracking or provider-neutral command model, and is not a DB-05 provider integration. The operator-reported hardware run is recorded under DB-03; it is not independently reproduced. DB-05's own operator-gated hardware validation is recorded in [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md); DB-03 remains open where preview is a precondition.
 
 ### Objective
 
@@ -487,10 +489,10 @@ Production readiness: no stage may claim production readiness from simulator tes
 
 ## Next action
 
-Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 implemented (offline, simulator-only), merged, D1 closed by amendment A1; DB-05 PLANNED; DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
+Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 implemented (offline, simulator-only), merged, D1 closed by amendment A1; DB-05 implemented (offline) with partial hardware validation (supervised happy path only; failure and recovery on hardware open); DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
 
-NEXT: DB-05 begins with its own design and safety gate (Seestar command kinds, their freshness requirements, `EffectVerifier`, `RecoveryAssessor` and `BaselineRecovery` implementations, operator authorization), simulator-first; no physical command is issued before that design is approved.
+NEXT: close the DB-05 hardware gaps listed in [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md) section 6 (failure, unknown-result and recovery on hardware) under operator supervision; the DB-06A contract design gate proceeds independently.
 
 DB-03 acceptance remains open in parallel and independent of DB-04: stream loss and recovery and frame freshness on hardware (G1, G2) and a repository acceptance record (G7). DB-05 depends on DB-03 where preview or camera state is a precondition.
 
-Do not begin DB-05 hardware work before its design gate is approved. Do not begin DB-06B before DB-06A produces an accepted Acquisition Execution contract.
+Any further DB-05 physical run stays operator-supervised and uses the step-by-step CLI. Do not begin DB-06B before DB-06A produces an accepted Acquisition Execution contract.
