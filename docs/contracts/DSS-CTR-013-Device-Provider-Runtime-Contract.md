@@ -4,6 +4,7 @@
 
 **Status:** Draft\
 **Version:** 0.2\
+**Amendments:** A1 (DB-04 D1, owner-approved): Provider-reported terminal failure with a possible physical effect is `unknown_result` (section 9). The version number is unchanged pending an owner decision.\
 **Authority:** TSN DSS\
 **Scope:** Runtime device providers, device discovery, connection state, capabilities, telemetry, preview and commands
 
@@ -286,7 +287,7 @@ Command lifecycle states are:
 | `acknowledged` | Provider accepted or acknowledged the Command. | No |
 | `in_progress` | Command effect is pending or being monitored. | No |
 | `succeeded` | Required effect has been verified. | Yes |
-| `failed` | Evidence proves failure or Provider reports a terminal failure. | Yes |
+| `failed` | Evidence proves failure, or Provider reports a terminal failure and no physical effect was possible. | Yes |
 | `timed_out` | The deadline elapsed where Provider submission or physical effect is known not to have occurred, or where the operation cannot produce a physical effect. | Yes |
 | `cancelled` | Command was cancelled before terminal effect was possible or before terminal effect was verified by command-kind-specific cancellation evidence. | Yes |
 | `unknown_result` | A submitted or possibly submitted state-changing Command has an effect that TSN DSS cannot determine. | Yes |
@@ -310,7 +311,8 @@ Valid Command transitions:
 | `acknowledged` | Effect requires monitoring | `in_progress` | No | Monitoring start evidence |
 | `acknowledged` | Acknowledgement itself is the complete verified effect for a non-physical command | `succeeded` | Yes | Requirement-specific verification evidence |
 | `acknowledged` or `in_progress` | Required effect is verified | `succeeded` | Yes | Fresh post-command evidence |
-| `acknowledged` or `in_progress` | Provider reports terminal failure or host observes failed effect | `failed` | Yes | Failure evidence |
+| `acknowledged` or `in_progress` | Host observes failed effect, or Provider reports terminal failure and no physical effect was possible | `failed` | Yes | Failure evidence; for a Provider-reported failure, the Provider's statement that no physical effect was possible |
+| `acknowledged` or `in_progress` | Provider reports terminal failure but a physical effect may have occurred, and independent evidence does not prove failure or absence of effect | `unknown_result` | Yes | Provider failure report and uncertainty classification |
 | `acknowledged` or `in_progress` | Deadline elapses and the state-changing effect cannot be determined | `unknown_result` | Yes | Deadline record and uncertainty classification |
 | `acknowledged` or `in_progress` | Deadline elapses for an operation that cannot produce a physical effect | `timed_out` | Yes | Timeout record and no-physical-effect classification |
 | `acknowledged` or `in_progress` | Transport is lost before effect is known | `unknown_result` | Yes | Transport-loss and last-known-command evidence |
@@ -322,6 +324,8 @@ Rejection, validation failure and safety blocking are alternative outcomes. They
 Provider acknowledgement **SHALL NOT** be treated as verified physical success.
 
 A timeout **SHALL NOT** be treated as proof of physical failure unless independent evidence proves failure.
+
+A Provider-reported terminal failure of a Command whose physical effect may have occurred **SHALL NOT** by itself be treated as proof of failure. It **SHALL** be handled like a timeout after possible physical execution (REQ-046).
 
 A deadline elapsed event **SHALL NOT** by itself determine the final Command outcome.
 

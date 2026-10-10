@@ -136,11 +136,29 @@ class ConnectionTableTests(unittest.TestCase):
         self.assertEqual({s.value for s in ConnectionState} & {s.value for s in CommandState}, {"failed"})
         self.assertNotEqual(ConnectionState.FAILED, CommandState.FAILED)
 
-    def test_busy_is_a_state_name_only_in_db01(self) -> None:
-        """DB-04 boundary: no DB-01 transition enters or leaves ``busy``."""
-        for (state, _event), row in CONNECTION_TRANSITIONS.items():
-            self.assertIsNot(state, C.BUSY)
-            self.assertIsNot(row.next_state, C.BUSY)
+    def test_busy_is_entered_and_left_only_through_the_dedicated_busy_table(self) -> None:
+        """DB-04 S2 (owner decision): the public connection table never enters or leaves ``busy``
+        by a connection event; ``busy`` is a source only of transport-loss and cannot-continue rows."""
+        allowed_from_busy = {V.TRANSPORT_LOST_DISCONNECTED, V.TRANSPORT_LOST_DEGRADED, V.TRANSPORT_LOST_FAILED, V.CANNOT_CONTINUE}
+        for (state, event), row in CONNECTION_TRANSITIONS.items():
+            self.assertIsNot(row.next_state, C.BUSY, (state, event))
+            if state is C.BUSY:
+                self.assertIn(event, allowed_from_busy)
+        from tsn_dss.engine.device_runtime.lifecycle import BUSY_TRANSITIONS, BusyEvent
+
+        self.assertEqual(
+            {k: v.next_state for k, v in BUSY_TRANSITIONS.items()},
+            {
+                (C.READY, BusyEvent.BUSY_ENTERED): C.BUSY,
+                (C.BUSY, BusyEvent.BUSY_LEFT_READY): C.READY,
+                (C.BUSY, BusyEvent.BUSY_LEFT_DEGRADED): C.DEGRADED,
+            },
+        )
+        self.assertTrue({e.value for e in BusyEvent}.isdisjoint({e.value for e in V}))
+
+    def test_ordinary_disconnect_has_no_transition_from_busy(self) -> None:
+        """Contract section 6: disconnect while busy stays busy; no provider disconnect call."""
+        self.assertNotIn((C.BUSY, V.DISCONNECT_REQUESTED), CONNECTION_TRANSITIONS)
 
 
 class ConnectionBehaviorTests(unittest.TestCase):
