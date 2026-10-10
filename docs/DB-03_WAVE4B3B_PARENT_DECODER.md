@@ -1,6 +1,6 @@
 # DB-03 Wave 4B-3b — parent-side `ProcessIsolatedDecoder` (offline)
 
-Status: **implemented offline; verified on Linux (CPython 3.13.16) only; not yet run on Windows; not committed.** Implements the parent side of `docs/DB-03_WAVE4B3_INTEGRATION_DESIGN.md` (E1–E9 with their conditions) on top of the 4B-3a worker. Branch `feat/db03-wave4b3b-parent`, base `master` `9991df8`. **Fake `cv2` only: no real OpenCV/FFmpeg, no RTSP, no network, no device. Not hardware verified; not production ready.** 4B-3c (composition helper, `before_connect` wiring to the real gate, manifest) is not started.
+Status: **functionally accepted by the operator, with a validation reservation (below); Linux verified; Windows: not a full PASS.** Implements the parent side of `docs/DB-03_WAVE4B3_INTEGRATION_DESIGN.md` (E1–E9 with their conditions) on top of the 4B-3a worker. Implementation commits `e120287` (adapter) and `7fed516` (Windows venv PID-assumption test correction); base `master` `9991df8`. **Fake `cv2` only: no real OpenCV/FFmpeg, no RTSP, no network, no device. Not hardware verified; not production ready.** 4B-3c (composition helper, `before_connect` wiring to the real gate, manifest) is not started.
 
 ## What exists
 
@@ -44,15 +44,20 @@ Status: **implemented offline; verified on Linux (CPython 3.13.16) only; not yet
 
 R1 real OpenCV/FFmpeg behaviour (blocking calls, C-level logging, cold import inside the `OPEN` deadline) is untested; R2 stale buffered frames (D7) unchanged; R3 the Windows venv launcher: `intermediate_launcher` is a diagnostic and **not** proof of containment, and D10 still counts the exit of the started process — unchanged and undecided; R4 `open`/`read` block the caller up to the hard deadlines (the manager is not thread-safe, unchanged); R5 no cleanup guarantee after a sudden death of the host; R6 isolation is not a sandbox; R7 the address cannot be wiped from memory.
 
-## Proposed Windows validation (operator, Python 3.13)
+## Windows validation record (operator, Python 3.13.15, native without venv unless stated)
 
-Gate for after approval and publication on a test branch:
+| Run | Result |
+|---|---|
+| Full Wave 4B suite at `e120287` | 289 tests OK (5 skipped) |
+| Venv at `e120287` | 49 tests, 2 FAIL: two tests assumed the started process is the worker (not true behind the venv redirector). Corrected in tests only at `7fed516`; no production change |
+| Full Wave 4B suite at `7fed516` | 291 tests, **1 FAIL**, 5 skipped. The failure: `test_isolated_handles.SteadyStateTests.test_failed_start_cycles_do_not_leak`, fixture `wrong_nonce`, counts `[132, 132, 132, 132, 133, 133]` |
+| Venv at `7fed516` | 51 tests OK |
+| The failing test alone | 10/10 PASS |
+| Launcher + SteadyState, repeated | 3/5 PASS (the identities of the failures were not captured); a later verbose run: 35 tests OK (2 skipped) |
+| Round-1 handle diagnostic (`e7a88e8`, branch only) | 40 `wrong_nonce` cycles all at 125 handles (idle before 123, idle after 125): a constant step at the first cycle, no growth per cycle, no response to a 5 s settle or `gc.collect()`; the census of handle-related candidate objects was empty; live worker slots 0; the plain-subprocess control was stable |
 
-```
-cd /d <repo>
-git fetch origin
-git checkout <branch named at publication>
-git pull
-py -3.13 -m unittest tests.test_isolated_protocol tests.test_isolated_states tests.test_isolated_worker_handler tests.test_isolated_boundaries tests.test_isolated_launcher tests.test_isolated_handles tests.test_isolated_slot tests.test_isolated_limit tests.test_isolated_worker_decoder tests.test_isolated_decoder tests.test_opencv_isolated_traceability tests.test_opencv_isolated_wave4b2_traceability -v > w4b3b.txt 2>&1
-```
-Expected: 289 tests, no FAIL/ERROR, the documented POSIX skips. Then, separately and in a temporary venv: `py -3.13 -m unittest tests.test_isolated_decoder tests.test_isolated_slot.LauncherIdentityTests tests.test_isolated_worker_decoder.DecoderWorkerContainmentTests -v 2>&1` and send the `LAUNCHER-DIAG` lines and whether `IntermediateLauncherTests` and the hang tests pass (the real worker must be gone). Windows is a later operator gate, not claimed here.
+## Open observation (not resolved)
+
+A **sporadic `+1` in the handle count of the whole test process** was seen once in the full suite. It is **not attributed to any specific resource** and **no leak is confirmed**: the count did not grow over 40 cycles, did not respond to settling or garbage collection, and the test passes alone. The cause (unrelated process noise, an effect of earlier tests in the same process, delayed cleanup, or an operating-system delay) was not determined, and the sporadic failure was not reproduced under capture. The test measures the handle count of the whole process with exact two-sided equality over a short window, which makes it sensitive to any unrelated handle.
+
+By operator decision the investigation is **closed here for reasons of economy**; the observation stays open. Consequences: this document does **not** claim a full Windows PASS, does **not** claim the problem solved, and does **not** change the production code, the existing tests, their assertions or tolerances, or D10. A future recurrence should first capture the identity and the count series of the failing test. The round-1 diagnostic script exists only on the branch `feat/db03-wave4b3b-parent` (not on `master`) and no further diagnostic tools are planned.
