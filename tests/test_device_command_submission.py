@@ -57,7 +57,7 @@ class Clear:
 
 
 class Rig:
-    def __init__(self, devices=None, verifiers=None, with_view=True, with_provider=True) -> None:
+    def __init__(self, devices=None, verifiers=None, with_view=True, with_provider=True, store=None, **extra) -> None:
         kw = {"clock": ManualClock()}
         if devices:
             kw["devices"] = devices
@@ -71,8 +71,8 @@ class Rig:
             registry.register(policy)
         self.executor = CommandExecutor(
             self.runtime, registry, Allow(), clock=self.clock, id_generator=SequentialIdGenerator(),
-            evidence_source=self.evidence, uncertainty=Clear() if with_view else None,
-            command_provider=self.provider if with_provider else None, verifiers=verifiers,
+            evidence_source=self.evidence, uncertainty=store if store is not None else (Clear() if with_view else None),
+            command_provider=self.provider if with_provider else None, verifiers=verifiers, **extra,
         )
 
     def evidence(self, connection) -> EvidenceSnapshot:
@@ -226,14 +226,14 @@ class ProviderRejectionTests(unittest.TestCase):
         rig = Rig()
         connection, record = rig.started("config", submit="reject_effect_possible")
         self.assertIs(record.state, S.UNKNOWN_RESULT)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), frozenset())  # not a physical Command
+        self.assertEqual(rig.executor.unresolved_devices(), frozenset())  # not a physical Command
         self.assertIs(connection.state, C.READY)
 
     def test_physical_rejection_with_possible_effect_latches_the_device_and_degrades(self) -> None:
         rig = Rig()
         connection, record = rig.started("move", submit="reject_effect_possible")
         self.assertIs(record.state, S.UNKNOWN_RESULT)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), {(rig.runtime.provider_id, connection.device.device_ref)})
+        self.assertEqual(rig.executor.unresolved_devices(), {(rig.runtime.provider_id, connection.device.device_ref)})
         self.assertIs(connection.state, C.DEGRADED)
         last = connection.history[-1]
         self.assertEqual((last.event, last.evidence), ("busy_left_degraded", "unknown_result"))
@@ -266,7 +266,7 @@ class ProgressAndVerificationTests(unittest.TestCase):
         self.assertIs(record.state, S.SUCCEEDED)
         self.assertEqual(record.history[-1].evidence, "fresh post-command reading")
         self.assertIs(connection.state, C.READY)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), frozenset())
+        self.assertEqual(rig.executor.unresolved_devices(), frozenset())
 
     def test_provider_completion_alone_is_never_success(self) -> None:
         for verifier in (None, lambda c, r: EffectVerdict(V.PENDING), lambda c, r: 1 / 0):
@@ -379,7 +379,7 @@ class CancellationTests(unittest.TestCase):
             self.assertIs(record.state, S.CANCELLED, kind)
             self.assertEqual(record.history[-1].evidence, "motion never started")
             self.assertIs(connection.state, C.READY)
-            self.assertEqual(rig.executor.interim_unresolved_devices(), frozenset())
+            self.assertEqual(rig.executor.unresolved_devices(), frozenset())
 
     def test_cancel_without_evidence_or_with_a_race_preserves_uncertainty(self) -> None:
         for kind, latched in (("config", False), ("move", True)):
@@ -388,7 +388,7 @@ class CancellationTests(unittest.TestCase):
                 connection, record = rig.started(kind, **result)
                 rig.executor.cancel(record.command_id)
                 self.assertIs(record.state, S.UNKNOWN_RESULT, (kind, result))
-                self.assertEqual(bool(rig.executor.interim_unresolved_devices()), latched)
+                self.assertEqual(bool(rig.executor.unresolved_devices()), latched)
                 self.assertIs(connection.state, C.DEGRADED if latched else C.READY)
 
     def test_a_refused_cancellation_changes_nothing(self) -> None:
@@ -420,13 +420,13 @@ class TransportLossTests(unittest.TestCase):
         self.assertIs(record.state, S.UNKNOWN_RESULT)
         self.assertIs(connection.state, C.DEGRADED)
         self.assertEqual(len(rig.submits()), 1)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), frozenset())
+        self.assertEqual(rig.executor.unresolved_devices(), frozenset())
 
     def test_physical_loss_while_submitting_latches_the_device(self) -> None:
         rig = Rig()
         connection, record = rig.started("move", submit="transport_loss")
         self.assertIs(record.state, S.UNKNOWN_RESULT)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), {(rig.runtime.provider_id, connection.device.device_ref)})
+        self.assertEqual(rig.executor.unresolved_devices(), {(rig.runtime.provider_id, connection.device.device_ref)})
 
     def test_loss_while_polling_is_unknown_result(self) -> None:
         rig = Rig()
@@ -454,7 +454,7 @@ class TransportLossTests(unittest.TestCase):
                 self.assertIs(reader.state, S.SAFETY_BLOCKED, (outcome, stage))
                 self.assertIs(connection.state, outcome, "Connection state stays what the runtime recorded")
                 self.assertIsNone(rig.executor.active_command(connection))
-                self.assertEqual(bool(rig.executor.interim_unresolved_devices()), stage != "validated")
+                self.assertEqual(bool(rig.executor.unresolved_devices()), stage != "validated")
                 self.assertLessEqual(len(rig.submits()), 1)
 
     def test_loss_after_a_terminal_outcome_touches_nothing(self) -> None:
@@ -498,15 +498,16 @@ class UncertaintyAndRetryTests(unittest.TestCase):
         a, record = rig.started("move", submit="transport_loss")
         b = rig.ready(1)
         self.assertIs(rig.admit(b, "move").state, S.VALIDATED)
-        rig.runtime.refresh_evidence(a)
-        self.assertIs(rig.admit(a, "config").state, S.VALIDATED)
+        a2 = rig.ready(0)  # reconnect to the latched device: non-safety kinds still work
+        self.assertIs(rig.admit(a2, "config").state, S.VALIDATED)
 
-    def test_connection_readiness_returning_does_not_clear_the_uncertainty(self) -> None:
+    def test_a_degraded_connection_with_unresolved_uncertainty_does_not_return_to_ready(self) -> None:
         rig = Rig()
         connection, record = rig.started("move", submit="transport_loss")
-        self.assertIs(rig.runtime.refresh_evidence(connection), C.READY)  # DB-01 semantics: fresh evidence
+        self.assertIs(connection.state, C.DEGRADED)
+        self.assertIs(rig.runtime.refresh_evidence(connection), C.CONNECTED)  # reads work; ready is withheld
         self.assertIs(rig.admit(connection, "move").state, S.SAFETY_BLOCKED)
-        self.assertEqual(len(rig.executor.interim_unresolved_devices()), 1)
+        self.assertEqual(len(rig.executor.unresolved_devices()), 1)
 
     def test_a_missing_uncertainty_view_keeps_safety_sensitive_commands_blocked(self) -> None:
         rig = Rig(with_view=False)
@@ -518,7 +519,7 @@ class UncertaintyAndRetryTests(unittest.TestCase):
         rig = Rig()
         connection, record = rig.started("idem", submit="transport_loss")
         self.assertIs(record.state, S.UNKNOWN_RESULT)
-        self.assertEqual(rig.executor.interim_unresolved_devices(), frozenset())
+        self.assertEqual(rig.executor.unresolved_devices(), frozenset())
         with self.assertRaises(InvalidTransition):
             rig.executor.submit(record.command_id)
         self.assertEqual(len(rig.submits()), 1)

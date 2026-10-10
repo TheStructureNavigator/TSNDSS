@@ -39,12 +39,15 @@ whatever happens next. Outcomes:
   applies to ``validated`` Commands only;
 * cancellation: ``cancelled`` only on Provider-supplied no-effect evidence, ``unknown_result`` on a race.
 
-An ``unknown_result`` of a non-idempotent physical Command latches that Provider and Device Reference
-as unresolved in this executor and degrades the Connection instead of returning it to ``ready``. The
-Connection may later return to ``ready`` on fresh evidence (DB-01 semantics); the latch, not the
-Connection state, keeps safety-sensitive Commands blocked. The
-latch has no clearing operation and is an interim, in-process stand-in for the S5 uncertainty store;
-it never counts as safety evidence when absent.
+An ``unknown_result`` of a non-idempotent physical Command opens an entry in the in-process
+``UncertaintyStore`` for that Provider and Device Reference and degrades the Connection instead of
+returning it to ``ready``. The entry survives disconnect and reconnect and blocks every later
+safety-sensitive Command on that device whatever the Connection state is: ``ready`` is never proof of
+physical safety, and a ``degraded`` Connection with an unresolved entry only returns to ``connected``
+on fresh evidence, not to ``ready``. An entry is resolved only by ``resolve_uncertainty_by_recovery``
+(fresh, kind-specific recovery evidence) or ``clear_uncertainty_by_operator`` (an authorized operator
+clearance, which is not proof of any physical effect). The Command record stays ``unknown_result``.
+A restarted process starts with an empty store, which proves nothing (REQ-050).
 
 One executor is assumed to own the Commands of a Connection. Several executors over the same runtime
 are not arbitrated (an unattributed ``busy`` is only detected, as a conflict); there is no global
@@ -82,9 +85,24 @@ from .models import CommandId, CommandRef, CommandState, ConnectionState
 from .provider import CommandCapableProvider, ProviderCancelOutcome, ProviderCommandStatus
 from .runtime import ProviderRuntime
 from .safety_gates import EvidenceSnapshot, UncertaintyState, UncertaintyView, evaluate_gate
+from .uncertainty import (
+    RecoveryAssessor,
+    Resolution,
+    ResolutionKind,
+    UncertaintyEntry,
+    UncertaintyStore,
+)
 from .support import Clock, IdGenerator, random_id_generator, utc_now
 
-__all__ = ["CommandAuthorizer", "CommandExecutor", "CommandIntent"]
+__all__ = ["ClearanceAuthorizer", "ClearanceNotAuthorized", "CommandAuthorizer", "CommandExecutor", "CommandIntent"]
+
+
+class ClearanceNotAuthorized(DeviceRuntimeError):
+    """An operator clearance was refused: not authorized, or no authorizer is configured."""
+
+
+class RecoveryNotEstablished(DeviceRuntimeError):
+    """Recovery evidence did not establish a resolution; the entry is unchanged."""
 
 _ADMISSIBLE_TARGETS = (
     ConnectionState.CONNECTED,
@@ -95,23 +113,46 @@ _ADMISSIBLE_TARGETS = (
 
 
 @runtime_checkable
+class ClearanceAuthorizer(Protocol):
+    """Authorizes an operator to clear an unresolved uncertainty. There is no default: without one, no clearance."""
+
+    def may_clear(self, operator_id: str, provider_id: str, device_ref: str) -> bool: ...
+
+
+@runtime_checkable
 class CommandAuthorizer(Protocol):
     """Explicit authorization (REQ-021). There is no default authorizer: the executor needs one."""
 
     def is_authorized(self, requested_by: str, kind: CommandKindPolicy, ref: CommandRef) -> bool: ...
 
 
-class _LatchedView:
-    """The configured uncertainty view, overridden to ``unresolved`` for latched devices."""
+class _CombinedView:
+    """The uncertainty view the gate sees: the store, then the explicitly configured view.
 
-    def __init__(self, latched: set, inner: UncertaintyView) -> None:
-        self._latched = latched
-        self._inner = inner
+    Anything but a pass state from either blocks. A missing configured view blocks (the gate gets ``None``).
+    """
+
+    def __init__(self, store: UncertaintyStore, configured: UncertaintyView) -> None:
+        self._store = store
+        self._configured = configured
 
     def state_for(self, provider_id, device_ref):
-        if (provider_id, device_ref) in self._latched:
-            return UncertaintyState.UNRESOLVED
-        return self._inner.state_for(provider_id, device_ref)
+        own = self._store.state_for(provider_id, device_ref)
+        if own in (UncertaintyState.UNRESOLVED, UncertaintyState.UNKNOWN):
+            return own
+        theirs = self._configured.state_for(provider_id, device_ref)
+        if theirs in (UncertaintyState.UNRESOLVED, UncertaintyState.UNKNOWN):
+            return theirs
+        if own is UncertaintyState.NONE_RECORDED:
+            return theirs
+        return own  # the store holds resolved history; it decides how it was resolved
+
+
+class _NoUncertaintyAssumed:
+    """Used only to isolate the freshness part of ``evaluate_gate`` when judging recovery evidence."""
+
+    def state_for(self, provider_id, device_ref):
+        return UncertaintyState.NONE_RECORDED
 
 
 class CommandIntent:
@@ -141,6 +182,8 @@ class CommandExecutor:
         uncertainty: UncertaintyView | None = None,
         command_provider: CommandCapableProvider | None = None,
         verifiers: dict[str, EffectVerifier] | None = None,
+        recovery_assessors: dict[str, RecoveryAssessor] | None = None,
+        clearance_authorizer: ClearanceAuthorizer | None = None,
     ) -> None:
         if not isinstance(authorizer, CommandAuthorizer):
             raise DeviceRuntimeError("an explicit CommandAuthorizer is required.")
@@ -158,9 +201,14 @@ class CommandExecutor:
         self._uncertainty = uncertainty
         self._command_provider = command_provider
         self._verifiers = dict(verifiers or {})
-        self._unresolved: set[tuple[str, str]] = set()
+        self._store = uncertainty if isinstance(uncertainty, UncertaintyStore) else UncertaintyStore()
+        self._assessors = dict(recovery_assessors or {})
+        self._clearance_authorizer = clearance_authorizer
         self._lock = threading.RLock()
         runtime.add_transport_loss_observer(self._on_transport_loss)
+        runtime.add_unresolved_condition_check(
+            lambda connection: (runtime.provider_id, connection.device.device_ref) in self._store.unresolved_devices()
+        )
         self._records: dict[CommandId, CommandRecord] = {}
         self._requests: dict[CommandId, CommandRequest] = {}
         self._active: dict[str, CommandRecord] = {}  # connection_id -> its one active state-changing Command
@@ -177,9 +225,13 @@ class CommandExecutor:
     def active_command(self, connection: Connection) -> CommandRecord | None:
         return self._active.get(connection.connection_id)
 
-    def interim_unresolved_devices(self) -> frozenset[tuple[str, str]]:
-        """(provider_id, device_ref) pairs latched by an ``unknown_result``; no operation clears them (S5)."""
-        return frozenset(self._unresolved)
+    @property
+    def uncertainty_store(self) -> UncertaintyStore:
+        return self._store
+
+    def unresolved_devices(self) -> frozenset[tuple[str, str]]:
+        """(provider_id, device_ref) pairs with an unresolved physical uncertainty."""
+        return self._store.unresolved_devices()
 
     # --- admission ------------------------------------------------------------
 
@@ -420,6 +472,86 @@ class CommandExecutor:
                 elif record.state in (CommandState.SUBMITTED, CommandState.ACKNOWLEDGED, CommandState.IN_PROGRESS):
                     self._finish(record, CommandEvent.TRANSPORT_LOST_EFFECT_UNKNOWN, "transport lost; effect unknown")
 
+    # --- resolving uncertainty (S5) -------------------------------------------
+
+    def resolve_uncertainty_by_recovery(self, connection: Connection, command_id: CommandId) -> UncertaintyEntry:
+        """Resolve the uncertainty left by ``command_id`` using fresh, read-only recovery evidence.
+
+        ``connection`` is any active Connection of the same device (a reconnect is fine). The evidence must
+        meet the origin kind's own freshness requirements and the kind's registered assessor must classify
+        the observed state as resolved; otherwise ``RecoveryNotEstablished`` is raised and nothing changes.
+        Nothing is sent to the Provider, the Command record is untouched, and the result is recorded as
+        recovery evidence, never as proof of the Command's effect.
+        """
+        with self._lock:
+            record = self._records.get(command_id)
+            if record is None or not isinstance(connection, Connection):
+                raise RecoveryNotEstablished("unknown command or connection")
+            if self._runtime.get_connection(connection.connection_id) is not connection:
+                raise RecoveryNotEstablished("connection_not_owned")
+            if connection.state not in _ADMISSIBLE_TARGETS:
+                raise RecoveryNotEstablished(f"connection_not_active:{connection.state.value}")
+            entry = self._store.get(self._runtime.provider_id, connection.device.device_ref, command_id)
+            if not entry.unresolved:
+                raise RecoveryNotEstablished("already_resolved")
+            assessor = self._assessors.get(entry.kind_id)
+            if assessor is None:
+                raise RecoveryNotEstablished("no_recovery_assessor_for_kind")
+            try:
+                snapshot = self._evidence_source(connection)
+            except Exception:
+                raise RecoveryNotEstablished("evidence_unavailable") from None
+            now = self._clock()  # after the evidence, as for the gate
+            fresh = evaluate_gate(
+                self._kinds.get(entry.kind_id),
+                snapshot,
+                now,
+                provider_id=self._runtime.provider_id,
+                connection_id=connection.connection_id,
+                device_ref=connection.device.device_ref,
+                uncertainty=_NoUncertaintyAssumed(),
+            )
+            if not fresh.passed:
+                raise RecoveryNotEstablished(f"evidence_not_fresh:{fresh.summary()}")
+            try:
+                verdict = assessor(connection, record, snapshot, now)
+            except Exception:
+                raise RecoveryNotEstablished("assessor_failed") from None
+            if not verdict.resolved:
+                raise RecoveryNotEstablished("recovery_not_established")
+            try:
+                resolution = Resolution(
+                    ResolutionKind.RECOVERY_EVIDENCE, now, verdict.evidence, basis=tuple(verdict.basis)
+                )
+            except ValueError as exc:
+                raise RecoveryNotEstablished(str(exc)) from None
+            return self._store.resolve(entry.provider_id, entry.device_ref, command_id, resolution)
+
+    def clear_uncertainty_by_operator(
+        self, device_ref: str, command_id: CommandId, operator_id: str, reason: str
+    ) -> UncertaintyEntry:
+        """Record an authorized operator clearance of the uncertainty left by ``command_id``.
+
+        The clearance is a recorded decision by a named operator; it is not independent evidence about
+        what the Command did, and it does not replace the fresh evidence later Commands need.
+        """
+        with self._lock:
+            authorizer = self._clearance_authorizer
+            if authorizer is None:
+                raise ClearanceNotAuthorized("no clearance authorizer is configured")
+            try:
+                allowed = authorizer.may_clear(operator_id, self._runtime.provider_id, device_ref) is True
+            except Exception:
+                allowed = False
+            if not allowed:
+                raise ClearanceNotAuthorized("operator not authorized")
+            entry = self._store.get(self._runtime.provider_id, device_ref, command_id)
+            try:
+                resolution = Resolution(ResolutionKind.OPERATOR_CLEARANCE, self._clock(), reason, resolved_by=operator_id)
+            except ValueError as exc:
+                raise ClearanceNotAuthorized(str(exc)) from None
+            return self._store.resolve(entry.provider_id, entry.device_ref, command_id, resolution)
+
     def check_deadline(self, command_id: CommandId) -> CommandRecord:
         """Time out a Command whose deadline elapsed while it is still ``validated`` (nothing was submitted).
 
@@ -464,7 +596,7 @@ class CommandExecutor:
             provider_id=self._runtime.provider_id,
             connection_id=connection.connection_id,
             device_ref=connection.device.device_ref,
-            uncertainty=None if self._uncertainty is None else _LatchedView(self._unresolved, self._uncertainty),
+            uncertainty=None if self._uncertainty is None else _CombinedView(self._store, self._uncertainty),
         )
 
     def _policy_or_none(self, kind_id: object) -> CommandKindPolicy | None:
@@ -512,7 +644,10 @@ class CommandExecutor:
             and connection is not None
         )
         if uncertain:
-            self._unresolved.add((record.provider_id, connection.device.device_ref))
+            self._store.open_entry(
+                record.provider_id, connection.device.device_ref, record.command_id, policy.kind_id,
+                now, record.connection_id,
+            )
         if self._active.get(record.connection_id) is not record:
             return
         del self._active[record.connection_id]

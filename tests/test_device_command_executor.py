@@ -443,7 +443,7 @@ class NoSubmissionBoundaryTests(unittest.TestCase):
 
     def test_executor_public_surface_is_exactly_the_known_set(self) -> None:
         public = {n for n in dir(CommandExecutor) if not n.startswith("_")}
-        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "interim_unresolved_devices", "submit", "poll", "cancel", "enforce_deadline"})
+        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "unresolved_devices", "uncertainty_store", "resolve_uncertainty_by_recovery", "clear_uncertainty_by_operator", "submit", "poll", "cancel", "enforce_deadline"})
 
     def test_package_exports_nothing_from_the_executor(self) -> None:
         import tsn_dss.engine.device_runtime as pkg

@@ -83,6 +83,7 @@ class ProviderRuntime:
         self._connections: dict[ConnectionId, Connection] = {}
         self._last_discovery: DiscoveryResult | None = None
         self._loss_observers: list = []
+        self._unresolved_checks: list = []
 
     # --- identity and lifecycle ---------------------------------------------
 
@@ -291,6 +292,22 @@ class ProviderRuntime:
         """
         self._loss_observers.append(observer)
 
+    def add_unresolved_condition_check(self, check) -> None:
+        """Register ``check(connection) -> bool``: True when an unresolved safety condition concerns the
+        Connection's device. ``refresh_evidence`` then does not promote a ``degraded`` Connection to
+        ``ready`` (section 6: only "no unresolved safety condition blocks use"). Reads keep working, and a
+        failing check counts as unresolved. ``ready`` is never proof of physical safety either way."""
+        self._unresolved_checks.append(check)
+
+    def _safety_condition_unresolved(self, connection: Connection) -> bool:
+        for check in self._unresolved_checks:
+            try:
+                if check(connection) is not False:
+                    return True
+            except Exception:
+                return True
+        return False
+
     def report_transport_loss(self, connection: Connection, resulting_state: ConnectionState) -> Connection:
         """Record unexpected transport loss. No Provider call. Observers decide the Command side."""
         self._own(connection)
@@ -319,7 +336,9 @@ class ProviderRuntime:
             if connection.state not in (ConnectionState.DEGRADED, ConnectionState.BUSY):
                 connection.apply(ConnectionEvent.EVIDENCE_STALE_OR_PARTIAL, self._clock(), exc.category)
             return connection.state
-        if connection.state in (ConnectionState.CONNECTED, ConnectionState.DEGRADED):
+        if connection.state is ConnectionState.DEGRADED and self._safety_condition_unresolved(connection):
+            connection.apply(ConnectionEvent.USABLE_EVIDENCE_RETURNED, self._clock(), "unresolved_safety_condition")
+        elif connection.state in (ConnectionState.CONNECTED, ConnectionState.DEGRADED):
             connection.apply(ConnectionEvent.FRESH_STATE_OBTAINED, self._clock())
         return connection.state
 
