@@ -1,6 +1,6 @@
 # DB-03 Wave 4B-3 — integration of the OpenCV decoder with the isolated worker: approved design
 
-Status: **DESIGN APPROVED BY THE OWNER (E1–E9, with the conditions of section 8.1); 4B-3a (worker side) authorized, 4B-3b and 4B-3c not yet.** Base: `origin/master` `adccdef` (4B-1 and 4B-2 Windows offline verified in the documented scope). This document changes no code, test, manifest, contract or dependency. OpenCV is not installed and no network, RTSP or device is touched. Decisions D13 and D1–D14 are unchanged. No hardware, RTSP or production-readiness claim.
+Status: **IMPLEMENTED: 4B-3a (worker), 4B-3b (parent adapter) and 4B-3c (composition) are on `master`; 4B-3c is Windows offline verified in the scenarios tested; 4B-3b is accepted with the validation reservation recorded in `docs/DB-03_WAVE4B3B_PARENT_DECODER.md`.** Owner decisions E1–E9 with the conditions of section 8.1 stand. **Fake `cv2` only: no real OpenCV/FFmpeg, no RTSP, no network, no device. Not hardware verified; not production ready.** Wave 5 (attended hardware procedure) is not started.
 
 Sources read for this design: `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md` (rev. 3), `docs/DB-03_WAVE4B1_ISOLATED_WORKER.md`, `docs/DB-03_WAVE4B2_SHARED_MEMORY_CONTAINMENT.md`, `Contracts/DSS-CTR-013-…` (REQ-016/018/022/033/052/058/059/064/067), and the code: `opencv_preview_decoder/decoder.py`, `seestar_preview/{source,config,integration}.py`, `device_runtime/{preview_stream,preview_manager,preview_models,preview_readiness}.py`, and the 4B-1/4B-2 package as it is now. Where the design document and the code differ, the code wins and the difference is stated.
 
@@ -133,6 +133,14 @@ If E1–E9 are approved as recommended, no frozen 4B-1/4B-2 *behavior* changes: 
 | E9 | APPROVED | The fake `cv2` exists only in a test entry point; no production fixture selection. |
 
 Phase gates: 4B-3a (worker side) first, then a review stop; 4B-3b and 4B-3c only after separate approval. Nothing is committed without consent.
+
+### 8.2 Wave 4B-3c status (composition)
+
+Commit `7262f70` on `master`: `build_isolated_preview_manager` (`opencv_isolated_decoder/integration.py`) — the Wave 3 wiring with one `ProcessIsolatedDecoder` and worker per camera (MAIN and WIDE, at most two, D10), a mandatory `before_connect` that re-checks the same readiness gate after the worker is READY and before `OPEN`, and one `ImageLimits` as the single authority for the slot, the worker and the manager. The manager remains the only way to open a stream; there is no command surface and no canonical Capture/Frame/Dataset record. The Wave 3 boundary test now allows exactly the two source-factory construction sites.
+
+Windows record (operator, Python 3.13.15, commit `7262f70`): integration + boundaries 56 tests OK; full Wave 4B 303 tests OK (5 skipped); venv 11 tests OK (temporary venv removed). **Windows offline verified for the scenarios tested.**
+
+Reservation carried over from 4B-3b, **unresolved**: a sporadic `+1` in the handle count of the whole test process (`SteadyStateTests.test_failed_start_cycles_do_not_leak`, seen once at 4B-3b), not attributed to a resource, no leak confirmed; the investigation was closed by the operator for economy. 4B-3c neither changes nor resolves it, and a full Windows PASS is not claimed beyond the runs stated. Also unchanged: the venv launcher caveat (`intermediate_launcher` is a diagnostic, D10 counts the exit of the started process), no cleanup guarantee after a sudden death of the host, no sandbox, stale-frame risk (D7), and the untested behaviour of real OpenCV/FFmpeg and RTSP.
 
 ## 9. Implementation plan
 
