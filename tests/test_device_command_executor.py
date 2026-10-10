@@ -12,7 +12,15 @@ from tsn_dss.engine.device_runtime.command_executor import CommandExecutor, Comm
 from tsn_dss.engine.device_runtime.command_models import CommandKindPolicy, CommandKindRegistry, FreshnessRequirement
 from tsn_dss.engine.device_runtime.errors import InvalidTransition
 from tsn_dss.engine.device_runtime.lifecycle import BUSY_CONTROL, BusyEvent, ConnectionEvent
-from tsn_dss.engine.device_runtime.models import CommandState as S, ConnectionState as C
+from tsn_dss.engine.device_runtime.models import (
+    CommandState as S,
+    ConnectionState as C,
+    TelemetryItem,
+    TelemetrySample,
+    TelemetrySource,
+    ValueState,
+)
+from tsn_dss.engine.device_runtime.safety_gates import EvidenceSnapshot, UncertaintyState
 
 try:
     from device_runtime_support import make_provider, two_devices
@@ -26,7 +34,7 @@ IDEM = CommandKindPolicy("idem", state_changing=True, physical=False, idempotent
 READ_LIKE = CommandKindPolicy("query", state_changing=False, physical=False, idempotent=True, safety_sensitive=False)
 PHYS = CommandKindPolicy(
     "move", state_changing=True, physical=True, idempotent=False, safety_sensitive=True,
-    freshness=(FreshnessRequirement("pose", timedelta(seconds=7)),),
+    freshness=(FreshnessRequirement("pose", timedelta(seconds=60)),),
 )
 
 
@@ -57,15 +65,29 @@ def kinds() -> CommandKindRegistry:
     return registry
 
 
+class Clear:
+    def state_for(self, provider_id, device_ref):
+        return UncertaintyState.NONE_RECORDED
+
+
 class Fixture:
-    def __init__(self, authorizer=None, devices=None) -> None:
+    def __init__(self, authorizer=None, devices=None, evidence_source=None, uncertainty=None) -> None:
         self.provider = make_provider(**({"devices": devices} if devices else {}))
         self.runtime = ProviderRuntime(self.provider, clock=ManualClock(), id_generator=SequentialIdGenerator())
         self.found = self.runtime.discover().devices
         self.clock = ManualClock()
         self.executor = CommandExecutor(
-            self.runtime, kinds(), authorizer or Allow(), clock=self.clock, id_generator=SequentialIdGenerator()
+            self.runtime, kinds(), authorizer or Allow(), clock=self.clock, id_generator=SequentialIdGenerator(),
+            evidence_source=evidence_source or self.fresh_pose, uncertainty=uncertainty or Clear(),
         )
+
+    def fresh_pose(self, connection) -> EvidenceSnapshot:
+        sample = TelemetrySample(
+            provider_id=self.runtime.provider_id, connection_id=connection.connection_id,
+            host_observed_at=self.clock(), simulated=True,
+            items=(TelemetryItem("pose", TelemetrySource.PROVIDER_REPORTED, ValueState.KNOWN, "x"),),
+        )
+        return EvidenceSnapshot(telemetry=sample)
 
     def connection(self, index: int = 0, ready: bool = True):
         connection = self.runtime.connect(self.runtime.open_connection(self.found[index]))
@@ -403,7 +425,8 @@ class BusyControlTests(unittest.TestCase):
 class NoSubmissionBoundaryTests(unittest.TestCase):
     def test_executor_never_touches_a_provider(self) -> None:
         text = (PACKAGE / "command_executor.py").read_text(encoding="utf-8")
-        self.assertNotRegex(text, r"\._provider|DeviceProvider|\.connect\(|\.disconnect\(|\.discover\(|read_telemetry")
+        self.assertNotRegex(text, r"\._provider|DeviceProvider|\.connect\(|\.disconnect\(|\.discover\(")
+        self.assertNotRegex(text, r"\.(submit|send|execute|invoke)\w*\(")
 
     def test_provider_contract_gains_no_command_method(self) -> None:
         from tsn_dss.engine.device_runtime import DeviceProvider, SimulatorProvider

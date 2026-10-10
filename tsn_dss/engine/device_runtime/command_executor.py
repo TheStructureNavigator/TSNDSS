@@ -1,7 +1,8 @@
-"""Command admission and per-Connection exclusivity (DSS-CTR-013 sections 6, 9 and 10; DB-04 S2).
+"""Command admission and per-Connection exclusivity (DSS-CTR-013 sections 6, 9 and 10; DB-04 S2-S3).
 
-S2 decides whether a requested Command may *begin*. It never reaches a Provider: there is no
-submission, no Provider call of any kind, and passive reads never pass through here (REQ-022).
+Admission decides whether a requested Command may *begin*. It never submits anything to a Provider
+(that is S4). The only Provider interaction is the passive evidence read a safety-sensitive kind's
+gate needs, made through the runtime; passive reads never create Commands (REQ-022).
 
 Outcomes of ``admit``, in order (each rejection happens before any possible submission):
 
@@ -12,8 +13,16 @@ Outcomes of ``admit``, in order (each rejection happens before any possible subm
    the contract allows rejected or safety_blocked, this implementation chooses rejected).
 4. ``validated``, then ``safety_blocked``: the caller is not authorized (explicit, fail-closed;
    REQ-021), or a state-changing Command targets a Connection that is not ``ready``.
-5. otherwise the Command stays ``validated`` and, if state-changing, takes the Connection's one
-   exclusive slot and the Connection enters ``busy``.
+5. A state-changing Command takes the Connection's one exclusive slot and the Connection enters
+   ``busy``.
+6. A safety-sensitive kind then faces the safety gate (``safety_gates.evaluate_gate``) on fresh
+   evidence read through the injected evidence source (passive reads only). A blocked Command
+   becomes ``safety_blocked`` and gives its ``busy`` reservation back. Otherwise it stays
+   ``validated``, still holding the slot.
+
+``admit`` and ``check_deadline`` are serialized by one lock, so two concurrent admissions can never
+reserve the same Connection slot. The lock is held across the authorizer and the evidence read; both
+must therefore not call back into the executor from another thread.
 
 ``busy`` is entered when a state-changing Command is admitted (reaches ``validated`` and wins the
 slot) and left when that Command reaches a terminal outcome. The contract words the entry as
@@ -23,6 +32,7 @@ exclusivity can be made atomic. Later slices may move the entry to submission.
 
 from __future__ import annotations
 
+import threading
 from typing import Callable, Protocol, runtime_checkable
 
 from .command_lifecycle import CommandEvent, CommandRecord
@@ -38,6 +48,7 @@ from .errors import DeviceRuntimeError
 from .lifecycle import BUSY_CONTROL, BusyEvent
 from .models import CommandId, CommandRef, CommandState, ConnectionState
 from .runtime import ProviderRuntime
+from .safety_gates import EvidenceSnapshot, UncertaintyView, evaluate_gate
 from .support import Clock, IdGenerator, random_id_generator, utc_now
 
 __all__ = ["CommandAuthorizer", "CommandExecutor", "CommandIntent"]
@@ -80,6 +91,8 @@ class CommandExecutor:
         *,
         clock: Clock = utc_now,
         id_generator: IdGenerator = random_id_generator,
+        evidence_source: Callable[[Connection], EvidenceSnapshot] | None = None,
+        uncertainty: UncertaintyView | None = None,
     ) -> None:
         if not isinstance(authorizer, CommandAuthorizer):
             raise DeviceRuntimeError("an explicit CommandAuthorizer is required.")
@@ -88,6 +101,9 @@ class CommandExecutor:
         self._authorizer = authorizer
         self._clock = clock
         self._ids = id_generator
+        self._evidence_source = evidence_source or self._runtime_evidence
+        self._uncertainty = uncertainty
+        self._lock = threading.RLock()
         self._records: dict[CommandId, CommandRecord] = {}
         self._requests: dict[CommandId, CommandRequest] = {}
         self._active: dict[str, CommandRecord] = {}  # connection_id -> its one active state-changing Command
@@ -107,7 +123,11 @@ class CommandExecutor:
     # --- admission ------------------------------------------------------------
 
     def admit(self, intent: CommandIntent) -> CommandRecord:
-        """Decide whether the Command may begin. Never calls the Provider."""
+        """Decide whether the Command may begin. Never submits anything to a Provider."""
+        with self._lock:
+            return self._admit(intent)
+
+    def _admit(self, intent: CommandIntent) -> CommandRecord:
         now = self._clock()
         command_id = CommandId(self._ids("cmd"))
         connection = intent.connection
@@ -165,10 +185,30 @@ class CommandExecutor:
                 return record
             self._active[connection.connection_id] = record
             connection.apply_busy(BusyEvent.BUSY_ENTERED, now, command_id, BUSY_CONTROL)
+
+        if policy.safety_sensitive:
+            result = self._evaluate_gate(connection, policy)
+            if not result.passed:
+                event = (
+                    CommandEvent.UNCERTAINTY_NOT_CLEARED
+                    if result.blocked_by_uncertainty
+                    else CommandEvent.SAFETY_EVIDENCE_INSUFFICIENT
+                )
+                at = self._clock()
+                record.apply(event, at, result.summary())
+                self._release(record, at)
         return record
 
     def check_deadline(self, command_id: CommandId) -> CommandRecord:
-        """Time out a Command whose deadline elapsed while it is still ``validated`` (nothing was submitted)."""
+        """Time out a Command whose deadline elapsed while it is still ``validated`` (nothing was submitted).
+
+        Only ``validated`` is touched. This pre-submission timeout never applies once a Command may
+        have been submitted: that case is ``unknown_result`` territory (S4).
+        """
+        with self._lock:
+            return self._check_deadline(command_id)
+
+    def _check_deadline(self, command_id: CommandId) -> CommandRecord:
         record = self._records[command_id]
         request = self._requests.get(command_id)
         now = self._clock()
@@ -183,6 +223,28 @@ class CommandExecutor:
         return record
 
     # --- internals ------------------------------------------------------------
+
+    def _runtime_evidence(self, connection: Connection) -> EvidenceSnapshot:
+        """Default evidence source: passive runtime reads only."""
+        return EvidenceSnapshot(
+            telemetry=self._runtime.read_telemetry(connection),
+            capabilities=self._runtime.capability_report(connection),
+        )
+
+    def _evaluate_gate(self, connection: Connection, policy: CommandKindPolicy):
+        try:
+            snapshot = self._evidence_source(connection)
+        except Exception:
+            snapshot = None  # fail closed
+        return evaluate_gate(  # the clock is read after the evidence, never before it
+            policy,
+            snapshot,
+            self._clock(),
+            provider_id=self._runtime.provider_id,
+            connection_id=connection.connection_id,
+            device_ref=connection.device.device_ref,
+            uncertainty=self._uncertainty,
+        )
 
     def _policy_or_none(self, kind_id: object) -> CommandKindPolicy | None:
         try:
