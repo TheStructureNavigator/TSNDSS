@@ -59,6 +59,8 @@ READ_METHODS: Mapping[str, ReadMethod] = {
     "test_connection": ReadMethod("test_connection", True, _no_params),
     # Current mount RA/Dec. Read-only diagnostic (DB-05 follow-up); its units and epoch are not verified on hardware.
     "scope_get_equ_coord": ReadMethod("scope_get_equ_coord", True, _no_params),
+    # Camera activity word. Read-only diagnostic; which camera it describes, if any, is not verified on hardware.
+    "get_camera_state": ReadMethod("get_camera_state", True, _no_params),
 }
 
 

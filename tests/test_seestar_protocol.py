@@ -67,8 +67,8 @@ BANNED_METHODS = (
 
 
 class AllowListTests(unittest.TestCase):
-    def test_allow_list_is_exactly_four_idempotent_reads(self) -> None:
-        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord"})
+    def test_allow_list_is_exactly_five_idempotent_reads(self) -> None:
+        self.assertEqual(set(READ_METHODS), {"get_device_state", "iscope_get_app_state", "test_connection", "scope_get_equ_coord", "get_camera_state"})
         self.assertTrue(all(spec.idempotent for spec in READ_METHODS.values()))
 
     def test_encoding_uses_documented_frame_shape(self) -> None:
@@ -105,7 +105,7 @@ class AllowListTests(unittest.TestCase):
 
     def test_transport_public_surface_is_only_typed_reads_and_udp_discovery(self) -> None:
         public = {n for n in dir(TcpSeestarTransport) if not n.startswith("_") and callable(getattr(TcpSeestarTransport, n))}
-        self.assertEqual(public, {"read_device_state", "read_app_state", "test_connection", "read_equ_coord", "discover_via_udp"})
+        self.assertEqual(public, {"read_device_state", "read_app_state", "test_connection", "read_equ_coord", "read_camera_state", "discover_via_udp"})
 
 
 class WireExchangeTests(unittest.TestCase):
