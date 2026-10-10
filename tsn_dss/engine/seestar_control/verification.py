@@ -23,11 +23,11 @@ from typing import Callable
 
 from ..device_runtime import DeviceRuntimeError, TelemetrySample
 from ..device_runtime.command_effects import EffectVerdict, EffectVerdictKind
-from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, SCENERY_START, SCENERY_STOP
+from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, GOTO, SCENERY_START, SCENERY_STOP, GotoTarget, angular_separation_deg
 from .kinds import ControlFreshness
 from .states import CAMERA_ITEMS, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count
 
-__all__ = ["build_verifiers", "submission_boundary"]
+__all__ = ["build_goto_verifier", "build_verifiers", "submission_boundary"]
 
 _PENDING = EffectVerdict(EffectVerdictKind.PENDING, "no verifying evidence yet")
 
@@ -84,6 +84,57 @@ def build_verifiers(runtime, freshness: ControlFreshness, clock: Callable[[], da
         return verify
 
     return {kind_id: make(kind_id) for kind_id in COMMANDS}
+
+
+def build_goto_verifier(runtime, completion_of, coordinates, freshness: ControlFreshness, clock: Callable[[], datetime]):
+    """GoTo effect verifier.
+
+    ``VERIFIED`` means *firmware-reported completion*, not confirmed target centering. It needs (1) an outer ``ScopeGoto`` event with state
+    ``complete`` on the issuing connection, seen after the possible-submission boundary, and (2) a fresh post-submission sample showing the
+    mount stationary. The device's own coordinates are an optional cross-check: when a tolerance is configured and a fresh post-submission
+    reading exists it must agree with the target (same provisional frame), and a disagreement is contradictory evidence, so the verdict
+    stays ``PENDING`` (then ``unknown_result`` at the deadline). ``fail``, ``cancel``, a lost connection, a missing event or any doubt never
+    verify. The verifier never returns ``FAILED``."""
+
+    def verify(connection, record) -> EffectVerdict:
+        boundary, target = submission_boundary(record), record.parameters
+        if boundary is None or not isinstance(target, GotoTarget):
+            return _PENDING
+        if record.policy is None or record.policy.kind_id != GOTO:
+            return _PENDING
+        completion = completion_of(record.command_id)
+        if completion is None or completion.state != "complete" or not completion.observed_at > boundary:
+            return _PENDING
+        tolerance, reading = freshness.goto_tolerance_deg, None
+        try:
+            sample = runtime.read_telemetry(connection)
+        except DeviceRuntimeError:
+            return _PENDING
+        if tolerance is not None:
+            try:
+                reading = coordinates(connection)
+            except DeviceRuntimeError:
+                reading = None  # the cross-check is optional: an unreadable coordinate is "not cross-checked", never a verification
+        now = clock()  # after the evidence was read, never before
+        if sample.connection_id != connection.connection_id or sample.provider_id != record.provider_id:
+            return _PENDING
+        if not sample.host_observed_at > boundary or not timedelta_ok(now - sample.host_observed_at, freshness):
+            return _PENDING
+        if arm_stationary(sample) is not True:
+            return _PENDING
+        note = "coordinates not cross-checked"
+        if tolerance is not None:
+            if reading is not None and reading.observed_at > boundary and timedelta_ok(now - reading.observed_at, freshness):
+                separation = angular_separation_deg(reading.ra_hours, reading.dec_deg, target.ra_hours, target.dec_deg)
+                if separation > tolerance:
+                    return _PENDING  # the firmware says complete but its own coordinates disagree: contradictory
+                note = f"device-reported coordinates within {tolerance} deg of the target (provisional shared frame)"
+        return EffectVerdict(
+            EffectVerdictKind.VERIFIED,
+            f"firmware-reported ScopeGoto complete after submission and mount stationary; {note}; target centering is NOT confirmed",
+        )
+
+    return verify
 
 
 def timedelta_ok(age: timedelta, freshness: ControlFreshness) -> bool:

@@ -75,13 +75,14 @@ class CommandDriver:
         *,
         deadline: datetime,
         poll_interval: timedelta,
+        parameters: object = None,
     ) -> CommandOutcome:
         if not isinstance(poll_interval, timedelta) or poll_interval <= timedelta(0):
             raise ValueError("poll_interval must be a positive timedelta.")
         if not isinstance(deadline, datetime) or deadline.tzinfo is None:
             raise ValueError("deadline must be a timezone-aware datetime.")
         executor = self._executor
-        record = executor.admit(CommandIntent(connection, kind_id, requested_by, deadline=deadline))
+        record = executor.admit(CommandIntent(connection, kind_id, requested_by, deadline=deadline, parameters=parameters))
         polls = 0
         if not record.state.is_terminal:
             executor.submit(record.command_id)

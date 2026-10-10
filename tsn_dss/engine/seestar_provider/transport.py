@@ -87,6 +87,14 @@ class TcpSeestarTransport:
     def test_connection(self, host: str) -> RpcReply:
         return self._exchange(host, "test_connection", {})
 
+    def read_equ_coord(self, host: str) -> RpcReply:
+        """The mount's reported equatorial coordinates. Read-only; the reply is returned as the device sent it."""
+        return self._exchange(host, "scope_get_equ_coord", {})
+
+    def read_camera_state(self, host: str) -> RpcReply:
+        """The device's reported camera state. Read-only; which camera it describes is not verified."""
+        return self._exchange(host, "get_camera_state", {})
+
     # --- opt-in UDP discovery ----------------------------------------------------
 
     def discover_via_udp(self) -> Sequence[SeestarAnnouncement]:

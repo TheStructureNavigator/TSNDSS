@@ -25,10 +25,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from ..device_runtime.command_models import CAPABILITY_PREFIX, CommandKindPolicy, CommandKindRegistry, FreshnessRequirement
-from .commands import ARM_DEPLOY, ARM_PARK, SCENERY_START, SCENERY_STOP
+from .commands import ARM_DEPLOY, ARM_PARK, GOTO, SCENERY_START, SCENERY_STOP
 from .states import ARM_CLOSED, CAMERA_ITEMS, MOVE_TYPE, STATIONARY, STOPPED_STATES
 
-__all__ = ["ControlFreshness", "build_command_kinds", "register_command_kinds"]
+__all__ = ["ControlFreshness", "build_command_kinds", "build_goto_policy", "register_command_kinds"]
 
 
 @dataclass(slots=True, frozen=True)
@@ -37,12 +37,16 @@ class ControlFreshness:
 
     telemetry_max_age: timedelta
     capability_max_age: timedelta
+    goto_tolerance_deg: float | None = None  # how close the reported pointing must be to a GoTo target; None = GoTo cannot be verified
 
     def __post_init__(self) -> None:
         for name in ("telemetry_max_age", "capability_max_age"):
             value = getattr(self, name)
             if not isinstance(value, timedelta) or value <= timedelta(0):
                 raise ValueError(f"{name} must be a positive timedelta.")
+        tol = self.goto_tolerance_deg
+        if tol is not None and (isinstance(tol, bool) or not isinstance(tol, (int, float)) or not 0 < tol <= 180 or tol != tol):
+            raise ValueError("goto_tolerance_deg must be a number in (0, 180] or None.")
 
 
 def build_command_kinds(freshness: ControlFreshness) -> tuple[CommandKindPolicy, ...]:
@@ -70,6 +74,19 @@ def build_command_kinds(freshness: ControlFreshness) -> tuple[CommandKindPolicy,
         policy(SCENERY_START, still, open_arm, *cameras_stopped),
         policy(SCENERY_STOP, *cameras_known),
         policy(ARM_PARK, still, open_arm, *cameras_stopped),
+    )
+
+
+def build_goto_policy(freshness: ControlFreshness, parameter_gate=None) -> CommandKindPolicy:
+    """GoTo: mount stationary and the arm open (the protocol reference says a goto cannot start from the parked position), plus its own
+    capability, plus the target-dependent ``parameter_gate`` (altitude and Sun proximity, see ``pointing``). It deliberately says nothing
+    about the cameras: no source shows that a slew depends on them. Takes a GotoTarget."""
+    age = freshness.telemetry_max_age
+    return CommandKindPolicy(
+        GOTO, state_changing=True, physical=True, idempotent=False, safety_sensitive=True, takes_parameters=True,
+        parameter_gate=parameter_gate,
+        freshness=(FreshnessRequirement(MOVE_TYPE, age, STATIONARY), FreshnessRequirement(ARM_CLOSED, age, (False,)),
+                   FreshnessRequirement(CAPABILITY_PREFIX + GOTO, freshness.capability_max_age)),
     )
 
 

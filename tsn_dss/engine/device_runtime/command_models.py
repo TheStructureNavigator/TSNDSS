@@ -9,8 +9,9 @@ decides an outcome; that belongs to later DB-04 slices.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any, Callable
 
 from .errors import DeviceRuntimeError
 from .models import CommandRef
@@ -101,13 +102,19 @@ class CommandKindPolicy:
     idempotent: bool
     safety_sensitive: bool
     freshness: tuple[FreshnessRequirement, ...] = ()
+    takes_parameters: bool = False  # the kind needs an opaque, immutable parameters value; every other kind must receive none
+    # Optional pre-submission check of the parameters: ``(parameters, now) -> None`` to allow, else a fixed reason token that blocks the
+    # Command. Evaluated by the executor's gate at admission and again at submission, so it cannot be bypassed by calling the executor.
+    parameter_gate: Callable[[Any, datetime], str | None] | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind_id, str) or not self.kind_id.strip():
             raise CommandPolicyError("kind_id must be a non-empty string.")
-        for name in ("state_changing", "physical", "idempotent", "safety_sensitive"):
+        for name in ("state_changing", "physical", "idempotent", "safety_sensitive", "takes_parameters"):
             if not isinstance(getattr(self, name), bool):
                 raise CommandPolicyError(f"{name} must be a bool.")
+        if self.parameter_gate is not None and not (callable(self.parameter_gate) and self.takes_parameters):
+            raise CommandPolicyError("parameter_gate must be callable and only for a kind that takes parameters.")
         object.__setattr__(self, "freshness", tuple(self.freshness))
         if not all(isinstance(r, FreshnessRequirement) for r in self.freshness):
             raise CommandPolicyError("freshness must contain FreshnessRequirement items.")
@@ -131,12 +138,18 @@ class CommandRequest:
     requested_at: datetime
     deadline: datetime | None = None
     idempotency_key: str | None = None
+    parameters: Any = None  # opaque to the core and immutable (hashable); validated by the Provider-specific type that builds it
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind_id, str) or not self.kind_id.strip():
             raise CommandPolicyError("kind_id must be a non-empty string.")
         if not isinstance(self.requested_by, str) or not self.requested_by.strip():
             raise CommandPolicyError("requested_by must be a non-empty string.")
+        if self.parameters is not None:
+            try:
+                hash(self.parameters)
+            except TypeError:
+                raise CommandPolicyError("parameters must be immutable (hashable).") from None
         for name in ("requested_at", "deadline"):
             value = getattr(self, name)
             if value is None and name == "deadline":
@@ -152,6 +165,10 @@ class CommandRequest:
             return "kind_mismatch"
         if self.idempotency_key is not None and not policy.idempotent:
             return "idempotency_key_on_non_idempotent_kind"
+        if self.parameters is not None and not policy.takes_parameters:
+            return "parameters_not_accepted"
+        if self.parameters is None and policy.takes_parameters:
+            return "parameters_required"
         return None
 
 

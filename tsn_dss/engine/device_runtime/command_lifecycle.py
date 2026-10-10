@@ -124,11 +124,13 @@ def command_next(
 class CommandRecord:
     """Lifecycle state holder for one Command. Pure bookkeeping: it executes nothing."""
 
-    __slots__ = ("_command_id", "_provider_id", "_connection_id", "_policy", "_state", "_history")
+    __slots__ = ("_command_id", "_provider_id", "_connection_id", "_policy", "_state", "_history", "_parameters")
 
     def __init__(
-        self, *, command_id: CommandId, provider_id: ProviderId, connection_id: ConnectionId, policy: CommandKindPolicy | None
+        self, *, command_id: CommandId, provider_id: ProviderId, connection_id: ConnectionId, policy: CommandKindPolicy | None,
+        parameters: object = None,
     ) -> None:
+        self._parameters = parameters
         self._command_id = command_id
         self._provider_id = provider_id
         self._connection_id = connection_id
@@ -140,6 +142,7 @@ class CommandRecord:
     provider_id = property(lambda self: self._provider_id)
     connection_id = property(lambda self: self._connection_id)
     policy = property(lambda self: self._policy)
+    parameters = property(lambda self: self._parameters)  # the request's immutable parameters, or None
     state = property(lambda self: self._state)
     history = property(lambda self: tuple(self._history))
 

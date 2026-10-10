@@ -162,9 +162,10 @@ class CommandIntent:
     """What a caller asks for. Identity and binding (``command_id``, Provider, Connection) are
     assigned by the executor, never by the caller (REQ-020, REQ-044)."""
 
-    __slots__ = ("connection", "kind_id", "requested_by", "deadline", "idempotency_key")
+    __slots__ = ("connection", "kind_id", "requested_by", "deadline", "idempotency_key", "parameters")
 
-    def __init__(self, connection: Connection, kind_id: str, requested_by: str, deadline=None, idempotency_key=None):
+    def __init__(self, connection: Connection, kind_id: str, requested_by: str, deadline=None, idempotency_key=None, parameters=None):
+        self.parameters = parameters
         self.connection = connection
         self.kind_id = kind_id
         self.requested_by = requested_by
@@ -255,6 +256,7 @@ class CommandExecutor:
             provider_id=self._runtime.provider_id,
             connection_id=getattr(connection, "connection_id", ""),
             policy=policy,
+            parameters=intent.parameters,
         )
         self._records[command_id] = record
 
@@ -269,6 +271,7 @@ class CommandExecutor:
                     requested_at=now,
                     deadline=intent.deadline,
                     idempotency_key=intent.idempotency_key,
+                    parameters=intent.parameters,
                 )
             except (CommandPolicyError, ValueError):
                 reason = "malformed_request"
@@ -310,6 +313,16 @@ class CommandExecutor:
 
     def _block_if_gate_fails(self, record: CommandRecord, connection: Connection, policy: CommandKindPolicy) -> bool:
         result = self._evaluate_gate(connection, policy)
+        if result.passed and policy.parameter_gate is not None:
+            try:  # a gate that raises blocks (fail closed)
+                token = policy.parameter_gate(record.parameters, self._clock())
+            except Exception:
+                token = "parameter_gate_error"
+            if token is not None:
+                at = self._clock()
+                record.apply(CommandEvent.SAFETY_EVIDENCE_INSUFFICIENT, at, f"parameter_gate:{token}")
+                self._settle(record, at)
+                return True
         if result.passed:
             return False
         event = (
@@ -349,8 +362,9 @@ class CommandExecutor:
             at = self._clock()
             record.apply(CommandEvent.GATES_PASSED, at, "possible-submission boundary: provider call follows")
             try:
+                extra = {} if request.parameters is None else {"parameters": request.parameters}  # four-argument call otherwise
                 self._command_provider.submit_command(
-                    record.connection_id, command_id, request.kind_id, request.idempotency_key
+                    record.connection_id, command_id, request.kind_id, request.idempotency_key, **extra
                 )
             except ProviderCommandRejected as exc:
                 event = (

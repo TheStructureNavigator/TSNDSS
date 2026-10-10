@@ -122,7 +122,7 @@ class CommandCapableProvider(Protocol):
 
     def submit_command(
         self, connection_id: ConnectionId, command_id: CommandId, kind_id: str, idempotency_key: str | None
-    ) -> ProviderCommandReceipt: ...
+    ) -> ProviderCommandReceipt: ...  # a kind with ``takes_parameters`` also receives ``parameters=<immutable value>``
 
     def poll_command(self, connection_id: ConnectionId, command_id: CommandId) -> ProviderCommandReport: ...
 
