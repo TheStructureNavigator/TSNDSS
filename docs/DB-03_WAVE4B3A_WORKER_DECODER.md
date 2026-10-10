@@ -1,6 +1,6 @@
 # DB-03 Wave 4B-3a — decoder worker side (offline)
 
-Status: **implemented offline; verified on Linux (CPython 3.13.16) only; not yet run on Windows; committed on the branch `feat/db03-wave4b3a-worker` only (not merged).** Implements the worker side of `docs/DB-03_WAVE4B3_INTEGRATION_DESIGN.md` (owner decisions E1–E9 with their conditions). Base `master` `dd70fbf`, branch `feat/db03-wave4b3a-worker`. **No OpenCV is installed or needed; no RTSP, network or device is touched; nothing is hardware verified or production ready.** 4B-3b (parent adapter) and 4B-3c (composition, manifest) are not started.
+Status: **Windows offline verified, in the scenarios tested (accepted); Linux verified.** Implements the worker side of `docs/DB-03_WAVE4B3_INTEGRATION_DESIGN.md` (owner decisions E1–E9 with their conditions). Base `master` `dd70fbf`; implementation commit `8c55612`. **Fake `cv2` only: no real OpenCV/FFmpeg, no RTSP, no network, no device. Not hardware verified; not production ready.** 4B-3b (parent adapter) and 4B-3c (composition, manifest) are not started.
 
 ## What exists
 
@@ -30,6 +30,17 @@ Status: **implemented offline; verified on Linux (CPython 3.13.16) only; not yet
 * Full repository: 1150 tests, 4 failures + 56 errors, **identical IDs** to the recorded 60-failure baseline.
 * Mutation checks on `worker_decoder.py` (constant status, swapped limits, no release, no slot-size check, no dead flag, swapped timeouts, BGR as gray, sequence kept constant, eager OpenCV import): all 9 mutants fail at least one test.
 * No leaked process, slot or segment.
+
+## Windows acceptance record (operator, Python 3.13, commit `8c55612`)
+
+| Configuration | Result |
+|---|---|
+| Windows, Python 3.13, **no venv** | full 4B-3a suite: 245 tests in 94.945 s, OK (5 skipped), 0 FAIL, 0 ERROR. `LauncherIdentityTests`: `ok_ops` popen_pid=7744 worker_pid=7744 same=True; `spin_read` popen_pid=19260 worker_pid=19260 same=True. |
+| Windows, Python 3.13, **temporary venv** (since removed) | `LauncherIdentityTests` and `DecoderWorkerContainmentTests`: 6 tests in 8.188 s, OK, 0 FAIL, 0 ERROR. `ok_ops` popen_pid=7220 worker_pid=5832 same=**False**; `spin_read` popen_pid=9372 worker_pid=8904 same=**False**. |
+
+Scope of the claim: the worker side (real `DecoderHandler` and real Wave 4 adapter behind a fake `cv2`) behaves as tested on Windows, including hard deadlines against a blocked, spinning and crashing capture and the real worker being gone after containment. The full suite ran once without venv; the venv run covered the two classes named above only.
+
+Not established: any behaviour of real OpenCV/FFmpeg or RTSP; hardware; production readiness. In a venv the process the launcher starts is an intermediate one (pids differ); the observed runs show the real worker gone after containment, but the mechanism is unknown and `D10` still counts `Popen.poll()` of the started process, so the slot guarantee is only as strong as that observation — unchanged and undecided (`intermediate_launcher` diagnostics belong to 4B-3b). There is no cleanup guarantee after a sudden death of the host (`atexit` is best effort; before the handshake the POSIX segment name relies on CPython's resource tracker; on Windows the mapping disappears with its last handle). Process isolation is not a sandbox.
 
 ## Limits
 
