@@ -39,11 +39,12 @@ from ..device_runtime.uncertainty import UncertaintyEntry, UncertaintyStore
 from ..seestar_provider.config import SeestarProviderConfig
 from ..seestar_provider.transport import SeestarReadTransport
 from .driver import CommandDriver
-from .kinds import ControlFreshness, register_command_kinds
+from .commands import GOTO
+from .kinds import ControlFreshness, build_goto_policy, register_command_kinds
 from .provider import SeestarCommandProvider
-from .recovery import build_recovery_assessors, seestar_baseline_recovery
+from .recovery import build_recovery_assessors, observed_state_assessor, seestar_baseline_recovery
 from .transport import SeestarControlTransport
-from .verification import build_verifiers
+from .verification import build_goto_verifier, build_verifiers
 
 __all__ = ["ControlAttachError", "ControlHandle", "PendingRecovery", "SeestarControl"]
 
@@ -146,6 +147,7 @@ class SeestarControl:
         self._runtime = ProviderRuntime(self._provider, clock=clock, id_generator=id_generator)
         self._registry = CommandKindRegistry()
         register_command_kinds(self._registry, freshness)
+        self._registry.register(build_goto_policy(freshness))
         self._lock = threading.Lock()
         self._handle: ControlHandle | None = None
         self._raw: CommandExecutor | None = None  # the current attachment's executor, unwrapped
@@ -187,8 +189,13 @@ class SeestarControl:
                 id_generator=self._ids,
                 uncertainty=self._store,
                 command_provider=self._provider,
-                verifiers=build_verifiers(self._runtime, self._freshness, self._clock),
-                recovery_assessors=build_recovery_assessors(),
+                verifiers={
+                    **build_verifiers(self._runtime, self._freshness, self._clock),
+                    GOTO: build_goto_verifier(
+                        self._runtime, lambda connection: self._provider.read_mount_coordinates(connection.connection_id),
+                        self._freshness, self._clock),
+                },
+                recovery_assessors={**build_recovery_assessors(), GOTO: observed_state_assessor},
                 clearance_authorizer=self._clearance_authorizer,
                 baseline_recovery=seestar_baseline_recovery(self._freshness),
             )

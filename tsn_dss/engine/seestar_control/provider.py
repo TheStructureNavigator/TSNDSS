@@ -45,7 +45,8 @@ from ..seestar_provider.config import SeestarProviderConfig
 from ..seestar_provider.errors import SeestarError
 from ..seestar_provider.provider import SeestarProvider
 from ..seestar_provider.transport import SeestarReadTransport
-from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, SCENERY_START, SCENERY_STOP
+from . import commands as _commands
+from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, GOTO, SCENERY_START, SCENERY_STOP, GotoTarget, MountCoordinates
 from .errors import ControlPostSendError, ControlPreSendError
 from .states import CAMERA_ITEMS, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count
 from .transport import SeestarControlTransport
@@ -80,15 +81,15 @@ class SeestarCommandProvider(SeestarProvider):
         available = None if connection_id is None else True  # super() verified the endpoint's identity just now
         entries += [
             CapabilityEntry(kind_id, True, available, True, CapabilityConfirmation.IMPLEMENTED_UNTESTED, False)
-            for kind_id in COMMANDS
+            for kind_id in (*COMMANDS, GOTO)
         ]
         return tuple(entries)
 
     # --- submission -------------------------------------------------------------------
 
-    def submit_command(self, connection_id, command_id, kind_id, idempotency_key) -> ProviderCommandReceipt:
+    def submit_command(self, connection_id, command_id, kind_id, idempotency_key, parameters=None) -> ProviderCommandReceipt:
         with self._lock:
-            self._refuse_before_sending(connection_id, command_id, kind_id, idempotency_key)
+            self._refuse_before_sending(connection_id, command_id, kind_id, idempotency_key, parameters)
             host, device_ref = self._host_for(connection_id), self._sessions[connection_id]
             try:
                 self._verify_identity(host, device_ref)  # a different device at the endpoint must never receive the command
@@ -96,26 +97,38 @@ class SeestarCommandProvider(SeestarProvider):
                 raise ProviderCommandRejected(f"identity_check_failed:{exc.category}", effect_possible=False) from None
             self._submitted[command_id] = (connection_id, kind_id)  # recorded before sending: never submitted twice
             try:
-                reply = self._control.send_command(host, kind_id)
+                if kind_id == GOTO:
+                    reply = self._control.send_goto(host, parameters)
+                else:
+                    reply = self._control.send_command(host, kind_id)
             except ControlPreSendError as exc:
                 raise ProviderCommandRejected(f"not_sent:{exc.category}", effect_possible=False) from None
             except ControlPostSendError as exc:
                 raise ProviderConnectionError(exc.category) from None
             except Exception:
                 raise ProviderConnectionError("control_failed") from None  # untyped: cannot prove the frame was not sent
-            command = COMMANDS[kind_id]
             if reply.code != 0:
                 raise ProviderCommandRejected("device_error_reply", effect_possible=True)
+            if kind_id == GOTO:  # the reply to a GoTo is an acknowledgement at most; its content is not interpreted
+                return ProviderCommandReceipt(accepted_at=self._clock())
+            command = COMMANDS[kind_id]
             if command.result_must_be_zero and (reply.result != 0 or isinstance(reply.result, bool)):
                 raise ProviderCommandRejected("unexpected_result", effect_possible=True)
             return ProviderCommandReceipt(accepted_at=self._clock())
 
-    def _refuse_before_sending(self, connection_id, command_id, kind_id, idempotency_key) -> None:
+    def _refuse_before_sending(self, connection_id, command_id, kind_id, idempotency_key, parameters=None) -> None:
         def refuse(category: str) -> None:
             raise ProviderCommandRejected(category, effect_possible=False)
 
-        if kind_id not in COMMANDS:
+        if kind_id == GOTO:
+            if _commands.GOTO_PHYSICAL_ENABLED is not True:
+                refuse("goto_physical_blocked")  # BLOCKED pending owner decisions; nothing is sent
+            if not isinstance(parameters, GotoTarget):
+                refuse("goto_target_required")
+        elif kind_id not in COMMANDS:
             refuse("kind_not_supported")
+        elif parameters is not None:
+            refuse("parameters_not_supported")
         if idempotency_key is not None:
             refuse("idempotency_key_not_supported")
         if command_id in self._submitted:
@@ -140,6 +153,29 @@ class SeestarCommandProvider(SeestarProvider):
             )
             return ProviderCommandReport(_status(known[1], sample), detail="telemetry")
 
+    # --- evidence for GoTo verification ------------------------------------------------------------------
+
+    def read_mount_coordinates(self, connection_id) -> MountCoordinates | None:
+        """One passive read of the device's reported pointing, or ``None`` if it cannot be read or is not two finite numbers.
+        Nothing is converted and nothing is assumed about the frame."""
+        with self._lock:
+            host = self._host_for(connection_id)
+            reader = getattr(self._transport, "read_equ_coord", None)
+            if reader is None:
+                return None
+            try:
+                reply = reader(host)
+            except SeestarError:
+                return None
+            result = reply.result
+            if reply.code != 0 or not isinstance(result, dict):
+                return None
+            ra, dec = result.get("ra"), result.get("dec")
+            for value in (ra, dec):
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
+                    return None
+            return MountCoordinates(float(ra), float(dec), self._clock())
+
     # --- cancellation ----------------------------------------------------------------------
 
     def cancel_command(self, connection_id, command_id) -> ProviderCancelResult:
@@ -161,6 +197,9 @@ def _status(kind_id: str, sample: TelemetrySample) -> ProviderCommandStatus:
             return done
         stopped = cameras_stopped_count(sample)
         return progress if stopped is not None and stopped < len(CAMERA_ITEMS) else ack
+    if kind_id == GOTO:  # a stationary mount is only the cue to ask the verifier (it needs coordinates); it is not completion
+        stationary = arm_stationary(sample)
+        return progress if stationary is False else done if stationary is True else ack
     if kind_id == SCENERY_STOP:
         stopped = cameras_stopped_count(sample)
         if stopped is None:

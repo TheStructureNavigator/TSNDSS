@@ -20,14 +20,14 @@ from typing import Callable
 
 from ..device_runtime import Connection
 from ..device_runtime.errors import DeviceRuntimeError
-from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS
+from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, GOTO
 
 __all__ = ["ARM_PHRASE", "CLEAR_PHRASE", "GRANT_PHRASE", "OperatorClearance", "OperatorPermit", "PermitError"]
 
 GRANT_PHRASE = "DEPLOY"  # the phrase of the operator-run experiment
 ARM_PHRASE = "ARM"
 CLEAR_PHRASE = "CLEAR"
-ARM_KINDS = (ARM_DEPLOY, ARM_PARK)
+ARM_KINDS = (ARM_DEPLOY, ARM_PARK, GOTO)  # movements: each admission needs its own single-use confirmation
 
 
 class PermitError(DeviceRuntimeError):
@@ -107,7 +107,7 @@ class OperatorPermit:
                 if not self._active() or requested_by != self._operator:
                     return False
                 kind_id = getattr(kind, "kind_id", None)
-                if kind_id not in COMMANDS or (ref.provider_id, ref.connection_id) != self._bound:
+                if (kind_id not in COMMANDS and kind_id != GOTO) or (ref.provider_id, ref.connection_id) != self._bound:
                     return False
                 if kind_id in ARM_KINDS:
                     if kind_id not in self._arm_confirmed:

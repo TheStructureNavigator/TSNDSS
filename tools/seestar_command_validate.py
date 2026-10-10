@@ -56,8 +56,9 @@ for _path in (str(ROOT), str(Path(__file__).resolve().parent)):
 from tsn_dss.engine.device_runtime import TelemetrySource, ValueState  # noqa: E402
 from tsn_dss.engine.device_runtime.errors import DeviceRuntimeError  # noqa: E402
 from tsn_dss.engine.device_runtime.support import utc_now  # noqa: E402
+from tsn_dss.engine.seestar_control import commands as control_commands  # noqa: E402
 from tsn_dss.engine.seestar_control import (  # noqa: E402
-    ARM_DEPLOY, ARM_PARK, ARM_PHRASE, GRANT_PHRASE, SCENERY_START, SCENERY_STOP, ControlFreshness, OperatorPermit, SeestarControl,
+    GOTO, GotoTarget, ARM_DEPLOY, ARM_PARK, ARM_PHRASE, GRANT_PHRASE, SCENERY_START, SCENERY_STOP, ControlFreshness, OperatorPermit, SeestarControl,
     SeestarControlTransport,
 )
 from tsn_dss.engine.seestar_control.states import (  # noqa: E402
@@ -77,6 +78,7 @@ SINGLE_COMMANDS = {  # --command value -> (kind id, stage it is reported under)
     "start-scenery": (SCENERY_START, "start_scenery"),
     "stop-scenery": (SCENERY_STOP, "stop_scenery"),
     "park": (ARM_PARK, "park_arm"),
+    "goto": (GOTO, "goto"),  # DB-05b: BLOCKED unless control_commands.GOTO_PHYSICAL_ENABLED; needs --ra-hours --dec-deg --goto-tolerance-deg
 }
 STAGES = ("identify", "baseline", "deploy_arm", "start_scenery", "preview", "stop_scenery", "park_arm")
 
@@ -125,12 +127,13 @@ def observed_items(sample: Any) -> dict:
 class Run:
     def __init__(self, control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str],
                  preview: Callable[[int], dict] | None, frames: int, deadline: timedelta, poll_interval: timedelta,
-                 clock: Callable[[], Any], step: bool = False, single: str | None = None) -> None:
-        self.step, self.single = step, single
+                 clock: Callable[[], Any], step: bool = False, single: str | None = None,
+                 target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None) -> None:
+        self.step, self.single, self.target, self.read_coordinates = step, single, target, read_coordinates
         self.control, self.permit, self.operator, self.physical, self.ask = control, permit, operator, physical, ask
         self.preview, self.frames, self.deadline, self.poll, self.clock = preview, frames, deadline, poll_interval, clock
         self.began = clock()
-        self.stages = {n: {"name": n, "status": "NOT_RUN", "detail": None} for n in STAGES}
+        self.stages = {n: {"name": n, "status": "NOT_RUN", "detail": None} for n in (*STAGES, *(("goto",) if single == "goto" else ()))}
         self.handle: Any = None
         self.commands: list[str] = []
         self.outcomes: list[dict] = []
@@ -161,16 +164,18 @@ class Run:
             record["status"], record["detail"] = "FAIL", f"error_{type(exc).__name__}"
         return record["status"] == "PASS"
 
-    def command(self, kind_id: str) -> None:
+    def command(self, kind_id: str, parameters: object = None) -> None:
         """One command through the driver. Raises ``Unsafe`` unless it succeeded; an open uncertainty closes the cleanup path."""
         if self.step or self.single:
             self.confirm_before(kind_id)
-        if kind_id in (ARM_DEPLOY, ARM_PARK):
-            self.permit.confirm_arm_motion(kind_id, lambda: self.ask(f"Type {ARM_PHRASE} to allow this arm movement ({kind_id}): "))
+        if kind_id in (ARM_DEPLOY, ARM_PARK, GOTO):
+            what = "slew" if kind_id == GOTO else "arm movement"
+            self.permit.confirm_arm_motion(kind_id, lambda: self.ask(f"Type {ARM_PHRASE} to allow this {what} ({kind_id}): "))
         self.commands.append(kind_id)
         try:
             outcome = self.handle.driver.execute(
-                self.handle.connection, kind_id, self.operator, deadline=self.clock() + self.deadline, poll_interval=self.poll)
+                self.handle.connection, kind_id, self.operator, deadline=self.clock() + self.deadline, poll_interval=self.poll,
+                parameters=parameters)
         except Exception as exc:  # possibly after submission: the result is unknown, so no cleanup and no safe verdict
             self.recovery_required = True
             self.outcomes.append({"kind": kind_id, "classification": "exception", "error": type(exc).__name__})
@@ -190,7 +195,8 @@ class Run:
     # ---- step-by-step mode (the same command path; these only ask the operator and look)
     def confirm_before(self, kind_id: str) -> None:
         words = self.words()  # unreadable state: Unsafe, and the command is not admitted
-        print(f"[STEP] next command: {kind_id}; arm={words['arm']} cameras={words['cameras']}")
+        shown = f" -> RA {self.target.ra_hours} h, Dec {self.target.dec_deg} deg (frame unknown)" if kind_id == GOTO and self.target else ""
+        print(f"[STEP] next command: {kind_id}{shown}; arm={words['arm']} cameras={words['cameras']}")
         if self.ask(f"Type {STEP_GO} to send {kind_id} now (anything else stops): ").strip() != STEP_GO:
             raise Unsafe("operator_declined_command")
 
@@ -271,7 +277,7 @@ class Run:
         return "established_by_recovery"
 
     def single_command(self) -> str:
-        self.command(SINGLE_COMMANDS[self.single][0])
+        self.command(SINGLE_COMMANDS[self.single][0], self.target)
         return "sent_and_verified"
 
     # ---- orchestration
@@ -349,8 +355,20 @@ class Run:
         passed = self.stages[stage]["status"] == "PASS" and not unsafe and not self.interrupted
         body = self._body("PASS" if passed else "FAIL", unsafe, final)
         body.update({"mode": "physical_single_command", "command": kind,
-                     "final_matches_expected_after_command": final == EXPECTED_AFTER[kind] if passed else None})
+                     "final_matches_expected_after_command": final == EXPECTED_AFTER[kind] if passed and kind in EXPECTED_AFTER else None})
+        if kind == GOTO and self.target is not None:
+            body["target"] = {"ra_hours": self.target.ra_hours, "dec_deg": self.target.dec_deg}
+            body["coordinate_frame"] = "unknown: nothing was converted; target and device readings are compared as given"
+            body["final_reported_coordinates"] = self._coordinates()
         return body
+
+    def _coordinates(self):
+        """The device's reported pointing now, as sent, or None. Never converted."""
+        try:
+            got = self.read_coordinates() if self.read_coordinates else None
+        except Exception:
+            return None
+        return {"ra_hours": got[0], "dec_deg": got[1]} if got else None
 
     def _body(self, overall: str, unsafe: bool, final: dict) -> dict:
         return {
@@ -384,10 +402,10 @@ def _is_token(text: str) -> bool:
 def run_validation(control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str] | None,
                    preview: Callable[[int], dict] | None = None, frames: int = 0, deadline: timedelta = timedelta(0),
                    poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now, step: bool = False,
-                   single: str | None = None) -> dict:
+                   single: str | None = None, target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None) -> dict:
     """Run the supervised sequence (or the read-only report) and return the JSON-ready report. Every timing value is the caller's."""
     run = Run(control, permit, operator=operator, physical=physical, ask=ask, preview=preview, frames=frames, deadline=deadline,
-              poll_interval=poll_interval, clock=clock, step=step, single=single)
+              poll_interval=poll_interval, clock=clock, step=step, single=single, target=target, read_coordinates=read_coordinates)
     try:
         return run.execute()
     except _Stop:
@@ -419,12 +437,24 @@ def _real_preview(host: str, key_path: str) -> Callable[[int], dict]:
     return preview
 
 
+def _parse_coordinates(reply) -> tuple[float, float] | None:
+    """(RA hours, Dec degrees) exactly as the device reported them, or None. Never converted."""
+    result = getattr(reply, "result", None)
+    if getattr(reply, "code", None) != 0 or not isinstance(result, dict):
+        return None
+    values = (result.get("ra"), result.get("dec"))
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")) for v in values):
+        return None
+    return float(values[0]), float(values[1])
+
+
 def _seconds(value: float | None) -> timedelta | None:
     return timedelta(seconds=value) if value is not None and value > 0 else None
 
 
 def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory: Callable[..., SeestarControl] | None = None,
-         preview_factory: Callable[[int, float], dict] | None = None, clock: Callable[[], Any] = utc_now) -> int:
+         preview_factory: Callable[[int, float], dict] | None = None, clock: Callable[[], Any] = utc_now,
+         coordinates_reader: Callable[[], Any] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Supervised DB-05 command validation (read-only unless --allow-physical-motion).")
     parser.add_argument("--host", required=True, help="telescope address; never printed or written to the report")
     parser.add_argument("--operator", required=True, help="operator name bound to the permit")
@@ -439,6 +469,9 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     parser.add_argument("--step-by-step", action="store_true", help="physical mode: confirm before and after every command")
     parser.add_argument("--command", choices=sorted(SINGLE_COMMANDS), default=None,
                         help="physical mode: send exactly ONE of the four commands and exit (no sequence, no cleanup, no preview)")
+    parser.add_argument("--ra-hours", type=float, default=None, help="--command goto: target RA in decimal hours (0-24); frame/epoch unknown")
+    parser.add_argument("--dec-deg", type=float, default=None, help="--command goto: target Dec in decimal degrees (-90..90); frame/epoch unknown")
+    parser.add_argument("--goto-tolerance-deg", type=float, default=None, help="--command goto: how close the reported pointing must be (no default)")
     parser.add_argument("--no-preview", action="store_true", help="skip the preview stage")
     parser.add_argument("--key-env", default="TSNDSS_SEESTAR_KEY_PATH")
     parser.add_argument("--out", type=Path, default=Path("seestar_command_validation.json"))
@@ -462,6 +495,18 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
                 problems.append("OpenCV (opencv-python >= 4.8) is not installed in this interpreter")
         if ask is None and not (sys.stdin and sys.stdin.isatty()):
             problems.append("an interactive terminal is required for the confirmation prompts")
+    target = None
+    if args.command == "goto":
+        if not control_commands.GOTO_PHYSICAL_ENABLED:
+            problems.append("physical GoTo is BLOCKED: the coordinate frame, pointing limits and completion evidence are unresolved owner decisions")
+        try:
+            target = GotoTarget(args.ra_hours, args.dec_deg)
+        except ValueError as exc:
+            problems.append(f"--ra-hours and --dec-deg are required and must be valid: {exc}")
+        if args.goto_tolerance_deg is None or not 0 < args.goto_tolerance_deg <= 180:
+            problems.append("--goto-tolerance-deg is required (there is no default) and must be in (0, 180]")
+    elif args.ra_hours is not None or args.dec_deg is not None or args.goto_tolerance_deg is not None:
+        problems.append("--ra-hours, --dec-deg and --goto-tolerance-deg are only for --command goto")
     if args.command and not physical:
         problems.append("--command needs --allow-physical-motion")
     if args.command and args.step_by_step:
@@ -480,7 +525,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
             print("[PREREQUISITE] " + problem)
         return 2
 
-    freshness = ControlFreshness(_seconds(args.telemetry_max_age), _seconds(args.capability_max_age))
+    freshness = ControlFreshness(_seconds(args.telemetry_max_age), _seconds(args.capability_max_age), goto_tolerance_deg=args.goto_tolerance_deg)
     permit = OperatorPermit(operator_id=args.operator, valid_for=_seconds(args.permit_validity) or timedelta(seconds=1), clock=clock)
     if control_factory is not None:
         control = control_factory(freshness, permit)
@@ -489,18 +534,23 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
 
         config = SeestarProviderConfig(host=args.host, key_path=key_path)
         auth = RsaKeyFileAuthenticator(key_path)
-        control = SeestarControl(config=config, read_transport=TcpSeestarTransport(config, authenticator=auth),
+        read_transport = TcpSeestarTransport(config, authenticator=auth)
+        control = SeestarControl(config=config, read_transport=read_transport,
                                  control_transport=SeestarControlTransport(config, auth), freshness=freshness, authorizer=permit)
+        if coordinates_reader is None:
+            coordinates_reader = lambda: _parse_coordinates(read_transport.read_equ_coord(args.host))  # noqa: E731
     preview = None
     if physical and not args.no_preview and not args.command:
         make = preview_factory or _real_preview(args.host, key_path)
         preview = (lambda frames: make(frames, args.preview_max_seconds))
-    if physical:
+    if physical and args.command == "goto":
+        print("This will SLEW THE MOUNT. Make sure the arm's path and the whole sky path are clear. The coordinate frame is not known.")
+    elif physical:
         print("This will MOVE THE ARM and START THE CAMERAS. Make sure the arm's path and the field of view are clear.")
     result = run_validation(
         control, permit if physical else None, operator=args.operator, physical=physical, ask=(ask or input) if physical else None,
         preview=preview, frames=args.frames or 0, deadline=_seconds(args.command_deadline) or timedelta(0),
-        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step, single=args.command)
+        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step, single=args.command, target=target, read_coordinates=coordinates_reader)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     for stage in result["stages"]:
         print(f"[{stage['status']}] {stage['name']}: {stage['detail']}")

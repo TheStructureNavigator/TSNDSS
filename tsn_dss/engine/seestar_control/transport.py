@@ -26,7 +26,7 @@ from ..seestar_provider.config import SeestarProviderConfig
 from ..seestar_provider.errors import SeestarConfigError
 from ..seestar_provider.protocol import FRAME_TERMINATOR, RpcReply, parse_reply
 from ..seestar_provider.transport import ConnectFactory, TcpSeestarTransport
-from .commands import COMMANDS, wire_message
+from .commands import COMMANDS, GotoTarget, goto_wire_message, wire_message
 from .errors import ControlPostSendError, ControlPreSendError
 
 __all__ = ["SeestarControlTransport"]
@@ -57,9 +57,18 @@ class SeestarControlTransport(TcpSeestarTransport):
         command = COMMANDS.get(kind_id)
         if command is None:
             raise ControlPreSendError("command_not_allowed")
+        return self._send_wire(host, lambda message_id: wire_message(command, message_id))
+
+    def send_goto(self, host: str, target: GotoTarget) -> RpcReply:
+        """Send one GoTo for an already validated target. Nothing else can be sent with a caller-supplied value."""
+        if not isinstance(target, GotoTarget):
+            raise ControlPreSendError("target_invalid")
+        return self._send_wire(host, lambda message_id: goto_wire_message(target, message_id))
+
+    def _send_wire(self, host: str, build) -> RpcReply:
         with self._lock:
             self._command_id += 1
-            message = wire_message(command, self._command_id)
+            message = build(self._command_id)
             started = False
             sock: Any = None
             try:

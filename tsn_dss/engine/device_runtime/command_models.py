@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from .errors import DeviceRuntimeError
 from .models import CommandRef
@@ -101,11 +102,12 @@ class CommandKindPolicy:
     idempotent: bool
     safety_sensitive: bool
     freshness: tuple[FreshnessRequirement, ...] = ()
+    takes_parameters: bool = False  # the kind needs an opaque, immutable parameters value; every other kind must receive none
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind_id, str) or not self.kind_id.strip():
             raise CommandPolicyError("kind_id must be a non-empty string.")
-        for name in ("state_changing", "physical", "idempotent", "safety_sensitive"):
+        for name in ("state_changing", "physical", "idempotent", "safety_sensitive", "takes_parameters"):
             if not isinstance(getattr(self, name), bool):
                 raise CommandPolicyError(f"{name} must be a bool.")
         object.__setattr__(self, "freshness", tuple(self.freshness))
@@ -131,12 +133,18 @@ class CommandRequest:
     requested_at: datetime
     deadline: datetime | None = None
     idempotency_key: str | None = None
+    parameters: Any = None  # opaque to the core and immutable (hashable); validated by the Provider-specific type that builds it
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind_id, str) or not self.kind_id.strip():
             raise CommandPolicyError("kind_id must be a non-empty string.")
         if not isinstance(self.requested_by, str) or not self.requested_by.strip():
             raise CommandPolicyError("requested_by must be a non-empty string.")
+        if self.parameters is not None:
+            try:
+                hash(self.parameters)
+            except TypeError:
+                raise CommandPolicyError("parameters must be immutable (hashable).") from None
         for name in ("requested_at", "deadline"):
             value = getattr(self, name)
             if value is None and name == "deadline":
@@ -152,6 +160,10 @@ class CommandRequest:
             return "kind_mismatch"
         if self.idempotency_key is not None and not policy.idempotent:
             return "idempotency_key_on_non_idempotent_kind"
+        if self.parameters is not None and not policy.takes_parameters:
+            return "parameters_not_accepted"
+        if self.parameters is None and policy.takes_parameters:
+            return "parameters_required"
         return None
 
 

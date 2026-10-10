@@ -23,11 +23,11 @@ from typing import Callable
 
 from ..device_runtime import DeviceRuntimeError, TelemetrySample
 from ..device_runtime.command_effects import EffectVerdict, EffectVerdictKind
-from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, SCENERY_START, SCENERY_STOP
+from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, GOTO, SCENERY_START, SCENERY_STOP, GotoTarget, angular_separation_deg
 from .kinds import ControlFreshness
 from .states import CAMERA_ITEMS, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count
 
-__all__ = ["build_verifiers", "submission_boundary"]
+__all__ = ["build_goto_verifier", "build_verifiers", "submission_boundary"]
 
 _PENDING = EffectVerdict(EffectVerdictKind.PENDING, "no verifying evidence yet")
 
@@ -84,6 +84,42 @@ def build_verifiers(runtime, freshness: ControlFreshness, clock: Callable[[], da
         return verify
 
     return {kind_id: make(kind_id) for kind_id in COMMANDS}
+
+
+def build_goto_verifier(runtime, coordinates, freshness: ControlFreshness, clock: Callable[[], datetime]):
+    """GoTo effect verifier. ``VERIFIED`` needs, all observed strictly after the possible-submission boundary and within the telemetry
+    window: the mount stationary, AND device-reported coordinates within the configured tolerance of the target. The comparison takes both
+    in the same frame (the frame is not known). Without a configured tolerance, an unreadable coordinate, or any doubt the verdict is
+    ``PENDING`` and the deadline turns it into ``unknown_result``. It never returns ``FAILED``."""
+
+    def verify(connection, record) -> EffectVerdict:
+        boundary, target, tolerance = submission_boundary(record), record.parameters, freshness.goto_tolerance_deg
+        if boundary is None or tolerance is None or not isinstance(target, GotoTarget):
+            return _PENDING
+        if record.policy is None or record.policy.kind_id != GOTO:
+            return _PENDING
+        try:
+            sample = runtime.read_telemetry(connection)
+            reading = coordinates(connection)
+        except DeviceRuntimeError:
+            return _PENDING
+        now = clock()
+        if sample.connection_id != connection.connection_id or sample.provider_id != record.provider_id:
+            return _PENDING
+        if not sample.host_observed_at > boundary or not timedelta_ok(now - sample.host_observed_at, freshness):
+            return _PENDING
+        if arm_stationary(sample) is not True:
+            return _PENDING
+        if reading is None or not reading.observed_at > boundary or not timedelta_ok(now - reading.observed_at, freshness):
+            return _PENDING
+        if angular_separation_deg(reading.ra_hours, reading.dec_deg, target.ra_hours, target.dec_deg) > tolerance:
+            return _PENDING
+        return EffectVerdict(
+            EffectVerdictKind.VERIFIED,
+            f"mount stationary and device-reported coordinates within {tolerance} deg of the target (same frame assumed; observed after submission)",
+        )
+
+    return verify
 
 
 def timedelta_ok(age: timedelta, freshness: ControlFreshness) -> bool:
