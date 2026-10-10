@@ -165,8 +165,13 @@ class LifecycleTests(DecoderCase):
             self.assertEqual((pixels.width, pixels.height, pixels.pixel_format), (4, 2, PixelFormat.BGR8))
             self.assertEqual(pixels.data, bytes([10 + n]) * 24)
         d.close()
-        self.assertEqual(d.uncertain, ())
+        # exact, not tolerant: a clean close has no uncertainty at all, except the diagnostic token that must be present exactly when the
+        # decoder itself saw an intermediate launcher (a Windows venv redirector); it is never allowed to hide any other token
+        self.assertEqual(set(d.uncertain), {"intermediate_launcher"} if d.intermediate_launcher else set())
+        self.assertEqual(len(d.uncertain), len(set(d.uncertain)))
         self.assertEqual(d.last_stop_report.steps, ("close",))
+        self.assertEqual(d.last_stop_report.exit_code, 0)
+        self.assertTrue(d.last_stop_report.slot_released and d.last_stop_report.segment_released)
 
     def test_gray_images(self) -> None:
         d = self.opened("ok_gray")
@@ -490,24 +495,71 @@ class BeforeConnectTests(DecoderCase):
             self.assertEqual(category_of(lambda: d.open(endpoint())), expected)
 
 
+class DirectLaunchWorker(WorkerProcess):
+    """Pins the identity bookkeeping to "the started process is the one that wrote the header" whatever the interpreter layout
+    (a Windows venv starts an intermediate redirector, so the natural pids differ there). Used only for the diagnostic logic: it
+    overrides the recorded pid after the handshake, so no image is read through it."""
+
+    def start(self) -> None:
+        super().start()
+        self.worker_pid = self.pid
+
+
 class IntermediateLauncherTests(DecoderCase):
+    """``intermediate_launcher`` is a diagnostic. Each scenario below is forced, so it holds in a venv and outside one; the natural
+    environment is checked separately, for consistency with the observed pids."""
+
     def test_a_differing_header_pid_is_reported_as_a_diagnostic_and_changes_nothing_else(self) -> None:
-        d = self.opened("pid_differs")
+        d = self.opened("pid_differs")                                            # the worker writes a pid that is never the started one
         self.assertTrue(d.intermediate_launcher)
+        self.assertNotEqual(d._worker.pid, d._worker.worker_pid)
         self.assertEqual(d.read().width, 4)
         pid = d._worker.pid
         d.close()
         self.assertIn("intermediate_launcher", d.uncertain)
+        self.assertEqual(set(d.uncertain), {"intermediate_launcher"})             # and nothing else is hidden behind it
         self.assertEqual(d.last_stop_report.steps, ("close",))                    # containment is exactly as without the token
         self.assertTrue(_gone_within(pid))
         self.assertEqual(live_worker_count(), 0)                                  # the slot follows the confirmed exit of the started process
         self.assertTrue(d.last_stop_report.slot_released)
 
     def test_the_same_pid_gives_no_token(self) -> None:
-        d = self.opened("ok_bgr")
+        factory = lambda config, **kw: DirectLaunchWorker(                         # noqa: E731
+            config, _entry_module=DECODER_FIXTURE, _extra_args=("--fixture", "ok_bgr"), **kw)
+        d = ProcessIsolatedDecoder(cfg(), camera="main", _worker_factory=factory)
+        self.decoders.append(d)
+        d.open(endpoint())
+        self.assertEqual(d._worker.pid, d._worker.worker_pid)
         self.assertFalse(d.intermediate_launcher)
         d.close()
         self.assertNotIn("intermediate_launcher", d.uncertain)
+        self.assertEqual(d.uncertain, ())
+        self.assertEqual(d.last_stop_report.steps, ("close",))
+
+    def test_a_forced_difference_and_a_forced_equality_give_opposite_answers(self) -> None:
+        different = self.opened("pid_differs")
+        self.assertTrue(different.intermediate_launcher)
+        different.close()
+        factory = lambda config, **kw: DirectLaunchWorker(                         # noqa: E731
+            config, _entry_module=DECODER_FIXTURE, _extra_args=("--fixture", "ok_bgr"), **kw)
+        same = ProcessIsolatedDecoder(cfg(), camera="main", _worker_factory=factory)
+        self.decoders.append(same)
+        same.open(endpoint())
+        self.assertFalse(same.intermediate_launcher)
+        same.close()
+        self.assertEqual(("intermediate_launcher" in different.uncertain, "intermediate_launcher" in same.uncertain), (True, False))
+
+    def test_the_natural_environment_reports_exactly_what_the_pids_show(self) -> None:
+        d = self.opened("ok_bgr")
+        worker = d._worker
+        differs = worker.pid != worker.worker_pid
+        self.assertEqual(d.intermediate_launcher, differs)
+        if POSIX:
+            self.assertFalse(differs)                                             # no redirector exists on POSIX
+        d.close()
+        self.assertEqual("intermediate_launcher" in d.uncertain, differs)
+        self.assertTrue(_gone_within(worker.pid) and _gone_within(worker.worker_pid))     # in either layout the real worker is gone
+        self.assertEqual(live_worker_count(), 0)
 
 
 class RedactionTests(DecoderCase):
