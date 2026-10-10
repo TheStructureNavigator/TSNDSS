@@ -41,6 +41,7 @@ from ..seestar_provider.transport import SeestarReadTransport
 from .driver import CommandDriver
 from .commands import GOTO
 from .kinds import ControlFreshness, build_goto_policy, register_command_kinds
+from .pointing import GotoSafety, evaluate_pointing
 from .provider import SeestarCommandProvider
 from .recovery import build_recovery_assessors, observed_state_assessor, seestar_baseline_recovery
 from .transport import SeestarControlTransport
@@ -131,6 +132,7 @@ class SeestarControl:
         freshness: ControlFreshness,
         authorizer: CommandAuthorizer,
         clearance_authorizer: ClearanceAuthorizer | None = None,
+        goto_safety: GotoSafety | None = None,
         uncertainty_store: UncertaintyStore | None = None,
         clock: Clock = utc_now,
         id_generator: IdGenerator = random_id_generator,
@@ -147,7 +149,7 @@ class SeestarControl:
         self._runtime = ProviderRuntime(self._provider, clock=clock, id_generator=id_generator)
         self._registry = CommandKindRegistry()
         register_command_kinds(self._registry, freshness)
-        self._registry.register(build_goto_policy(freshness))
+        self._registry.register(build_goto_policy(freshness, lambda target, now: evaluate_pointing(target, goto_safety, now)))
         self._lock = threading.Lock()
         self._handle: ControlHandle | None = None
         self._raw: CommandExecutor | None = None  # the current attachment's executor, unwrapped
@@ -192,7 +194,8 @@ class SeestarControl:
                 verifiers={
                     **build_verifiers(self._runtime, self._freshness, self._clock),
                     GOTO: build_goto_verifier(
-                        self._runtime, lambda connection: self._provider.read_mount_coordinates(connection.connection_id),
+                        self._runtime, self._provider.goto_completion,
+                        lambda connection: self._provider.read_mount_coordinates(connection.connection_id),
                         self._freshness, self._clock),
                 },
                 recovery_assessors={**build_recovery_assessors(), GOTO: observed_state_assessor},

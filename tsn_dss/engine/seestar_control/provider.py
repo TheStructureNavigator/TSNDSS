@@ -48,6 +48,7 @@ from ..seestar_provider.transport import SeestarReadTransport
 from . import commands as _commands
 from .commands import ARM_DEPLOY, ARM_PARK, COMMANDS, GOTO, SCENERY_START, SCENERY_STOP, GotoTarget, MountCoordinates
 from .errors import ControlPostSendError, ControlPreSendError
+from .goto_watch import GotoCompletion, GotoWatch
 from .states import CAMERA_ITEMS, arm_closed, arm_stationary, cameras_ready, cameras_stopped_count
 from .transport import SeestarControlTransport
 
@@ -69,6 +70,8 @@ class SeestarCommandProvider(SeestarProvider):
         super().__init__(config, read_transport, clock=clock)
         self._control = control_transport
         self._submitted: dict[CommandId, tuple[ConnectionId, str]] = {}
+        self._goto_watches: dict[CommandId, tuple[ConnectionId, GotoWatch]] = {}  # the issuing connections of GoTos still awaiting their end
+        self._goto_results: dict[CommandId, GotoCompletion] = {}
         self._descriptor = replace(self._descriptor, implementation_label=IMPLEMENTATION_LABEL)
 
     def __repr__(self) -> str:
@@ -97,8 +100,9 @@ class SeestarCommandProvider(SeestarProvider):
                 raise ProviderCommandRejected(f"identity_check_failed:{exc.category}", effect_possible=False) from None
             self._submitted[command_id] = (connection_id, kind_id)  # recorded before sending: never submitted twice
             try:
+                watch = None
                 if kind_id == GOTO:
-                    reply = self._control.send_goto(host, parameters)
+                    reply, watch = self._control.open_goto(host, parameters)
                 else:
                     reply = self._control.send_command(host, kind_id)
             except ControlPreSendError as exc:
@@ -108,8 +112,11 @@ class SeestarCommandProvider(SeestarProvider):
             except Exception:
                 raise ProviderConnectionError("control_failed") from None  # untyped: cannot prove the frame was not sent
             if reply.code != 0:
+                if watch is not None:
+                    watch.close()
                 raise ProviderCommandRejected("device_error_reply", effect_possible=True)
-            if kind_id == GOTO:  # the reply to a GoTo is an acknowledgement at most; its content is not interpreted
+            if kind_id == GOTO:  # the reply to a GoTo is an acknowledgement at most; its end is the ScopeGoto event on this connection
+                self._goto_watches[command_id] = (connection_id, watch)
                 return ProviderCommandReceipt(accepted_at=self._clock())
             command = COMMANDS[kind_id]
             if command.result_must_be_zero and (reply.result != 0 or isinstance(reply.result, bool)):
@@ -143,6 +150,8 @@ class SeestarCommandProvider(SeestarProvider):
             known = self._submitted.get(command_id)
             if known is None or known[0] != connection_id:
                 raise ProviderConnectionError("unknown_command")
+            if known[1] == GOTO:
+                return self._poll_goto(command_id)
             reading = self.read_telemetry(connection_id)  # raises ProviderConnectionError when the device cannot be read
             sample = TelemetrySample(
                 provider_id=self._descriptor.provider_id,
@@ -175,6 +184,42 @@ class SeestarCommandProvider(SeestarProvider):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
                     return None
             return MountCoordinates(float(ra), float(dec), self._clock())
+
+    def _poll_goto(self, command_id) -> ProviderCommandReport:
+        """What the issuing connection has shown. Only an outer ScopeGoto ``complete`` is a completion report (still to be verified by the
+        executor's verifier); ``fail``/``cancel`` is a failure with a possible physical effect (-> unknown_result, amendment A1); a lost
+        connection raises, which the executor also turns into unknown_result."""
+        entry = self._goto_watches.get(command_id)
+        if entry is not None:
+            state = entry[1].pump()
+            if state == "lost":
+                self._goto_watches.pop(command_id, None)
+                raise ProviderConnectionError("goto_connection_lost")
+            if state in ("complete", "fail", "cancel"):
+                self._goto_watches.pop(command_id, None)
+                self._goto_results[command_id] = entry[1].completion
+            else:
+                done = ProviderCommandStatus.IN_PROGRESS if entry[1].progress_seen else ProviderCommandStatus.ACKNOWLEDGED
+                return ProviderCommandReport(done, detail="awaiting ScopeGoto")
+        result = self._goto_results.get(command_id)
+        if result is None:
+            raise ProviderConnectionError("goto_watch_missing")
+        if result.state == "complete":
+            return ProviderCommandReport(ProviderCommandStatus.REPORTED_COMPLETE, detail="ScopeGoto complete")
+        return ProviderCommandReport(ProviderCommandStatus.REPORTED_FAILED, effect_possible=True, detail=f"ScopeGoto {result.state}")
+
+    def goto_completion(self, command_id) -> GotoCompletion | None:
+        """The firmware-reported end of this GoTo as seen on its issuing connection, or ``None`` (not ended, or never seen)."""
+        with self._lock:
+            return self._goto_results.get(command_id)
+
+    def disconnect(self, connection_id) -> None:
+        with self._lock:
+            for command_id, (owner, watch) in list(self._goto_watches.items()):
+                if owner == connection_id:
+                    watch.close()
+                    self._goto_watches.pop(command_id, None)
+        super().disconnect(connection_id)
 
     # --- cancellation ----------------------------------------------------------------------
 

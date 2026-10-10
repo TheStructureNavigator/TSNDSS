@@ -9,9 +9,9 @@ decides an outcome; that belongs to later DB-04 slices.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from .errors import DeviceRuntimeError
 from .models import CommandRef
@@ -103,6 +103,9 @@ class CommandKindPolicy:
     safety_sensitive: bool
     freshness: tuple[FreshnessRequirement, ...] = ()
     takes_parameters: bool = False  # the kind needs an opaque, immutable parameters value; every other kind must receive none
+    # Optional pre-submission check of the parameters: ``(parameters, now) -> None`` to allow, else a fixed reason token that blocks the
+    # Command. Evaluated by the executor's gate at admission and again at submission, so it cannot be bypassed by calling the executor.
+    parameter_gate: Callable[[Any, datetime], str | None] | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind_id, str) or not self.kind_id.strip():
@@ -110,6 +113,8 @@ class CommandKindPolicy:
         for name in ("state_changing", "physical", "idempotent", "safety_sensitive", "takes_parameters"):
             if not isinstance(getattr(self, name), bool):
                 raise CommandPolicyError(f"{name} must be a bool.")
+        if self.parameter_gate is not None and not (callable(self.parameter_gate) and self.takes_parameters):
+            raise CommandPolicyError("parameter_gate must be callable and only for a kind that takes parameters.")
         object.__setattr__(self, "freshness", tuple(self.freshness))
         if not all(isinstance(r, FreshnessRequirement) for r in self.freshness):
             raise CommandPolicyError("freshness must contain FreshnessRequirement items.")

@@ -86,37 +86,52 @@ def build_verifiers(runtime, freshness: ControlFreshness, clock: Callable[[], da
     return {kind_id: make(kind_id) for kind_id in COMMANDS}
 
 
-def build_goto_verifier(runtime, coordinates, freshness: ControlFreshness, clock: Callable[[], datetime]):
-    """GoTo effect verifier. ``VERIFIED`` needs, all observed strictly after the possible-submission boundary and within the telemetry
-    window: the mount stationary, AND device-reported coordinates within the configured tolerance of the target. The comparison takes both
-    in the same frame (the frame is not known). Without a configured tolerance, an unreadable coordinate, or any doubt the verdict is
-    ``PENDING`` and the deadline turns it into ``unknown_result``. It never returns ``FAILED``."""
+def build_goto_verifier(runtime, completion_of, coordinates, freshness: ControlFreshness, clock: Callable[[], datetime]):
+    """GoTo effect verifier.
+
+    ``VERIFIED`` means *firmware-reported completion*, not confirmed target centering. It needs (1) an outer ``ScopeGoto`` event with state
+    ``complete`` on the issuing connection, seen after the possible-submission boundary, and (2) a fresh post-submission sample showing the
+    mount stationary. The device's own coordinates are an optional cross-check: when a tolerance is configured and a fresh post-submission
+    reading exists it must agree with the target (same provisional frame), and a disagreement is contradictory evidence, so the verdict
+    stays ``PENDING`` (then ``unknown_result`` at the deadline). ``fail``, ``cancel``, a lost connection, a missing event or any doubt never
+    verify. The verifier never returns ``FAILED``."""
 
     def verify(connection, record) -> EffectVerdict:
-        boundary, target, tolerance = submission_boundary(record), record.parameters, freshness.goto_tolerance_deg
-        if boundary is None or tolerance is None or not isinstance(target, GotoTarget):
+        boundary, target = submission_boundary(record), record.parameters
+        if boundary is None or not isinstance(target, GotoTarget):
             return _PENDING
         if record.policy is None or record.policy.kind_id != GOTO:
             return _PENDING
+        completion = completion_of(record.command_id)
+        if completion is None or completion.state != "complete" or not completion.observed_at > boundary:
+            return _PENDING
+        tolerance, reading = freshness.goto_tolerance_deg, None
         try:
             sample = runtime.read_telemetry(connection)
-            reading = coordinates(connection)
         except DeviceRuntimeError:
             return _PENDING
-        now = clock()
+        if tolerance is not None:
+            try:
+                reading = coordinates(connection)
+            except DeviceRuntimeError:
+                reading = None  # the cross-check is optional: an unreadable coordinate is "not cross-checked", never a verification
+        now = clock()  # after the evidence was read, never before
         if sample.connection_id != connection.connection_id or sample.provider_id != record.provider_id:
             return _PENDING
         if not sample.host_observed_at > boundary or not timedelta_ok(now - sample.host_observed_at, freshness):
             return _PENDING
         if arm_stationary(sample) is not True:
             return _PENDING
-        if reading is None or not reading.observed_at > boundary or not timedelta_ok(now - reading.observed_at, freshness):
-            return _PENDING
-        if angular_separation_deg(reading.ra_hours, reading.dec_deg, target.ra_hours, target.dec_deg) > tolerance:
-            return _PENDING
+        note = "coordinates not cross-checked"
+        if tolerance is not None:
+            if reading is not None and reading.observed_at > boundary and timedelta_ok(now - reading.observed_at, freshness):
+                separation = angular_separation_deg(reading.ra_hours, reading.dec_deg, target.ra_hours, target.dec_deg)
+                if separation > tolerance:
+                    return _PENDING  # the firmware says complete but its own coordinates disagree: contradictory
+                note = f"device-reported coordinates within {tolerance} deg of the target (provisional shared frame)"
         return EffectVerdict(
             EffectVerdictKind.VERIFIED,
-            f"mount stationary and device-reported coordinates within {tolerance} deg of the target (same frame assumed; observed after submission)",
+            f"firmware-reported ScopeGoto complete after submission and mount stationary; {note}; target centering is NOT confirmed",
         )
 
     return verify

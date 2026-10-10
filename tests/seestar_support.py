@@ -169,6 +169,7 @@ class ScriptedDevice:
         self.equ_reply: dict[str, Any] = {"method": "scope_get_equ_coord", "code": 0, "result": {"ra": 5.5, "dec": -5.25}}  # synthetic
         self.camera_reply: dict[str, Any] = {"method": "get_camera_state", "code": 0, "result": {"state": "idle", "name": "synthetic-camera"}}  # synthetic
         self.goto_calls: list[Any] = []
+        self.goto_events: list[dict[str, Any]] = []  # frames the device sends right after it answers scope_goto
         self.events_before_reply = 0
         self.chunk_size: int | None = None
         self.close_when_empty = False
@@ -227,6 +228,7 @@ class ScriptedDevice:
         elif method == "scope_goto":
             self.goto_calls.append(message.get("params"))
             frames.append({"id": request_id, "method": method, "code": 0, "result": 0})
+            frames.extend(dict(event) for event in self.goto_events)
         elif method == "get_camera_state":
             frames.append(dict(self.camera_reply, id=request_id))
         else:

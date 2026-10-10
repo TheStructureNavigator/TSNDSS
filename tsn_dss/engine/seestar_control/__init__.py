@@ -10,12 +10,13 @@ from .composition import ControlAttachError, ControlHandle, PendingRecovery, See
 from .driver import CommandDriver, CommandOutcome
 from .errors import ControlPostSendError, ControlPreSendError
 from .kinds import ControlFreshness, build_command_kinds, register_command_kinds
+from .pointing import GotoSafety
 from .permit import ARM_PHRASE, CLEAR_PHRASE, GRANT_PHRASE, OperatorClearance, OperatorPermit, PermitError
 from .provider import SeestarCommandProvider
 from .transport import SeestarControlTransport
 
 __all__ = [
-    "ARM_DEPLOY", "ARM_PARK", "GOTO", "GotoTarget", "ARM_PHRASE", "CLEAR_PHRASE", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError", "ControlCommand",
+    "ARM_DEPLOY", "ARM_PARK", "GOTO", "GotoSafety", "GotoTarget", "ARM_PHRASE", "CLEAR_PHRASE", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError", "ControlCommand",
     "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "GRANT_PHRASE", "OperatorClearance", "OperatorPermit",
     "PendingRecovery", "PermitError", "SCENERY_PARAMS",
     "SCENERY_START",

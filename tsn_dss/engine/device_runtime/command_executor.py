@@ -313,6 +313,16 @@ class CommandExecutor:
 
     def _block_if_gate_fails(self, record: CommandRecord, connection: Connection, policy: CommandKindPolicy) -> bool:
         result = self._evaluate_gate(connection, policy)
+        if result.passed and policy.parameter_gate is not None:
+            try:  # a gate that raises blocks (fail closed)
+                token = policy.parameter_gate(record.parameters, self._clock())
+            except Exception:
+                token = "parameter_gate_error"
+            if token is not None:
+                at = self._clock()
+                record.apply(CommandEvent.SAFETY_EVIDENCE_INSUFFICIENT, at, f"parameter_gate:{token}")
+                self._settle(record, at)
+                return True
         if result.passed:
             return False
         event = (

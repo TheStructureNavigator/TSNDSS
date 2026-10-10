@@ -77,12 +77,14 @@ def build_command_kinds(freshness: ControlFreshness) -> tuple[CommandKindPolicy,
     )
 
 
-def build_goto_policy(freshness: ControlFreshness) -> CommandKindPolicy:
+def build_goto_policy(freshness: ControlFreshness, parameter_gate=None) -> CommandKindPolicy:
     """GoTo: mount stationary and the arm open (the protocol reference says a goto cannot start from the parked position), plus its own
-    capability. It deliberately says nothing about the cameras: no source shows that a slew depends on them. Takes a GotoTarget."""
+    capability, plus the target-dependent ``parameter_gate`` (altitude and Sun proximity, see ``pointing``). It deliberately says nothing
+    about the cameras: no source shows that a slew depends on them. Takes a GotoTarget."""
     age = freshness.telemetry_max_age
     return CommandKindPolicy(
         GOTO, state_changing=True, physical=True, idempotent=False, safety_sensitive=True, takes_parameters=True,
+        parameter_gate=parameter_gate,
         freshness=(FreshnessRequirement(MOVE_TYPE, age, STATIONARY), FreshnessRequirement(ARM_CLOSED, age, (False,)),
                    FreshnessRequirement(CAPABILITY_PREFIX + GOTO, freshness.capability_max_age)),
     )

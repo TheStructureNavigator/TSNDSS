@@ -18,6 +18,12 @@ baseline-by-recovery, DB-04 gate, driver and verification, then the final observ
 still taken from fresh telemetry and is refused when the camera state is not fully known (for example cameras unknown on a cold start with
 View/SecondView absent); there is no clearance and no override, so that case stays blocked.
 
+--command goto (BLOCKED unless seestar_control.commands.GOTO_PHYSICAL_ENABLED; offline-tested only) sends one scope_goto and waits on the issuing
+connection for the firmware's ScopeGoto end event. Needs --ra-hours --dec-deg --frame {of-date,j2000} (an unstated frame is refused; j2000 is
+converted explicitly to the PROVISIONAL of-date convention, which the firmware has not been shown to use), --site-lat --site-lon --site-elev-m and
+the owner-approved --min-altitude-deg --min-sun-separation-deg (no defaults); --goto-tolerance-deg optionally cross-checks the device-reported
+coordinates. A "complete" means firmware-reported completion, never confirmed target centering.
+
 --step-by-step (physical mode only) asks GO before and NEXT after every command, shows the fresh arm/camera state each time, and never advances on its
 own; declining, a failure, an uncertain result or an unexpected state stops progression and leaves the usual fail-closed handling in place.
 
@@ -54,11 +60,12 @@ for _path in (str(ROOT), str(Path(__file__).resolve().parent)):
         sys.path.insert(0, _path)
 
 from tsn_dss.engine.device_runtime import TelemetrySource, ValueState  # noqa: E402
+from tsn_dss.domain.models import Site  # noqa: E402
 from tsn_dss.engine.device_runtime.errors import DeviceRuntimeError  # noqa: E402
 from tsn_dss.engine.device_runtime.support import utc_now  # noqa: E402
 from tsn_dss.engine.seestar_control import commands as control_commands  # noqa: E402
 from tsn_dss.engine.seestar_control import (  # noqa: E402
-    GOTO, GotoTarget, ARM_DEPLOY, ARM_PARK, ARM_PHRASE, GRANT_PHRASE, SCENERY_START, SCENERY_STOP, ControlFreshness, OperatorPermit, SeestarControl,
+    GOTO, GotoSafety, GotoTarget, ARM_DEPLOY, ARM_PARK, ARM_PHRASE, GRANT_PHRASE, SCENERY_START, SCENERY_STOP, ControlFreshness, OperatorPermit, SeestarControl,
     SeestarControlTransport,
 )
 from tsn_dss.engine.seestar_control.states import (  # noqa: E402
@@ -128,8 +135,10 @@ class Run:
     def __init__(self, control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str],
                  preview: Callable[[int], dict] | None, frames: int, deadline: timedelta, poll_interval: timedelta,
                  clock: Callable[[], Any], step: bool = False, single: str | None = None,
-                 target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None) -> None:
+                 target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None,
+                 target_input: dict | None = None) -> None:
         self.step, self.single, self.target, self.read_coordinates = step, single, target, read_coordinates
+        self.target_input = target_input
         self.control, self.permit, self.operator, self.physical, self.ask = control, permit, operator, physical, ask
         self.preview, self.frames, self.deadline, self.poll, self.clock = preview, frames, deadline, poll_interval, clock
         self.began = clock()
@@ -195,7 +204,7 @@ class Run:
     # ---- step-by-step mode (the same command path; these only ask the operator and look)
     def confirm_before(self, kind_id: str) -> None:
         words = self.words()  # unreadable state: Unsafe, and the command is not admitted
-        shown = f" -> RA {self.target.ra_hours} h, Dec {self.target.dec_deg} deg (frame unknown)" if kind_id == GOTO and self.target else ""
+        shown = f" -> RA {self.target.ra_hours} h, Dec {self.target.dec_deg} deg (provisional of-date frame)" if kind_id == GOTO and self.target else ""
         print(f"[STEP] next command: {kind_id}{shown}; arm={words['arm']} cameras={words['cameras']}")
         if self.ask(f"Type {STEP_GO} to send {kind_id} now (anything else stops): ").strip() != STEP_GO:
             raise Unsafe("operator_declined_command")
@@ -358,7 +367,10 @@ class Run:
                      "final_matches_expected_after_command": final == EXPECTED_AFTER[kind] if passed and kind in EXPECTED_AFTER else None})
         if kind == GOTO and self.target is not None:
             body["target"] = {"ra_hours": self.target.ra_hours, "dec_deg": self.target.dec_deg}
-            body["coordinate_frame"] = "unknown: nothing was converted; target and device readings are compared as given"
+            body["coordinate_frame"] = ("provisional of-date (JNow), NOT verified on the firmware; target_input_frame says what the operator "
+                                        "gave and whether it was converted")
+            body["target_input"] = self.target_input
+            body["completion"] = "firmware-reported ScopeGoto complete only; target centering is not confirmed"
             body["final_reported_coordinates"] = self._coordinates()
         return body
 
@@ -402,10 +414,11 @@ def _is_token(text: str) -> bool:
 def run_validation(control: SeestarControl, permit: OperatorPermit | None, *, operator: str, physical: bool, ask: Callable[[str], str] | None,
                    preview: Callable[[int], dict] | None = None, frames: int = 0, deadline: timedelta = timedelta(0),
                    poll_interval: timedelta = timedelta(0), clock: Callable[[], Any] = utc_now, step: bool = False,
-                   single: str | None = None, target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None) -> dict:
+                   single: str | None = None, target: GotoTarget | None = None, read_coordinates: Callable[[], Any] | None = None,
+                   target_input: dict | None = None) -> dict:
     """Run the supervised sequence (or the read-only report) and return the JSON-ready report. Every timing value is the caller's."""
     run = Run(control, permit, operator=operator, physical=physical, ask=ask, preview=preview, frames=frames, deadline=deadline,
-              poll_interval=poll_interval, clock=clock, step=step, single=single, target=target, read_coordinates=read_coordinates)
+              poll_interval=poll_interval, clock=clock, step=step, single=single, target=target, read_coordinates=read_coordinates, target_input=target_input)
     try:
         return run.execute()
     except _Stop:
@@ -448,13 +461,19 @@ def _parse_coordinates(reply) -> tuple[float, float] | None:
     return float(values[0]), float(values[1])
 
 
+def _real_geometry():
+    from tsn_dss.engine import pointing_geometry  # astropy is imported only when a geometry function is called
+
+    return pointing_geometry
+
+
 def _seconds(value: float | None) -> timedelta | None:
     return timedelta(seconds=value) if value is not None and value > 0 else None
 
 
 def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory: Callable[..., SeestarControl] | None = None,
          preview_factory: Callable[[int, float], dict] | None = None, clock: Callable[[], Any] = utc_now,
-         coordinates_reader: Callable[[], Any] | None = None) -> int:
+         coordinates_reader: Callable[[], Any] | None = None, geometry: Any = None) -> int:
     parser = argparse.ArgumentParser(description="Supervised DB-05 command validation (read-only unless --allow-physical-motion).")
     parser.add_argument("--host", required=True, help="telescope address; never printed or written to the report")
     parser.add_argument("--operator", required=True, help="operator name bound to the permit")
@@ -469,9 +488,18 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     parser.add_argument("--step-by-step", action="store_true", help="physical mode: confirm before and after every command")
     parser.add_argument("--command", choices=sorted(SINGLE_COMMANDS), default=None,
                         help="physical mode: send exactly ONE of the four commands and exit (no sequence, no cleanup, no preview)")
-    parser.add_argument("--ra-hours", type=float, default=None, help="--command goto: target RA in decimal hours (0-24); frame/epoch unknown")
-    parser.add_argument("--dec-deg", type=float, default=None, help="--command goto: target Dec in decimal degrees (-90..90); frame/epoch unknown")
-    parser.add_argument("--goto-tolerance-deg", type=float, default=None, help="--command goto: how close the reported pointing must be (no default)")
+    parser.add_argument("--ra-hours", type=float, default=None, help="--command goto: target RA in decimal hours (0-24)")
+    parser.add_argument("--dec-deg", type=float, default=None, help="--command goto: target Dec in decimal degrees (-90..90)")
+    parser.add_argument("--frame", choices=("of-date", "j2000"), default=None,
+                        help="--command goto: the frame of --ra-hours/--dec-deg (required). of-date is sent as given; j2000 is converted explicitly "
+                             "to the provisional of-date convention. The firmware's own frame is NOT verified")
+    parser.add_argument("--site-lat", type=float, default=None, help="--command goto: Site latitude in degrees (pointing check)")
+    parser.add_argument("--site-lon", type=float, default=None, help="--command goto: Site longitude in degrees east (pointing check)")
+    parser.add_argument("--site-elev-m", type=float, default=None, help="--command goto: Site elevation in metres (pointing check)")
+    parser.add_argument("--min-altitude-deg", type=float, default=None, help="--command goto: refuse targets below this altitude (owner-approved; no default)")
+    parser.add_argument("--min-sun-separation-deg", type=float, default=None, help="--command goto: refuse targets closer to the Sun (owner-approved; no default)")
+    parser.add_argument("--goto-tolerance-deg", type=float, default=None,
+                        help="--command goto: optional cross-check of the device-reported coordinates against the target; omit to skip it")
     parser.add_argument("--no-preview", action="store_true", help="skip the preview stage")
     parser.add_argument("--key-env", default="TSNDSS_SEESTAR_KEY_PATH")
     parser.add_argument("--out", type=Path, default=Path("seestar_command_validation.json"))
@@ -495,18 +523,44 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
                 problems.append("OpenCV (opencv-python >= 4.8) is not installed in this interpreter")
         if ask is None and not (sys.stdin and sys.stdin.isatty()):
             problems.append("an interactive terminal is required for the confirmation prompts")
-    target = None
+    target = target_input = safety = None
+    goto_only = (args.ra_hours, args.dec_deg, args.frame, args.site_lat, args.site_lon, args.site_elev_m, args.min_altitude_deg,
+                 args.min_sun_separation_deg, args.goto_tolerance_deg)
     if args.command == "goto":
         if not control_commands.GOTO_PHYSICAL_ENABLED:
             problems.append("physical GoTo is BLOCKED: the coordinate frame, pointing limits and completion evidence are unresolved owner decisions")
-        try:
-            target = GotoTarget(args.ra_hours, args.dec_deg)
-        except ValueError as exc:
-            problems.append(f"--ra-hours and --dec-deg are required and must be valid: {exc}")
-        if args.goto_tolerance_deg is None or not 0 < args.goto_tolerance_deg <= 180:
-            problems.append("--goto-tolerance-deg is required (there is no default) and must be in (0, 180]")
-    elif args.ra_hours is not None or args.dec_deg is not None or args.goto_tolerance_deg is not None:
-        problems.append("--ra-hours, --dec-deg and --goto-tolerance-deg are only for --command goto")
+        geometry = geometry or _real_geometry()
+        if args.frame is None:
+            problems.append("--frame {of-date,j2000} is required: an ambiguous coordinate frame is refused")
+        else:
+            try:
+                target_input = {"ra_hours": args.ra_hours, "dec_deg": args.dec_deg, "frame": args.frame}
+                given = GotoTarget(args.ra_hours, args.dec_deg)  # validates numbers and ranges
+                if args.frame == "j2000":
+                    ra, dec = geometry.j2000_to_of_date(given.ra_hours, given.dec_deg, clock())
+                    target = GotoTarget(ra, dec)
+                    target_input["converted_to_of_date"] = {"ra_hours": target.ra_hours, "dec_deg": target.dec_deg}
+                else:
+                    target = given
+            except Exception as exc:
+                problems.append(f"--ra-hours and --dec-deg are required and must be valid ({type(exc).__name__}: {exc})"[:200])
+        needed = {"--site-lat": args.site_lat, "--site-lon": args.site_lon, "--site-elev-m": args.site_elev_m,
+                  "--min-altitude-deg": args.min_altitude_deg, "--min-sun-separation-deg": args.min_sun_separation_deg}
+        missing = [name for name, v in needed.items() if v is None]
+        if missing:
+            problems.append(f"{', '.join(missing)} required for --command goto (the pointing check has no defaults)")
+        else:
+            try:
+                site = Site(id="cli", name="cli", latitude_deg=args.site_lat, longitude_deg=args.site_lon, elevation_m=args.site_elev_m)
+                safety = GotoSafety(site, args.min_altitude_deg, args.min_sun_separation_deg,
+                                    ephemeris=lambda t, s, when: geometry.target_altitude_and_sun_separation(
+                                        t.ra_hours, t.dec_deg, s.latitude_deg, s.longitude_deg, s.elevation_m, when))
+            except ValueError as exc:
+                problems.append(f"pointing limits invalid: {exc}")
+        if args.goto_tolerance_deg is not None and not 0 < args.goto_tolerance_deg <= 180:
+            problems.append("--goto-tolerance-deg must be in (0, 180] when given")
+    elif any(v is not None for v in goto_only):
+        problems.append("the GoTo options (--ra-hours --dec-deg --frame --site-* --min-* --goto-tolerance-deg) are only for --command goto")
     if args.command and not physical:
         problems.append("--command needs --allow-physical-motion")
     if args.command and args.step_by_step:
@@ -528,7 +582,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     freshness = ControlFreshness(_seconds(args.telemetry_max_age), _seconds(args.capability_max_age), goto_tolerance_deg=args.goto_tolerance_deg)
     permit = OperatorPermit(operator_id=args.operator, valid_for=_seconds(args.permit_validity) or timedelta(seconds=1), clock=clock)
     if control_factory is not None:
-        control = control_factory(freshness, permit)
+        control = control_factory(freshness, permit, safety) if args.command == "goto" else control_factory(freshness, permit)
     else:
         from tsn_dss.engine.seestar_provider import RsaKeyFileAuthenticator, SeestarProviderConfig, TcpSeestarTransport
 
@@ -536,7 +590,8 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
         auth = RsaKeyFileAuthenticator(key_path)
         read_transport = TcpSeestarTransport(config, authenticator=auth)
         control = SeestarControl(config=config, read_transport=read_transport,
-                                 control_transport=SeestarControlTransport(config, auth), freshness=freshness, authorizer=permit)
+                                 control_transport=SeestarControlTransport(config, auth), freshness=freshness, authorizer=permit,
+                                 goto_safety=safety)
         if coordinates_reader is None:
             coordinates_reader = lambda: _parse_coordinates(read_transport.read_equ_coord(args.host))  # noqa: E731
     preview = None
@@ -550,7 +605,7 @@ def main(argv=None, *, ask: Callable[[str], str] | None = None, control_factory:
     result = run_validation(
         control, permit if physical else None, operator=args.operator, physical=physical, ask=(ask or input) if physical else None,
         preview=preview, frames=args.frames or 0, deadline=_seconds(args.command_deadline) or timedelta(0),
-        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step, single=args.command, target=target, read_coordinates=coordinates_reader)
+        poll_interval=_seconds(args.poll_interval) or timedelta(0), clock=clock, step=args.step_by_step, single=args.command, target=target, read_coordinates=coordinates_reader, target_input=target_input)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     for stage in result["stages"]:
         print(f"[{stage['status']}] {stage['name']}: {stage['detail']}")
