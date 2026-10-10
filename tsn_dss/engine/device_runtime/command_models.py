@@ -30,7 +30,12 @@ class UnknownCommandKind(DeviceRuntimeError):
 
 @dataclass(slots=True, frozen=True)
 class FreshnessRequirement:
-    """One required Capability, Telemetry or physical-state item and how old its evidence may be (REQ-051)."""
+    """One required Capability, Telemetry or physical-state item and how old its evidence may be (REQ-051).
+
+    Naming convention (owner decision, DB-04 S3): a plain ``item`` names a telemetry item; an item
+    prefixed ``capability:`` names a Capability Report entry (``capability:<capability name>``).
+    ``max_age`` has no default and is chosen by whoever registers the kind.
+    """
 
     item: str
     max_age: timedelta

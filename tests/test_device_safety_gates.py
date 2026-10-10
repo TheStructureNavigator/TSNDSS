@@ -398,7 +398,7 @@ class GateIntegrationTests(unittest.TestCase):
 
     def test_no_new_public_executor_surface_and_no_provider_submission(self) -> None:
         public = {n for n in dir(CommandExecutor) if not n.startswith("_")}
-        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command"})
+        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "interim_unresolved_devices", "submit", "poll", "cancel", "enforce_deadline"})
         text = (PACKAGE / "safety_gates.py").read_text(encoding="utf-8")
         self.assertNotRegex(text, r"\._provider|read_telemetry|\.connect\(|\.disconnect\(|datetime\.now|utc_now|import time")
 

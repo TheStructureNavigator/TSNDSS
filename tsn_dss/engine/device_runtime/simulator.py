@@ -11,8 +11,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Sequence
 
-from .errors import ProviderConnectionError, ProviderDiscoveryError
+from .errors import ProviderCommandRejected, ProviderConnectionError, ProviderDiscoveryError
 from .models import (
+    CommandId,
     CapabilityConfirmation,
     CapabilityEntry,
     ConfigurationStatus,
@@ -26,7 +27,15 @@ from .models import (
     TelemetrySource,
     ValueState,
 )
-from .provider import ProviderPreviewReading, ProviderTelemetryReading
+from .provider import (
+    ProviderCancelOutcome,
+    ProviderCancelResult,
+    ProviderCommandReceipt,
+    ProviderCommandReport,
+    ProviderCommandStatus,
+    ProviderPreviewReading,
+    ProviderTelemetryReading,
+)
 from .support import Clock, utc_now
 
 DEFAULT_SIMULATOR_PROVIDER_ID = ProviderId("sim-provider")
@@ -204,3 +213,64 @@ class SimulatorProvider:
             raise self._evidence_failures.popleft()
         if connection_id not in self._active:
             raise ProviderConnectionError("not_connected", connection_id)
+
+
+@dataclass(slots=True, frozen=True)
+class CommandScript:
+    """Deterministic behavior of one simulated Command.
+
+    ``submit``: ``ack``, ``reject_no_effect``, ``reject_effect_possible`` or ``transport_loss``.
+    ``polls``: one step per ``poll_command`` call, the last repeating. A step is a
+    ``ProviderCommandStatus`` or ``"transport_loss"``. ``cancel``: a ``ProviderCancelOutcome`` or
+    ``"transport_loss"``.
+    """
+
+    submit: str = "ack"
+    polls: tuple = (ProviderCommandStatus.ACKNOWLEDGED,)
+    cancel: object = ProviderCancelOutcome.REFUSED
+    cancel_evidence: str = ""
+
+
+class SimulatorCommandProvider(SimulatorProvider):
+    """Simulator with scripted Commands. Everything it does is simulated and nothing leaves the process."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._command_scripts: deque[CommandScript] = deque()
+        self._running: dict[CommandId, tuple[ConnectionId, CommandScript, int]] = {}
+
+    def script_next_command(self, script: CommandScript) -> None:
+        self._command_scripts.append(script)
+
+    def submit_command(self, connection_id, command_id, kind_id, idempotency_key) -> ProviderCommandReceipt:
+        self.calls.append(("submit_command", connection_id, command_id, kind_id))
+        self._require_connected(connection_id)
+        script = self._command_scripts.popleft() if self._command_scripts else CommandScript()
+        if script.submit == "transport_loss":
+            raise ProviderConnectionError("transport_lost", "scripted")
+        if script.submit == "reject_no_effect":
+            raise ProviderCommandRejected("scripted_rejection", effect_possible=False)
+        if script.submit == "reject_effect_possible":
+            raise ProviderCommandRejected("scripted_rejection", effect_possible=True)
+        self._running[command_id] = (connection_id, script, 0)
+        return ProviderCommandReceipt(accepted_at=self._clock())
+
+    def poll_command(self, connection_id, command_id) -> ProviderCommandReport:
+        self.calls.append(("poll_command", connection_id, command_id))
+        self._require_connected(connection_id)
+        _, script, index = self._running[command_id]
+        step = script.polls[min(index, len(script.polls) - 1)]
+        self._running[command_id] = (connection_id, script, index + 1)
+        if step == "transport_loss":
+            raise ProviderConnectionError("transport_lost", "scripted")
+        if isinstance(step, ProviderCommandReport):
+            return step
+        return ProviderCommandReport(step)
+
+    def cancel_command(self, connection_id, command_id) -> ProviderCancelResult:
+        self.calls.append(("cancel_command", connection_id, command_id))
+        self._require_connected(connection_id)
+        _, script, _ = self._running[command_id]
+        if script.cancel == "transport_loss":
+            raise ProviderConnectionError("transport_lost", "scripted")
+        return ProviderCancelResult(script.cancel, script.cancel_evidence)

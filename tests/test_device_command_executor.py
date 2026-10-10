@@ -317,16 +317,19 @@ class BusyLifecycleTests(unittest.TestCase):
         self.assertEqual(rejected.history, history)
         self.assertIs(connection.state, C.BUSY)
 
-    def test_releasing_after_the_connection_was_lost_does_not_touch_the_connection(self) -> None:
+    def test_transport_loss_before_submission_blocks_the_command_and_frees_the_slot(self) -> None:
+        """S4 (observer): nothing was submitted, so the Command is safety_blocked, not unknown_result."""
         fx = Fixture()
         connection = fx.connection()
         record = fx.admit(connection, deadline=fx.clock() + timedelta(seconds=5))
         fx.runtime.report_transport_loss(connection, C.DEGRADED)
         self.assertIs(connection.state, C.DEGRADED)
-        fx.clock.advance(timedelta(seconds=60))
-        self.assertIs(fx.executor.check_deadline(record.command_id).state, S.TIMED_OUT)
-        self.assertIs(connection.state, C.DEGRADED)
+        self.assertIs(record.state, S.SAFETY_BLOCKED)
+        self.assertEqual(record.history[-1].evidence, "transport_lost_before_submission")
         self.assertIsNone(fx.executor.active_command(connection))
+        fx.clock.advance(timedelta(seconds=60))
+        self.assertIs(fx.executor.check_deadline(record.command_id).state, S.SAFETY_BLOCKED)
+        self.assertIs(connection.state, C.DEGRADED)
 
     def test_transport_loss_while_busy_is_a_valid_connection_transition(self) -> None:
         """Section 6: any nonterminal state may lose its transport."""
@@ -426,7 +429,10 @@ class NoSubmissionBoundaryTests(unittest.TestCase):
     def test_executor_never_touches_a_provider(self) -> None:
         text = (PACKAGE / "command_executor.py").read_text(encoding="utf-8")
         self.assertNotRegex(text, r"\._provider|DeviceProvider|\.connect\(|\.disconnect\(|\.discover\(")
-        self.assertNotRegex(text, r"\.(submit|send|execute|invoke)\w*\(")
+        calls = re.findall(r"(\w+(?:\.\w+)*)\.(?:submit_command|poll_command|cancel_command)\(", text)
+        self.assertTrue(calls)
+        self.assertEqual(set(calls), {"self._command_provider"})
+        self.assertNotRegex(text, r"\.(send|execute|invoke)\w*\(")
 
     def test_provider_contract_gains_no_command_method(self) -> None:
         from tsn_dss.engine.device_runtime import DeviceProvider, SimulatorProvider
@@ -435,9 +441,9 @@ class NoSubmissionBoundaryTests(unittest.TestCase):
             names = {n.lower() for n in dir(cls) if not n.startswith("_")}
             self.assertFalse([n for n in names if "submit" in n or "execute" in n or "command" in n], cls)
 
-    def test_executor_exposes_no_submission_shaped_api(self) -> None:
+    def test_executor_public_surface_is_exactly_the_known_set(self) -> None:
         public = {n for n in dir(CommandExecutor) if not n.startswith("_")}
-        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command"})
+        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "interim_unresolved_devices", "submit", "poll", "cancel", "enforce_deadline"})
 
     def test_package_exports_nothing_from_the_executor(self) -> None:
         import tsn_dss.engine.device_runtime as pkg

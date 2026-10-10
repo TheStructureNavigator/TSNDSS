@@ -56,3 +56,16 @@ class ProviderDiscoveryError(ProviderError):
 
 class ProviderConnectionError(ProviderError):
     """A connect, disconnect or evidence read failed at the Provider."""
+
+
+class ProviderCommandRejected(DeviceRuntimeError):
+    """A Provider refused a submitted Command before accepting it (DSS-CTR-013 section 9).
+
+    ``effect_possible`` is the Provider's statement of whether a physical effect may nevertheless have
+    occurred; the runtime treats anything but an explicit ``False`` as possible.
+    """
+
+    def __init__(self, category: str, *, effect_possible: bool = True) -> None:
+        super().__init__(category)
+        self.category = category
+        self.effect_possible = effect_possible

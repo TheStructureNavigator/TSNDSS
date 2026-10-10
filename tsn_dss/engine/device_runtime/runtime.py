@@ -82,6 +82,7 @@ class ProviderRuntime:
         self._history: list[TransitionRecord] = []
         self._connections: dict[ConnectionId, Connection] = {}
         self._last_discovery: DiscoveryResult | None = None
+        self._loss_observers: list = []
 
     # --- identity and lifecycle ---------------------------------------------
 
@@ -283,13 +284,22 @@ class ProviderRuntime:
         connection.apply(ConnectionEvent.DISCONNECT_COMPLETED, self._clock())
         return connection
 
+    def add_transport_loss_observer(self, observer) -> None:
+        """Register ``observer(connection, resulting_state)``, called after a transport loss was recorded.
+
+        The runtime knows nothing about who listens; the Command executor uses this (DB-04 S4).
+        """
+        self._loss_observers.append(observer)
+
     def report_transport_loss(self, connection: Connection, resulting_state: ConnectionState) -> Connection:
-        """Record unexpected transport loss. No Provider call; Command effects are DB-04."""
+        """Record unexpected transport loss. No Provider call. Observers decide the Command side."""
         self._own(connection)
         event = _LOSS_EVENTS.get(resulting_state)
         if event is None:
             raise ValueError("transport loss resolves to disconnected, degraded or failed only.")
         connection.apply(event, self._clock(), "transport_lost")
+        for observer in tuple(self._loss_observers):
+            observer(connection, resulting_state)
         return connection
 
     def refresh_evidence(self, connection: Connection) -> ConnectionState:
