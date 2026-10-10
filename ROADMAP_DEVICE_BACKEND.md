@@ -12,6 +12,31 @@ Baseline:
 - TSNDSS already has TelescopeAdapter, TelescopeAdapterRegistry, SimulatorTelescopeAdapter, SeestarAdapter and TelescopeStateService.
 - S30Lab gives experimental evidence for Seestar read-only telemetry, RTSP preview and selected operator-supervised commands, but it is not production readiness.
 
+## Current status (read this first)
+
+Terms: *implemented* = code exists; *offline* = verified by deterministic tests; *hardware* = validated on a real device within a stated scope; *accepted* = formally accepted. No stage is formally accepted (see the status model). Last reviewed against `master` commit `8d254ae`.
+
+| Stage | Implemented | Offline verified | Hardware validated | Formally accepted | Status |
+|---|---|---|---|---|---|
+| DB-01 Provider runtime foundation | yes | yes | not required | no | IMPLEMENTED (offline) |
+| DB-02 Seestar read-only integration | yes | yes | yes, read-only scope (one S30 Pro, fw 9.31) | no formal acceptance beyond the record | HARDWARE_VERIFIED (read-only scope) |
+| DB-03 Preview runtime | yes | yes | partial (operator-reported E2E runs); G1, G2, G7 outstanding | no | IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION |
+| DB-04 Safe command runtime | yes | yes (simulator) | not required | no | IMPLEMENTED (offline), simulator-only |
+| DB-05 Seestar physical commands | yes | yes | partial: supervised four-command cycle passed; failure/recovery untested | no | IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION |
+| DB-06A Acquisition Execution contract | no | n/a | n/a | no | PLANNED |
+| DB-06B Acquisition Execution implementation | no | no | no | no | BLOCKED on an accepted Acquisition Execution contract |
+
+Verified capabilities (all operator-supervised, one Seestar S30 Pro, firmware 9.31, one device): read-only identity, telemetry, capability and preview-availability evidence (DB-02); isolated RTSP preview of MAIN and WIDE through the standalone E2E validator (DB-03/E2E evidence, operator-reported); the four-command cycle deploy arm, start scenery, stop scenery, park through the DB-04 runtime with explicit operator confirmations (DB-05, operator-reported; parameters in the DB-05 section).
+
+Outstanding blockers:
+
+- DB-05: no hardware run of unknown-result, lost-connection, deadline-expiry, recovery or operator-clearance paths; the CLI has no recovery action, so recovery cannot yet be exercised on hardware (recovery state is in-process only); preview through the DB-05 path untested.
+- DB-03: gaps G1-G8 below, unchanged.
+- DB-06B: blocked until DB-06A produces an accepted Acquisition Execution contract.
+- Unassigned: GoTo / target slewing has no stage (see the DB-06A scope note).
+
+Next concrete milestone: DB-05 hardware failure/recovery validation. Smallest enabling step: an explicit, operator-confirmed recovery action in the step-by-step CLI (calls the existing `ControlHandle.recover`), then supervised runs of a deliberate deadline expiry and its recovery. Owner decision pending in parallel: which stage owns GoTo.
+
 ## Architectural invariants
 
 - Preserve DSS-CTR-001 through DSS-CTR-013 ownership boundaries.
@@ -82,7 +107,7 @@ Accepted DSS-CTR-013 v0.2 and the existing telescope adapter scaffold.
 
 ### Legacy telescope path
 
-The legacy `TelescopeStateService.slew_to_coordinates` / `slew_to_planned_pointing` path operates on the `TelescopeAdapter` protocol, not on the Provider/Command runtime. It is outside DB-01 and is left unaltered. How it is migrated, wrapped or restricted must be adjudicated during DB-04/DB-05 integration.
+The legacy `TelescopeStateService.slew_to_coordinates` / `slew_to_planned_pointing` path operates on the `TelescopeAdapter` protocol, not on the Provider/Command runtime. It is outside DB-01 and is left unaltered. How it is migrated, wrapped or restricted must be adjudicated during DB-04/DB-05 integration. Status: not adjudicated. DB-04 and DB-05 did not touch this path and DB-05 contains no GoTo/slew command; the question is open (see the DB-06A scope note).
 
 ### Deliverables
 
@@ -192,7 +217,7 @@ Offline implementation (Linux deterministic tests; Windows offline verification,
 - Readiness gate timing fix: the gate evaluates the clock after evidence acquisition (commit `23723b8`; regression tests in `tests/test_preview_readiness.py` and `tests/test_preview_manager.py`). Found on hardware as a false `CLOCK_REGRESSION`.
 - Wave 5 tooling (merge `f7300cc`): `tools/seestar_preview_validate.py` (RTSP preview validator, commit `3203aa8`, tests `tests/test_seestar_preview_validate.py`) and `tools/seestar_e2e_validate.py` (see the DB-05 section; tests `tests/test_seestar_e2e_validate.py`).
 
-Hardware evidence (Seestar S30 Pro, firmware 9.31), **operator-reported, not independently reproduced, not recorded in the repository**: one end-to-end run of the Wave 5 E2E validator passed (deploy arm, start scenery, MAIN and WIDE preview, stop scenery, park) with 3 decoded frames per camera at 1080x1920 BGR8 and a safe final state. This shows that the isolated preview path decoded real RTSP frames from both cameras once, on one device and firmware. It is a single experiment, not an acceptance record.
+Hardware evidence (Seestar S30 Pro, firmware 9.31), **operator-reported, not independently reproduced, not recorded in the repository**: one end-to-end run of the Wave 5 E2E validator passed (deploy arm, start scenery, MAIN and WIDE preview, stop scenery, park) with 3 decoded frames per camera at 1080x1920 BGR8 and a safe final state. This shows that the isolated preview path decoded real RTSP frames from both cameras once, on one device and firmware. It is a single experiment, not an acceptance record. Later operator reports (not recorded in the repository) state that the E2E validator completed three successful physical cycles in total, including MAIN/WIDE preview; this does not close G1-G8.
 
 ### Outstanding acceptance gaps
 
@@ -260,7 +285,7 @@ Offline evidence (deterministic Linux tests, simulator only; no hardware, networ
 
 Post-closure extension (DB-05 Slice 0): the neutral gate also validates allowed telemetry values (`STATE_UNSAFE`, optional per requirement, type-sensitive, no defaults); see `docs/DB-04_CONFORMANCE_AUDIT.md` section 7.
 
-Known limits: single executor per Connection (no global arbitration); in-process only (a restart loses uncertainty state, hence the baseline gate); no command-kind-specific controlled shutdown or cancellation; no cancellation of a not-yet-submitted Command; no independent no-effect or failure evidence source; package exports intentionally unchanged (the interfaces are not stable until a real Provider uses them in DB-05).
+Known limits: single executor per Connection (no global arbitration); in-process only (a restart loses uncertainty state, hence the baseline gate); no command-kind-specific controlled shutdown or cancellation; no cancellation of a not-yet-submitted Command; no independent no-effect or failure evidence source; package exports intentionally unchanged (DB-05 has since used the interfaces with a real Provider through submodule imports; whether they become a stable public export is still undecided).
 
 ### Objective
 
@@ -302,7 +327,7 @@ Simulator proves command lifecycle, safety gates, uncertainty handling and exclu
 
 ## DB-05 — Seestar Physical Command Integration
 
-**Status:** IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION. Not hardware-accepted and not production readiness. Record: [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md). Implemented: Seestar command adapter, policies, verifiers, recovery assessors, composition over the DB-04 runtime, `OperatorPermit`, and the supervised CLI `tools/seestar_command_validate.py` (branch `feat/db05-slice0-gate-values`). Hardware-verified (operator-reported, one S30 Pro, firmware 9.31): the supervised happy path of the four commands (deploy, scenery start, stop, park) through the DB-04 runtime with explicit operator confirmation, plus a read-only H0. Not tested on hardware: unknown-result, lost-connection, deadline-expiry, recovery and clearance paths, a refusal on unavailable state, and preview through the DB-05 path. The standalone E2E validator (three physical cycles with preview) is DB-03/E2E evidence only. The exit criterion (hardware validation including failure and timeout paths) is not met.
+**Status:** IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION. Not hardware-accepted and not production readiness. Record: [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md). Implemented: Seestar command adapter, policies, verifiers, recovery assessors, composition over the DB-04 runtime, `OperatorPermit`, and the supervised CLI `tools/seestar_command_validate.py` (branch `feat/db05-slice0-gate-values`). Hardware-verified (operator-reported, one S30 Pro, firmware 9.31): the supervised happy path of the four commands (deploy, scenery start, stop, park) through the DB-04 runtime with explicit operator confirmation, plus a read-only H0. Supervised run parameters: telemetry freshness 10 s, capability freshness 10 s, command deadline 90 s, polling interval 2 s, permit validity 600 s, preview disabled; these are the values used in that run, not calibrated defaults. Not tested on hardware: unknown-result, lost-connection, deadline-expiry, recovery and clearance paths, a refusal on unavailable state, and preview through the DB-05 path. The standalone E2E validator (three physical cycles with preview) is DB-03/E2E evidence only. The exit criterion (hardware validation including failure and timeout paths) is not met.
 
 ### Experimental evidence toward DB-05
 
@@ -382,6 +407,10 @@ No implementation tests are required in DB-06A. Acceptance is contract review an
 
 None required for contract authoring. Hardware evidence from DB-05 may inform the design but does not replace contract acceptance.
 
+### Scope note: GoTo / target slewing
+
+Finding: the DB-06A scope, deliverables and non-goals do not mention GoTo, slewing or pointing, so it is **unspecified**, neither included nor excluded. DSS-CTR-013 only names "slew" as an example of a physical command kind that needs command-kind-specific safety gates (section 10); the contract does not define GoTo, and this roadmap lists "which physical movement safety policies apply to telescope and mount operations" among its open questions. DSS-CTR-007 and DSS-CTR-011 define PlannedPointing as short-lived runtime intent and state that no PlannedPointing authority contract exists. DB-05 implements no GoTo (its four commands are arm deploy, scenery start, scenery stop, arm park). The legacy `TelescopeStateService.slew_to_*` path is unmigrated. GoTo is therefore not assigned to any stage; assigning it to DB-06A (which concerns acquisition execution) or to a separate movement-command stage is an owner decision and is not made here.
+
 ### Explicit non-goals
 
 No acquisition implementation, Capture/Frame creation, Session/Observation mutation, Dataset/ProcessingRun creation or frontend/API/MCP exposure.
@@ -408,7 +437,7 @@ Blocked on DB-06A. Expected DSS-CTR-013 boundary requirements include REQ-033, R
 
 ### Dependencies
 
-DB-06A accepted. DB-05 controlled physical command validation complete where hardware acquisition is involved.
+DB-06A accepted. DB-05 controlled physical command validation complete where hardware acquisition is involved. (DB-05 is currently IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION; whether that suffices is an owner decision at DB-06A acceptance.)
 
 ### Deliverables
 
@@ -485,13 +514,13 @@ Production readiness: no stage may claim production readiness from simulator tes
 - Which physical movement safety policies apply to telescope and mount operations.
 - What exact Acquisition Execution contract governs Capture, Frame, Observation and provenance handoff.
 - Whether the DSS-CTR-013 version number is bumped for amendment A1 (the header still reads Draft 0.2 with an `Amendments` line).
-- Whether, and when, the DB-04 command interfaces become a stable public export of the device runtime package (deferred until DB-05 exercises them).
+- Whether, and when, the DB-04 command interfaces become a stable public export of the device runtime package (DB-05 now exercises them through submodule imports; the decision is still open).
 
 ## Next action
 
 Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 implemented (offline, simulator-only), merged, D1 closed by amendment A1; DB-05 implemented (offline) with partial hardware validation (supervised happy path only; failure and recovery on hardware open); DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
 
-NEXT: close the DB-05 hardware gaps listed in [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md) section 6 (failure, unknown-result and recovery on hardware) under operator supervision; the DB-06A contract design gate proceeds independently.
+NEXT: (1) add an explicit, operator-confirmed recovery action to the step-by-step CLI so the DB-05 failure/recovery paths can be exercised on hardware; (2) run those paths under operator supervision and record them in [docs/DB-05_HARDWARE_VALIDATION_RECORD.md](docs/DB-05_HARDWARE_VALIDATION_RECORD.md) section 6; (3) in parallel, the owner decides which stage owns GoTo / target slewing and starts the DB-06A contract design gate.
 
 DB-03 acceptance remains open in parallel and independent of DB-04: stream loss and recovery and frame freshness on hardware (G1, G2) and a repository acceptance record (G7). DB-05 depends on DB-03 where preview or camera state is a precondition.
 
