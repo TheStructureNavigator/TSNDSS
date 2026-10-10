@@ -6,6 +6,10 @@ state. It receives the evidence snapshot, the time and an uncertainty view, and 
 * A safety-sensitive kind passes only if *every* freshness requirement declared by its policy is met by
   fresh, known, uncontradicted evidence about the command's own Provider, Connection and Device
   Reference (REQ-028, REQ-051, REQ-060). Connection ``ready`` is never evidence by itself.
+* A requirement may also list ``allowed_values``. Fresh, known evidence whose value is not allowed
+  (compared type-sensitively) blocks with ``STATE_UNSAFE``. Expired, stale, unknown, unavailable, missing
+  and contradictory evidence keep their own reasons and are never reported as merely unsafe or accepted.
+  The gate knows no state names or values; the registrant of a kind supplies them.
 * Freshness values come from the policy (``FreshnessRequirement.max_age``); nothing here is a threshold.
   Evidence is fresh when ``0 <= age <= max_age``; a timestamp in the future is not fresh.
 * Provider-reported evidence is used as evidence and labeled as such. A passing result never claims
@@ -23,7 +27,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
-from .command_models import CommandKindPolicy, FreshnessRequirement
+from .command_models import CAPABILITY_PREFIX, CommandKindPolicy, FreshnessRequirement, value_allowed
 from .models import (
     CapabilityReport,
     ConnectionId,
@@ -46,8 +50,6 @@ __all__ = [
     "evaluate_gate",
 ]
 
-CAPABILITY_PREFIX = "capability:"
-
 
 class GateDecision(Enum):
     PASS = "pass"
@@ -65,6 +67,7 @@ class GateReasonCode(str, Enum):
     EXPIRED = "expired"
     FUTURE_TIMESTAMP = "future_timestamp"
     CONTRADICTORY = "contradictory"
+    STATE_UNSAFE = "state_unsafe"
     UNCERTAINTY_UNRESOLVED = "uncertainty_unresolved"
     UNCERTAINTY_UNKNOWN = "uncertainty_unknown"
     UNCERTAINTY_VIEW_MISSING = "uncertainty_view_missing"
@@ -191,6 +194,9 @@ def _telemetry_item(
         code = _age_problem(observed, now, requirement.max_age)
         if code is not None:
             problems.append(GateReason(code, item, reading.source.value))
+        elif requirement.allowed_values is not None and not value_allowed(reading.value, requirement.allowed_values):
+            # fresh and known, but not a value the Command kind accepts; the value itself is never echoed
+            problems.append(GateReason(GateReasonCode.STATE_UNSAFE, item, reading.source.value))
     known = [r.value for r in readings if r.state is ValueState.KNOWN]
     if any(value != known[0] for value in known[1:]):
         problems.append(GateReason(GateReasonCode.CONTRADICTORY, item))

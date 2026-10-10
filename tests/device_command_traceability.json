@@ -122,7 +122,8 @@
    "classification": "primary",
    "status": "verified",
    "components": [
-    "tsn_dss.engine.device_runtime.safety_gates.evaluate_gate"
+    "tsn_dss.engine.device_runtime.safety_gates.evaluate_gate",
+    "tsn_dss.engine.device_runtime.command_models.value_allowed"
    ],
    "tests": [
     "tests.test_device_safety_gates.FailClosedTests.test_missing_evidence_blocks",
@@ -130,8 +131,12 @@
     "tests.test_device_safety_gates.FailClosedTests.test_contradictory_known_readings_block_and_agreeing_ones_pass",
     "tests.test_device_safety_gates.FailClosedTests.test_evidence_about_another_target_blocks",
     "tests.test_device_safety_gates.GateIntegrationTests.test_failing_gate_blocks_and_releases_the_busy_reservation",
-    "tests.test_device_safety_gates.GateIntegrationTests.test_ready_connection_with_stale_evidence_is_still_blocked"
-   ]
+    "tests.test_device_safety_gates.GateIntegrationTests.test_ready_connection_with_stale_evidence_is_still_blocked",
+    "tests.test_device_gate_values.GateValueTests.test_an_allowed_value_passes_and_a_disallowed_one_is_state_unsafe",
+    "tests.test_device_gate_values.GateValueTests.test_non_fresh_or_non_known_evidence_keeps_its_own_reason_and_is_never_unsafe_or_accepted",
+    "tests.test_device_gate_values.IntegrationTests.test_a_disallowed_value_is_safety_blocked_at_admission_and_releases_busy"
+   ],
+   "note": "Since DB-05 Slice 0 the gate also blocks fresh, known evidence whose value is not in the requirement's optional allowed_values (STATE_UNSAFE), type-sensitively; the section 9 word 'unsafe' is realized this way. The runtime defines no values; the registrant of a kind supplies them."
   },
   "DSS-CTR-013-REQ-029": {
    "classification": "primary",
@@ -305,7 +310,9 @@
     "tests.test_device_safety_gates.FreshnessTests.test_the_limit_is_inclusive_and_one_tick_later_is_expired",
     "tests.test_device_safety_gates.FreshnessTests.test_values_come_from_the_policy_not_from_the_gate",
     "tests.test_device_safety_gates.FreshnessTests.test_every_requirement_must_hold_and_all_reasons_are_reported",
-    "tests.test_device_command_submission.SubmissionTests.test_the_gate_runs_again_right_before_submission"
+    "tests.test_device_command_submission.SubmissionTests.test_the_gate_runs_again_right_before_submission",
+    "tests.test_device_gate_values.RequirementTests.test_the_constraint_is_optional_and_off_by_default",
+    "tests.test_device_gate_values.GateValueTests.test_without_a_constraint_the_value_is_irrelevant_exactly_as_before"
    ],
    "note": "Freshness values are supplied by whoever registers a kind; DB-04 defines none."
   },
@@ -336,7 +343,9 @@
     "tests.test_device_safety_gates.FreshnessTests.test_connection_ready_is_not_evidence",
     "tests.test_device_safety_gates.FreshnessTests.test_a_future_timestamp_is_not_fresh",
     "tests.test_device_safety_gates.GateIntegrationTests.test_the_gate_clock_is_read_after_the_evidence",
-    "tests.test_device_safety_gates.GateIntegrationTests.test_evidence_about_another_connection_blocks"
+    "tests.test_device_safety_gates.GateIntegrationTests.test_evidence_about_another_connection_blocks",
+    "tests.test_device_gate_values.GateValueTests.test_mixed_requirements_all_must_hold_and_every_reason_is_reported",
+    "tests.test_device_gate_values.IntegrationTests.test_the_value_is_checked_again_immediately_before_submission"
    ]
   },
   "DSS-CTR-013-REQ-061": {
@@ -365,7 +374,8 @@
    "tests": [
     "tests.test_device_safety_gates.GateIntegrationTests.test_blocked_commands_never_reach_a_provider_beyond_passive_reads",
     "tests.test_device_command_submission.SubmissionTests.test_nothing_is_submitted_for_rejected_blocked_or_expired_requests",
-    "tests.test_device_command_submission.SubmissionTests.test_the_gate_runs_again_right_before_submission"
+    "tests.test_device_command_submission.SubmissionTests.test_the_gate_runs_again_right_before_submission",
+    "tests.test_device_gate_values.IntegrationTests.test_the_value_is_checked_again_immediately_before_submission"
    ],
    "note": "Gates are provider-neutral and per kind: each safety-sensitive kind declares its own freshness requirements. The conservative implication physical => safety-sensitive is a design decision, not a REQ-062 mandate."
   },

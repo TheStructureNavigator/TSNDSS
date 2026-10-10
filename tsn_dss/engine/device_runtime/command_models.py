@@ -28,6 +28,18 @@ class UnknownCommandKind(DeviceRuntimeError):
     """No Command kind is registered under the requested kind_id."""
 
 
+CAPABILITY_PREFIX = "capability:"
+_SCALAR_TYPES = (str, int, float, bool)
+
+
+def value_allowed(value: object, allowed: tuple) -> bool:
+    """Type-sensitive membership: a value matches an allowed value only with the same type and an equal value.
+
+    ``True`` does not match ``1``, ``1`` does not match ``1.0``, and ``"1"`` matches neither.
+    """
+    return any(type(value) is type(candidate) and value == candidate for candidate in allowed)
+
+
 @dataclass(slots=True, frozen=True)
 class FreshnessRequirement:
     """One required Capability, Telemetry or physical-state item and how old its evidence may be (REQ-051).
@@ -35,16 +47,38 @@ class FreshnessRequirement:
     Naming convention (owner decision, DB-04 S3): a plain ``item`` names a telemetry item; an item
     prefixed ``capability:`` names a Capability Report entry (``capability:<capability name>``).
     ``max_age`` has no default and is chosen by whoever registers the kind.
+
+    ``allowed_values`` (optional, telemetry items only) additionally constrains the *value*: fresh, known
+    evidence whose value is not one of them blocks as unsafe (DSS-CTR-013 section 9, "unsafe"). It is
+    ``None`` by default, which means no value constraint (the behavior before this field existed). When
+    given it is a non-empty collection of ``str``, ``int``, ``float`` or ``bool`` values (no ``None``, no
+    ``NaN``, no duplicates by type and value); matching is type-sensitive (see ``value_allowed``). The
+    runtime defines no values of its own: the registrant of a kind supplies them.
     """
 
     item: str
     max_age: timedelta
+    allowed_values: tuple | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.item, str) or not self.item.strip():
             raise CommandPolicyError("freshness item must be a non-empty string.")
         if not isinstance(self.max_age, timedelta) or self.max_age <= timedelta(0):
             raise CommandPolicyError("freshness max_age must be a positive timedelta.")
+        if self.allowed_values is not None:
+            if isinstance(self.allowed_values, (str, bytes)) or not hasattr(self.allowed_values, "__iter__"):
+                raise CommandPolicyError("allowed_values must be a collection of values.")
+            values = tuple(self.allowed_values)
+            if not values:
+                raise CommandPolicyError("allowed_values must not be empty.")
+            for value in values:
+                if not isinstance(value, _SCALAR_TYPES) or value != value:  # None, containers and NaN are refused
+                    raise CommandPolicyError("allowed_values must be str, int, float or bool values (not NaN).")
+            if len({(type(v), v) for v in values}) != len(values):
+                raise CommandPolicyError("allowed_values must not repeat a value.")
+            if self.item.startswith(CAPABILITY_PREFIX):
+                raise CommandPolicyError("allowed_values apply to telemetry items, not capabilities.")
+            object.__setattr__(self, "allowed_values", values)
 
 
 @dataclass(slots=True, frozen=True)

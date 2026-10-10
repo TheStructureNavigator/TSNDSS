@@ -258,6 +258,8 @@ Offline evidence (deterministic Linux tests, simulator only; no hardware, networ
 - Tests: `tests/test_device_command_lifecycle.py`, `test_device_command_executor.py`, `test_device_safety_gates.py`, `test_device_command_submission.py`, `test_device_uncertainty.py`, `test_device_command_conformance.py` (contract tables parsed and compared with the code), `test_device_command_traceability.py` with the DB-04 manifest `tests/device_command_traceability.json` (separate from the DB-01 manifest).
 - Audit, discrepancy register, restart-safety review and mutation review: `docs/DB-04_CONFORMANCE_AUDIT.md`, `docs/DB-04_CONTRACT_DISCREPANCIES.md`; D1 amendment A1 (applied): `docs/DB-04_D1_CONTRACT_AMENDMENT_PROPOSAL.md`.
 
+Post-closure extension (DB-05 Slice 0): the neutral gate also validates allowed telemetry values (`STATE_UNSAFE`, optional per requirement, type-sensitive, no defaults); see `docs/DB-04_CONFORMANCE_AUDIT.md` section 7.
+
 Known limits: single executor per Connection (no global arbitration); in-process only (a restart loses uncertainty state, hence the baseline gate); no command-kind-specific controlled shutdown or cancellation; no cancellation of a not-yet-submitted Command; no independent no-effect or failure evidence source; package exports intentionally unchanged (the interfaces are not stable until a real Provider uses them in DB-05).
 
 ### Objective
