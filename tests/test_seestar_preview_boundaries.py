@@ -208,7 +208,10 @@ class PublicApiBoundaryTests(unittest.TestCase):
                         hits.append(path.name)
         self.assertEqual(constructions["PreviewStream("], ["preview_manager.py"])
         self.assertEqual(constructions["RtspPreviewSource("], ["source.py"])
-        self.assertEqual(constructions["make_source_factory("], ["integration.py"])
+        # Wave 3 build_preview_manager and, since 4B-3c, the isolated composition root: the only two places that build a source factory
+        self.assertEqual(constructions["make_source_factory("], ["integration.py", "integration.py"])
+        self.assertEqual(sorted(p.parent.name for p in engine.rglob("integration.py") if "make_source_factory(" in p.read_text(encoding="utf-8")),
+                         ["opencv_isolated_decoder", "seestar_preview"])
         manager_text = (ROOT / "tsn_dss/engine/device_runtime/preview_manager.py").read_text(encoding="utf-8")
         self.assertEqual(manager_text.count("stream.open()"), 1)
         gate_pos = manager_text.index("self._gate.check(")

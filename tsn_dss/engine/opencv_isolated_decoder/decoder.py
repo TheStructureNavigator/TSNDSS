@@ -293,11 +293,16 @@ class ProcessIsolatedDecoder:
 
 
 def make_isolated_decoder_factory(
-    config: IsolatedDecoderConfig | None = None, *, before_connect: Callable[[str | None], bool] | None = None
+    config: IsolatedDecoderConfig | None = None,
+    *,
+    before_connect: Callable[[str | None], bool] | None = None,
+    _worker_factory: Callable[..., WorkerProcess] = WorkerProcess,
+    _python_version: Any = None,
 ) -> Callable[[str], ProcessIsolatedDecoder]:
     """``decoder_factory`` for the manager: one new, unstarted decoder per stream. Building one starts nothing."""
 
     def factory(camera: str) -> ProcessIsolatedDecoder:
-        return ProcessIsolatedDecoder(config, camera=camera, before_connect=before_connect)
+        return ProcessIsolatedDecoder(config, camera=camera, before_connect=before_connect,
+                                      _worker_factory=_worker_factory, _python_version=_python_version)
 
     return factory

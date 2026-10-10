@@ -25,6 +25,7 @@ ALLOWED_STDLIB = {
     "worker_main.py": {"__future__", "os", "queue", "sys", "threading", "multiprocessing"},
     "worker_decoder.py": {"__future__", "os", "time", "typing"},
     "decoder.py": {"__future__", "threading", "time", "dataclasses", "typing"},
+    "integration.py": {"__future__", "datetime", "typing"},
     "decoder_main.py": {"__future__", "sys"},
 }
 FORBIDDEN_EVERYWHERE = {"cv2", "numpy", "PIL", "av", "socket", "ssl", "select", "selectors", "asyncio", "http", "urllib", "ftplib", "ctypes",
@@ -35,6 +36,8 @@ LEVEL2_DEFAULT = {"device_runtime.errors", "device_runtime.lifecycle"}
 LEVEL2_ALLOWED = {
     "worker_decoder.py": {"opencv_preview_decoder", "seestar_preview", "device_runtime.preview_models"},
     "decoder.py": {"seestar_preview", "device_runtime.preview_models", "device_runtime.errors"},
+    "integration.py": {"device_runtime", "device_runtime.preview_freshness", "device_runtime.preview_manager", "device_runtime.preview_readiness",
+                       "device_runtime.support", "seestar_preview.config", "seestar_preview.readiness", "seestar_preview.source"},
 }
 COUPLED_MODULES = {"decoder.py", "worker_decoder.py", "decoder_main.py", "integration.py"}
 COMMAND_WORDS = {"start_view", "stop_view", "start_scan", "scope", "park", "slew", "goto", "arm"}
@@ -63,7 +66,7 @@ def imports(path: Path):
 class ImportBoundaryTests(unittest.TestCase):
     def test_the_package_has_exactly_the_planned_files(self) -> None:
         self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "shm.py", "states.py", "process.py", "worker_main.py",
-                                    "worker_decoder.py", "decoder_main.py", "decoder.py"})
+                                    "worker_decoder.py", "decoder_main.py", "decoder.py", "integration.py"})
 
     def test_each_file_imports_only_what_it_is_allowed_to(self) -> None:
         for name, path in FILES.items():
@@ -73,7 +76,7 @@ class ImportBoundaryTests(unittest.TestCase):
                     self.assertIn(top, ALLOWED_STDLIB[name], (name, module))
                     self.assertNotIn(top, FORBIDDEN_EVERYWHERE, (name, module))
                 elif level == 1:
-                    self.assertIn(module, {"", "process", "protocol", "segment", "shm", "states", "worker_main", "worker_decoder"}, (name, module))
+                    self.assertIn(module, {"", "process", "protocol", "segment", "shm", "states", "worker_main", "worker_decoder", "decoder"}, (name, module))
                 else:
                     self.assertEqual(level, 2)
                     self.assertIn(module, LEVEL2_ALLOWED.get(name, LEVEL2_DEFAULT), (name, module))
@@ -152,6 +155,14 @@ class ImportBoundaryTests(unittest.TestCase):
         for banned in ("subprocess", "shared_memory", "os.environ", "getpass", "logging", "print("):
             self.assertNotIn(banned, code, banned)
         self.assertNotIn("simulated = True", code)
+
+    def test_the_composition_root_always_wires_the_gate_recheck_and_has_no_command_surface(self) -> None:
+        code = code_only(PACKAGE / "integration.py")
+        for needed in ("before_connect=still_allowed", "gate.check(identity", "limits=isolated.limits", "gate=gate"):
+            self.assertIn(needed, code, needed)
+        self.assertEqual(code.count("make_isolated_decoder_factory("), 1)             # the only decoder factory it builds carries the check
+        for banned in ("start_view", "iscope", "stop_view", "scope_", "cv2", "numpy", "open_stream", "RtspPreviewSource"):
+            self.assertNotIn(banned, code, banned)
 
     def test_the_decoder_worker_has_its_own_entry_module_and_the_same_numeric_command_line(self) -> None:
         text = code_only(PACKAGE / "decoder_main.py")
