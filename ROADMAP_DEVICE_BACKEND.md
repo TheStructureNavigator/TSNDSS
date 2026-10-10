@@ -32,8 +32,11 @@ Baseline:
 - PLANNED / FIRST ACTIONABLE: ready to implement first.
 - PLANNED: future stage with dependencies.
 - BLOCKED: cannot begin until the named dependency is accepted.
-- COMPLETE: not used in this initial roadmap. All stages are initially unimplemented.
+- COMPLETE: not used. No stage has been formally accepted as complete; every stage keeps its recorded limitations.
+- IMPLEMENTED (offline): implemented and verified by deterministic offline tests (Linux, and where stated Windows). No hardware claim. Not formal acceptance.
 - HARDWARE_VERIFIED (read-only scope): implemented, verified offline, and validated on real hardware within a stated scope. The scope and the limitations are recorded in an acceptance record. This is not production readiness.
+- IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION: as IMPLEMENTED (offline), plus hardware evidence that covers only part of the stage's required hardware validation. The covered part and the outstanding acceptance gaps are listed in the stage. Not a hardware-accepted stage.
+- Evidence provenance: "operator-reported" means a result reported by the operator that is not recorded in the repository and was not independently reproduced by the roadmap's authors. It is evidence, not formal acceptance.
 
 ## Dependency graph
 
@@ -45,7 +48,7 @@ The graph is acyclic. DB-06B remains blocked until DB-06A produces an accepted A
 
 ## DB-01 — Provider Runtime Foundation and Simulator Conformance
 
-**Status:** PLANNED / FIRST ACTIONABLE
+**Status:** IMPLEMENTED (offline). Simulator-only stage; no hardware validation is required. Evidence: commit `e2f458a` (provider runtime and deterministic simulator) and `d98d5a4` (coverage and traceability correction), with the DB-01 deterministic tests. Existing TelescopeAdapter compatibility preserved. No separate acceptance record exists; this is not production readiness.
 
 ### Objective
 
@@ -178,7 +181,31 @@ Accepted as HARDWARE_VERIFIED (read-only scope) on the evidence summarized in [d
 
 ## DB-03 — Preview Runtime
 
-**Status:** PLANNED
+**Status:** IMPLEMENTED (offline) + PARTIAL HARDWARE VALIDATION. Not hardware-accepted: the required stream loss and recovery and frame freshness validation on real hardware is outstanding. Not production readiness.
+
+### Implementation and validation record
+
+Offline implementation (Linux deterministic tests; Windows offline verification, native and venv, for Waves 4B-2, 4B-3a, 4B-3b and 4B-3c in the tested scenarios):
+
+- Preview semantics, Preview Manager (the only entry for opening streams), Seestar preview integration and OpenCV decoder: `docs/DB-03_PREVIEW_SEMANTICS.md`, `docs/DB-03_PREVIEW_MANAGER.md`, `docs/DB-03_SEESTAR_PREVIEW_INTEGRATION.md`, `docs/DB-03_OPENCV_DECODER.md`.
+- Wave 4B process isolation of the decoder (`tsn_dss/engine/opencv_isolated_decoder/`): design `docs/DB-03_WAVE4B_PROCESS_ISOLATION_DESIGN.md`; 4B-1 isolated worker `docs/DB-03_WAVE4B1_ISOLATED_WORKER.md`; 4B-2 shared memory, process limit (D10), deadlines and containment `docs/DB-03_WAVE4B2_SHARED_MEMORY_CONTAINMENT.md`; 4B-3 integration design `docs/DB-03_WAVE4B3_INTEGRATION_DESIGN.md`; 4B-3a worker decoder `docs/DB-03_WAVE4B3A_WORKER_DECODER.md`; 4B-3b parent `ProcessIsolatedDecoder` `docs/DB-03_WAVE4B3B_PARENT_DECODER.md`; 4B-3c composition `build_isolated_preview_manager` (commits `7262f70`, `4a23d4e`).
+- Readiness gate timing fix: the gate evaluates the clock after evidence acquisition (commit `23723b8`; regression tests in `tests/test_preview_readiness.py` and `tests/test_preview_manager.py`). Found on hardware as a false `CLOCK_REGRESSION`.
+- Wave 5 tooling (merge `f7300cc`): `tools/seestar_preview_validate.py` (RTSP preview validator, commit `3203aa8`, tests `tests/test_seestar_preview_validate.py`) and `tools/seestar_e2e_validate.py` (see the DB-05 section; tests `tests/test_seestar_e2e_validate.py`).
+
+Hardware evidence (Seestar S30 Pro, firmware 9.31), **operator-reported, not independently reproduced, not recorded in the repository**: one end-to-end run of the Wave 5 E2E validator passed (deploy arm, start scenery, MAIN and WIDE preview, stop scenery, park) with 3 decoded frames per camera at 1080x1920 BGR8 and a safe final state. This shows that the isolated preview path decoded real RTSP frames from both cameras once, on one device and firmware. It is a single experiment, not an acceptance record.
+
+### Outstanding acceptance gaps
+
+- G1: stream loss and recovery not validated on hardware (required by this stage).
+- G2: frame freshness and stale-frame detection, and the staleness backlog behavior (D7), not measured on hardware (required by this stage).
+- G3: D4 and D12 timing values not calibrated against hardware; calibration deferred.
+- G4: effect of killing a client mid-session (U5) not validated.
+- G5: sporadic `+1` handle count on Windows (`SteadyStateTests`) is an open, unresolved observation; the investigation was closed by operator decision, not by a root cause.
+- G6: on Windows venv the worker may be reached through a launcher process (`intermediate_launcher` is a diagnostic token, not proof of containment); the D10 process limit is verified for the tested scenarios only.
+- G7: no repository acceptance record for the hardware run (cf. `docs/DB-02_ACCEPTANCE_RECORD.md`); the E2E result above is operator-reported only.
+- G8: one device, one firmware; no production readiness.
+
+Closing DB-03 requires evidence for G1, G2, G7 and a decision on the rest. This roadmap does not create a new stage for them.
 
 ### Objective
 
@@ -262,7 +289,11 @@ Simulator proves command lifecycle, safety gates, uncertainty handling and exclu
 
 ## DB-05 — Seestar Physical Command Integration
 
-**Status:** PLANNED
+**Status:** PLANNED. Not started as a stage. The experimental E2E script described below is evidence toward this stage only; it does not complete DB-05 and does not substitute for DB-04.
+
+### Experimental evidence toward DB-05
+
+`tools/seestar_e2e_validate.py` (commit `32546a1`, merge `f7300cc`) is a standalone, experimental validation tool, separate from the read-only provider. It issues four fixed commands only (`scope_move_to_horizon`, `iscope_start_view` in scenery mode, `iscope_stop_view`, `scope_park`) behind operator opt-in (`--allow-physical-motion`, a TTY and typing `DEPLOY`) and a `PhysicalPermit`, with fail-closed state checks, bounded waits, verified cleanup and an unsafe/unknown final-state report. It does not use the DB-04 Safe Command Runtime (which does not exist yet), has no command ledger, uncertainty tracking or provider-neutral command model, and is not a DB-05 provider integration. The operator-reported hardware run is recorded under DB-03; it is not independently reproduced. DB-05 still requires DB-04, the DB-02 read-only integration and DB-03, and its own operator-gated hardware validation.
 
 ### Objective
 
@@ -421,9 +452,9 @@ Simulator conformance: DB-01 and DB-04 can complete with simulator tests only. S
 
 Read-only hardware integration: DB-02 requires real Seestar read-only validation and must not move hardware or submit commands.
 
-Preview validation: DB-03 requires RTSP validation for real preview support. Preview remains runtime evidence and does not create Capture or Frame records.
+Preview validation: DB-03 requires RTSP validation for real preview support. Preview remains runtime evidence and does not create Capture or Frame records. Current state: one operator-reported E2E run delivered decoded frames from both cameras; loss and recovery and freshness validation are still outstanding, so DB-03 is not hardware-accepted.
 
-Controlled physical execution: DB-05 requires operator-gated real hardware validation. Provider acknowledgement is not physical success. Timeout or transport loss after possible physical execution creates uncertainty. Uncertainty blocks later safety-sensitive commands until recovery evidence or authorized operator clearance.
+Controlled physical execution: DB-05 requires operator-gated real hardware validation. The experimental E2E script (operator-reported run) is not that validation; it bypasses the DB-04 runtime. Provider acknowledgement is not physical success. Timeout or transport loss after possible physical execution creates uncertainty. Uncertainty blocks later safety-sensitive commands until recovery evidence or authorized operator clearance.
 
 Acquisition provenance: DB-06A must produce an accepted Acquisition Execution contract. DB-06B remains blocked until DB-06A is accepted.
 
@@ -443,13 +474,10 @@ Production readiness: no stage may claim production readiness from simulator tes
 
 ## Next action
 
-NEXT: Implement DB-01 — Provider Runtime Foundation and Simulator Conformance.
+Current state: DB-01 implemented (offline); DB-02 HARDWARE_VERIFIED (read-only scope); DB-03 implemented (offline) with partial hardware validation and open gaps G1-G8; DB-04 and DB-05 PLANNED; DB-06A PLANNED; DB-06B BLOCKED on an accepted Acquisition Execution contract.
 
-Recommended first DB-01 slice:
+NEXT: Implement DB-04 — Safe Command Runtime, as a provider-neutral, simulator-tested stage (it requires DB-01 only and no hardware). It is the next unstarted milestone on the dependency graph and a prerequisite of DB-05.
 
-1. Add provider-neutral runtime models for Provider identity, Device Reference, Connection, Capability Report, Telemetry sample and Preview descriptor.
-2. Add a simulator Provider that implements discovery, connection lifecycle, capability reporting, simulated telemetry and preview descriptors without touching canonical domain persistence.
-3. Add deterministic tests for provider discovery outcomes, connection lifecycle transitions, simulator markings and no domain writes.
-4. Preserve existing TelescopeAdapter and TelescopeStateService behavior while introducing the new provider runtime boundary beside it.
+In parallel and independent of DB-04, DB-03 acceptance remains open: validate stream loss and recovery and frame freshness on hardware (G1, G2) and record the evidence in an acceptance record. No new hardware command beyond the existing operator-gated tools is implied.
 
-Do not begin DB-02 hardware work until DB-01 is complete.
+Do not begin DB-05 provider integration before DB-04 is complete. Do not begin DB-06B before DB-06A produces an accepted Acquisition Execution contract.
