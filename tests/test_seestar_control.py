@@ -765,8 +765,9 @@ class BoundaryTests(unittest.TestCase):
 
     def test_the_package_surface(self) -> None:
         self.assertEqual(set(seestar_control.__all__), {
-            "ARM_DEPLOY", "ARM_PARK", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError", "ControlCommand",
-            "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "PendingRecovery", "SCENERY_PARAMS",
+            "ARM_DEPLOY", "ARM_PARK", "ARM_PHRASE", "CLEAR_PHRASE", "COMMANDS", "CommandDriver", "CommandOutcome", "ControlAttachError",
+            "ControlCommand", "ControlFreshness", "ControlHandle", "ControlPostSendError", "ControlPreSendError", "GRANT_PHRASE",
+            "OperatorClearance", "OperatorPermit", "PendingRecovery", "PermitError", "SCENERY_PARAMS",
             "SCENERY_START",
             "SCENERY_STOP", "SeestarCommandProvider", "SeestarControl", "SeestarControlTransport", "build_command_kinds",
             "register_command_kinds"})

@@ -802,6 +802,8 @@ class BoundaryTests(unittest.TestCase):
                 continue
             self.assertNotIn("seestar_control", path.read_text(encoding="utf-8"), path.name)
         for path in (root / "tools").glob("*.py"):
+            if path.name == "seestar_command_validate.py":  # the one operator-run tool (Slice 3), checked by its own tests
+                continue
             self.assertNotIn("seestar_control", path.read_text(encoding="utf-8"), path.name)
 
 
