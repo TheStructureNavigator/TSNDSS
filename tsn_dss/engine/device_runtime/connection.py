@@ -82,6 +82,10 @@ class Connection:
         self._state = transition.next_state
         return transition
 
+    def record_rejection(self, event: ConnectionEvent, at: datetime, evidence: str) -> None:
+        """Audit a refused request that left the state unchanged (section 6: "Rejection ... record")."""
+        self._history.append(TransitionRecord(self._id, self._state.value, event.value, self._state.value, at, evidence))
+
     def apply_busy(self, event: BusyEvent, at: datetime, evidence: str, control: object) -> ConnectionTransition:
         """Enter or leave ``busy``. Requires ``BUSY_CONTROL``; only the DB-04 executor uses it."""
         if control is not BUSY_CONTROL:

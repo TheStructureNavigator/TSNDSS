@@ -271,6 +271,12 @@ class ProviderRuntime:
     def disconnect(self, connection: Connection) -> Connection:
         """Request a disconnect. Repeated or no-op requests make no Provider call (REQ-041)."""
         self._own(connection)
+        if connection.state is ConnectionState.BUSY:
+            connection.record_rejection(
+                ConnectionEvent.DISCONNECT_REQUESTED, self._clock(),
+                "rejected: a state-changing operation is active; no provider disconnect call",
+            )
+            raise InvalidTransition("connection", connection.state.value, ConnectionEvent.DISCONNECT_REQUESTED.value)
         transition = connection.apply(ConnectionEvent.DISCONNECT_REQUESTED, self._clock())
         if transition.provider_call is None:
             return connection

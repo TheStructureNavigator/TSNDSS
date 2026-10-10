@@ -86,6 +86,7 @@ from .provider import CommandCapableProvider, ProviderCancelOutcome, ProviderCom
 from .runtime import ProviderRuntime
 from .safety_gates import EvidenceSnapshot, UncertaintyState, UncertaintyView, evaluate_gate
 from .uncertainty import (
+    BaselineRecovery,
     RecoveryAssessor,
     Resolution,
     ResolutionKind,
@@ -103,6 +104,8 @@ class ClearanceNotAuthorized(DeviceRuntimeError):
 
 class RecoveryNotEstablished(DeviceRuntimeError):
     """Recovery evidence did not establish a resolution; the entry is unchanged."""
+
+_ESTABLISHED = (UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE, UncertaintyState.CLEARED_BY_OPERATOR)
 
 _ADMISSIBLE_TARGETS = (
     ConnectionState.CONNECTED,
@@ -138,21 +141,20 @@ class _CombinedView:
 
     def state_for(self, provider_id, device_ref):
         own = self._store.state_for(provider_id, device_ref)
-        if own in (UncertaintyState.UNRESOLVED, UncertaintyState.UNKNOWN):
-            return own
+        if own not in _ESTABLISHED:
+            return own  # unresolved, unknown or nothing established: blocks
         theirs = self._configured.state_for(provider_id, device_ref)
-        if theirs in (UncertaintyState.UNRESOLVED, UncertaintyState.UNKNOWN):
+        if theirs not in _ESTABLISHED:
             return theirs
-        if own is UncertaintyState.NONE_RECORDED:
-            return theirs
-        return own  # the store holds resolved history; it decides how it was resolved
+        return own  # the store holds the history; it says how it was established
 
 
 class _NoUncertaintyAssumed:
-    """Used only to isolate the freshness part of ``evaluate_gate`` when judging recovery evidence."""
+    """Used only to isolate the freshness part of ``evaluate_gate`` when judging recovery evidence, which
+    must not be gated by the very uncertainty it is meant to resolve. Never passed to a real admission."""
 
     def state_for(self, provider_id, device_ref):
-        return UncertaintyState.NONE_RECORDED
+        return UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE
 
 
 class CommandIntent:
@@ -184,6 +186,7 @@ class CommandExecutor:
         verifiers: dict[str, EffectVerifier] | None = None,
         recovery_assessors: dict[str, RecoveryAssessor] | None = None,
         clearance_authorizer: ClearanceAuthorizer | None = None,
+        baseline_recovery: BaselineRecovery | None = None,
     ) -> None:
         if not isinstance(authorizer, CommandAuthorizer):
             raise DeviceRuntimeError("an explicit CommandAuthorizer is required.")
@@ -204,6 +207,7 @@ class CommandExecutor:
         self._store = uncertainty if isinstance(uncertainty, UncertaintyStore) else UncertaintyStore()
         self._assessors = dict(recovery_assessors or {})
         self._clearance_authorizer = clearance_authorizer
+        self._baseline_recovery = baseline_recovery
         self._lock = threading.RLock()
         runtime.add_transport_loss_observer(self._on_transport_loss)
         runtime.add_unresolved_condition_check(
@@ -526,6 +530,75 @@ class CommandExecutor:
             except ValueError as exc:
                 raise RecoveryNotEstablished(str(exc)) from None
             return self._store.resolve(entry.provider_id, entry.device_ref, command_id, resolution)
+
+    def establish_baseline_by_recovery(self, connection: Connection) -> Resolution:
+        """Establish the history of a device this process has not seen before, from fresh read-only evidence.
+
+        This is the initialization gate: until a device has a baseline (or a resolved uncertainty) its state is
+        ``unknown`` and safety-sensitive Commands stay blocked. A configured ``BaselineRecovery`` supplies the
+        freshness requirements and the assessor; without one this refuses. Nothing is sent to the Provider, and
+        the result records what was accepted now, not what earlier Commands did.
+        """
+        with self._lock:
+            baseline = self._baseline_recovery
+            if baseline is None:
+                raise RecoveryNotEstablished("no_baseline_recovery_configured")
+            if not isinstance(connection, Connection) or self._runtime.get_connection(connection.connection_id) is not connection:
+                raise RecoveryNotEstablished("connection_not_owned")
+            if connection.state not in _ADMISSIBLE_TARGETS:
+                raise RecoveryNotEstablished(f"connection_not_active:{connection.state.value}")
+            provider_id, device_ref = self._runtime.provider_id, connection.device.device_ref
+            if self._store.state_for(provider_id, device_ref) is UncertaintyState.UNRESOLVED:
+                raise RecoveryNotEstablished("unresolved_uncertainty_present")
+            if self._store.history_established(provider_id, device_ref):
+                raise RecoveryNotEstablished("already_established")
+            try:
+                snapshot = self._evidence_source(connection)
+            except Exception:
+                raise RecoveryNotEstablished("evidence_unavailable") from None
+            now = self._clock()
+            fresh = evaluate_gate(
+                CommandKindPolicy(
+                    "baseline", state_changing=False, physical=False, idempotent=True,
+                    safety_sensitive=True, freshness=baseline.freshness,
+                ),
+                snapshot, now,
+                provider_id=provider_id, connection_id=connection.connection_id, device_ref=device_ref,
+                uncertainty=_NoUncertaintyAssumed(),
+            )
+            if not fresh.passed:
+                raise RecoveryNotEstablished(f"evidence_not_fresh:{fresh.summary()}")
+            try:
+                verdict = baseline.assessor(connection, None, snapshot, now)
+            except Exception:
+                raise RecoveryNotEstablished("assessor_failed") from None
+            if not verdict.resolved:
+                raise RecoveryNotEstablished("recovery_not_established")
+            try:
+                resolution = Resolution(ResolutionKind.RECOVERY_EVIDENCE, now, verdict.evidence, basis=tuple(verdict.basis))
+            except ValueError as exc:
+                raise RecoveryNotEstablished(str(exc)) from None
+            return self._store.establish_baseline(provider_id, device_ref, resolution)
+
+    def establish_baseline_by_operator(self, device_ref: str, operator_id: str, reason: str) -> Resolution:
+        """Establish an unknown history by authorized operator clearance. Not proof of anything physical."""
+        with self._lock:
+            authorizer = self._clearance_authorizer
+            if authorizer is None:
+                raise ClearanceNotAuthorized("no clearance authorizer is configured")
+            try:
+                allowed = authorizer.may_clear(operator_id, self._runtime.provider_id, device_ref) is True
+            except Exception:
+                allowed = False
+            if not allowed:
+                raise ClearanceNotAuthorized("operator not authorized")
+            if self._store.state_for(self._runtime.provider_id, device_ref) is UncertaintyState.UNRESOLVED:
+                raise ClearanceNotAuthorized("unresolved uncertainty present; clear that entry instead")
+            try:
+                resolution = Resolution(ResolutionKind.OPERATOR_CLEARANCE, self._clock(), reason, resolved_by=operator_id)
+                return self._store.establish_baseline(self._runtime.provider_id, device_ref, resolution)
+            except ValueError as exc:
+                raise ClearanceNotAuthorized(str(exc)) from None
 
     def clear_uncertainty_by_operator(
         self, device_ref: str, command_id: CommandId, operator_id: str, reason: str

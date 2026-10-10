@@ -53,11 +53,24 @@ class Allow:
 
 class Clear:
     def state_for(self, provider_id, device_ref):
-        return UncertaintyState.NONE_RECORDED
+        return UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE
+
+
+def establish_baselines(executor, runtime, devices) -> None:
+    """Test setup: an operator-cleared baseline for each device, so that gate tests can reach the gate itself."""
+    from datetime import datetime, timezone
+
+    from tsn_dss.engine.device_runtime.uncertainty import Resolution, ResolutionKind
+
+    for device in devices:
+        executor.uncertainty_store.establish_baseline(
+            runtime.provider_id, device.device_ref,
+            Resolution(ResolutionKind.OPERATOR_CLEARANCE, datetime(2026, 1, 1, tzinfo=timezone.utc), "test setup", resolved_by="setup"),
+        )
 
 
 class Rig:
-    def __init__(self, devices=None, verifiers=None, with_view=True, with_provider=True, store=None, **extra) -> None:
+    def __init__(self, devices=None, verifiers=None, with_view=True, with_provider=True, store=None, baseline=True, **extra) -> None:
         kw = {"clock": ManualClock()}
         if devices:
             kw["devices"] = devices
@@ -74,6 +87,8 @@ class Rig:
             evidence_source=self.evidence, uncertainty=store if store is not None else (Clear() if with_view else None),
             command_provider=self.provider if with_provider else None, verifiers=verifiers, **extra,
         )
+        if baseline:
+            establish_baselines(self.executor, self.runtime, self.devices)
 
     def evidence(self, connection) -> EvidenceSnapshot:
         at = self.clock() - timedelta(seconds=1)

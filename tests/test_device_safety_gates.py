@@ -84,7 +84,7 @@ def snap(telemetry="default", capabilities="default"):
 
 
 class View:
-    def __init__(self, state=UncertaintyState.NONE_RECORDED, boom=False):
+    def __init__(self, state=UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE, boom=False):
         self.state, self.boom, self.asked = state, boom, []
 
     def state_for(self, provider_id, device_ref):
@@ -232,6 +232,14 @@ class UncertaintyViewTests(unittest.TestCase):
         self.assertTrue(gate(view=View(UncertaintyState.UNRESOLVED)).blocked_by_uncertainty)
         self.assertFalse(gate(snapshot=None).blocked_by_uncertainty)
 
+    def test_nothing_recorded_is_not_verified_absence_of_uncertainty(self) -> None:
+        """Restart safety: even with perfectly fresh evidence, an unestablished history does not pass."""
+        result = gate(view=View(UncertaintyState.NONE_RECORDED))
+        self.assertFalse(result.passed)
+        self.assertEqual(codes(result), {R.HISTORY_NOT_ESTABLISHED})
+        self.assertTrue(result.blocked_by_uncertainty)
+        self.assertTrue(gate(view=View(UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE)).passed)
+
     def test_no_uncertainty_recorded_never_replaces_fresh_evidence(self) -> None:
         """REQ-050: an empty store (for example after a restart) proves nothing."""
         result = gate(snapshot=snap(sample(age=99.0)), view=View(UncertaintyState.NONE_RECORDED))
@@ -260,8 +268,21 @@ class Allow:
         return True
 
 
+def establish_baselines(executor, runtime, devices) -> None:
+    """Test setup: an operator-cleared baseline for each device, so that gate tests can reach the gate itself."""
+    from datetime import datetime, timezone
+
+    from tsn_dss.engine.device_runtime.uncertainty import Resolution, ResolutionKind
+
+    for device in devices:
+        executor.uncertainty_store.establish_baseline(
+            runtime.provider_id, device.device_ref,
+            Resolution(ResolutionKind.OPERATOR_CLEARANCE, datetime(2026, 1, 1, tzinfo=timezone.utc), "test setup", resolved_by="setup"),
+        )
+
+
 class Rig:
-    def __init__(self, view="default", source="fresh", authorizer=None, threadsafe_clock=False):
+    def __init__(self, view="default", source="fresh", authorizer=None, threadsafe_clock=False, baseline=True):
         self.provider = make_provider()
         self.runtime = ProviderRuntime(self.provider, clock=ManualClock(), id_generator=SequentialIdGenerator())
         self.device = self.runtime.discover().devices[0]
@@ -275,6 +296,8 @@ class Rig:
             self.runtime, registry, authorizer or Allow(), clock=self.clock, id_generator=SequentialIdGenerator(),
             evidence_source=self.fresh if source == "fresh" else source, uncertainty=self.view,
         )
+        if baseline:
+            establish_baselines(self.executor, self.runtime, [self.device])
 
     def fresh(self, connection, pose="p", state=ValueState.KNOWN, cap=True) -> EvidenceSnapshot:
         self.source_calls += 1
@@ -398,7 +421,7 @@ class GateIntegrationTests(unittest.TestCase):
 
     def test_no_new_public_executor_surface_and_no_provider_submission(self) -> None:
         public = {n for n in dir(CommandExecutor) if not n.startswith("_")}
-        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "unresolved_devices", "uncertainty_store", "resolve_uncertainty_by_recovery", "clear_uncertainty_by_operator", "submit", "poll", "cancel", "enforce_deadline"})
+        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "unresolved_devices", "uncertainty_store", "resolve_uncertainty_by_recovery", "clear_uncertainty_by_operator", "establish_baseline_by_recovery", "establish_baseline_by_operator", "submit", "poll", "cancel", "enforce_deadline"})
         text = (PACKAGE / "safety_gates.py").read_text(encoding="utf-8")
         self.assertNotRegex(text, r"\._provider|read_telemetry|\.connect\(|\.disconnect\(|datetime\.now|utc_now|import time")
 

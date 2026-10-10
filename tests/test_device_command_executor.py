@@ -67,11 +67,24 @@ def kinds() -> CommandKindRegistry:
 
 class Clear:
     def state_for(self, provider_id, device_ref):
-        return UncertaintyState.NONE_RECORDED
+        return UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE
+
+
+def establish_baselines(executor, runtime, devices) -> None:
+    """Test setup: an operator-cleared baseline for each device, so that gate tests can reach the gate itself."""
+    from datetime import datetime, timezone
+
+    from tsn_dss.engine.device_runtime.uncertainty import Resolution, ResolutionKind
+
+    for device in devices:
+        executor.uncertainty_store.establish_baseline(
+            runtime.provider_id, device.device_ref,
+            Resolution(ResolutionKind.OPERATOR_CLEARANCE, datetime(2026, 1, 1, tzinfo=timezone.utc), "test setup", resolved_by="setup"),
+        )
 
 
 class Fixture:
-    def __init__(self, authorizer=None, devices=None, evidence_source=None, uncertainty=None) -> None:
+    def __init__(self, authorizer=None, devices=None, evidence_source=None, uncertainty=None, baseline=True) -> None:
         self.provider = make_provider(**({"devices": devices} if devices else {}))
         self.runtime = ProviderRuntime(self.provider, clock=ManualClock(), id_generator=SequentialIdGenerator())
         self.found = self.runtime.discover().devices
@@ -80,6 +93,8 @@ class Fixture:
             self.runtime, kinds(), authorizer or Allow(), clock=self.clock, id_generator=SequentialIdGenerator(),
             evidence_source=evidence_source or self.fresh_pose, uncertainty=uncertainty or Clear(),
         )
+        if baseline:
+            establish_baselines(self.executor, self.runtime, self.found)
 
     def fresh_pose(self, connection) -> EvidenceSnapshot:
         sample = TelemetrySample(
@@ -350,6 +365,24 @@ class BusyLifecycleTests(unittest.TestCase):
         self.assertIs(connection.state, C.BUSY)
         self.assertEqual([c for c in fx.provider.calls if c[0] == "disconnect"], [])
 
+    def test_the_refused_disconnect_leaves_an_audit_record(self) -> None:
+        """Contract section 6: busy + ordinary disconnect -> busy with a rejection record and no provider call."""
+        fx = Fixture()
+        connection = fx.connection()
+        fx.admit(connection)
+        before = len(connection.history)
+        calls = list(fx.provider.calls)
+        for _ in range(2):
+            with self.assertRaises(InvalidTransition):
+                fx.runtime.disconnect(connection)
+        records = connection.history[before:]
+        self.assertEqual(len(records), 2)
+        for record in records:
+            self.assertEqual((record.from_state, record.event, record.to_state), ("busy", "disconnect_requested", "busy"))
+            self.assertIn("rejected", record.evidence)
+        self.assertEqual(fx.provider.calls, calls)
+        self.assertIs(connection.state, C.BUSY)
+
     def test_passive_reads_still_work_while_busy_and_never_change_it(self) -> None:
         fx = Fixture()
         connection = fx.connection()
@@ -443,7 +476,7 @@ class NoSubmissionBoundaryTests(unittest.TestCase):
 
     def test_executor_public_surface_is_exactly_the_known_set(self) -> None:
         public = {n for n in dir(CommandExecutor) if not n.startswith("_")}
-        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "unresolved_devices", "uncertainty_store", "resolve_uncertainty_by_recovery", "clear_uncertainty_by_operator", "submit", "poll", "cancel", "enforce_deadline"})
+        self.assertEqual(public, {"admit", "check_deadline", "commands", "get", "active_command", "unresolved_devices", "uncertainty_store", "resolve_uncertainty_by_recovery", "clear_uncertainty_by_operator", "establish_baseline_by_recovery", "establish_baseline_by_operator", "submit", "poll", "cancel", "enforce_deadline"})
 
     def test_package_exports_nothing_from_the_executor(self) -> None:
         import tsn_dss.engine.device_runtime as pkg

@@ -68,6 +68,7 @@ class GateReasonCode(str, Enum):
     UNCERTAINTY_UNRESOLVED = "uncertainty_unresolved"
     UNCERTAINTY_UNKNOWN = "uncertainty_unknown"
     UNCERTAINTY_VIEW_MISSING = "uncertainty_view_missing"
+    HISTORY_NOT_ESTABLISHED = "history_not_established"
 
 
 _UNCERTAINTY_CODES = frozenset(
@@ -75,6 +76,7 @@ _UNCERTAINTY_CODES = frozenset(
         GateReasonCode.UNCERTAINTY_UNRESOLVED,
         GateReasonCode.UNCERTAINTY_UNKNOWN,
         GateReasonCode.UNCERTAINTY_VIEW_MISSING,
+        GateReasonCode.HISTORY_NOT_ESTABLISHED,
     }
 )
 
@@ -82,8 +84,10 @@ _UNCERTAINTY_CODES = frozenset(
 class UncertaintyState(Enum):
     """What a future uncertainty store (S5) may answer for one Provider and Device Reference.
 
-    ``NONE_RECORDED`` is not a safety claim: after a process restart it is the answer to everything
-    (REQ-050), so it never replaces the freshness requirements.
+    ``NONE_RECORDED`` and ``UNKNOWN`` never pass: after a process restart "nothing recorded" is the answer
+    to everything (REQ-050), so it is not verified absence of uncertainty. Only a device whose history was
+    explicitly established (``RESOLVED_BY_RECOVERY_EVIDENCE`` or ``CLEARED_BY_OPERATOR``) can pass, and even
+    then every freshness requirement still applies.
     """
 
     NONE_RECORDED = "none_recorded"
@@ -271,7 +275,9 @@ def evaluate_gate(
             reasons.append(GateReason(GateReasonCode.UNCERTAINTY_UNRESOLVED))
         elif state is UncertaintyState.CLEARED_BY_OPERATOR:
             clearance = True
-        elif state not in (UncertaintyState.NONE_RECORDED, UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE):
+        elif state is UncertaintyState.NONE_RECORDED:
+            reasons.append(GateReason(GateReasonCode.HISTORY_NOT_ESTABLISHED))
+        elif state is not UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE:
             reasons.append(GateReason(GateReasonCode.UNCERTAINTY_UNKNOWN))
 
     if reasons:

@@ -12,6 +12,14 @@ An entry is resolved only explicitly, in one of two recorded ways that are never
 * ``operator_clearance``: an authorized operator accepted the risk. It names the operator and the
   reason and is explicitly *not* proof of any physical effect.
 
+**History is unknown until established.** A device this process has not established is never "clear":
+``state_for`` answers ``UNKNOWN`` (fail closed) until the device has a *baseline* or a resolved entry.
+A baseline is an explicit, recorded act with the same two kinds as a resolution: fresh recovery evidence
+assessed for the device, or an authorized operator clearance. Both describe what was accepted at that
+moment and neither proves what earlier Commands did. This is the initialization gate of the in-process
+store (REQ-049, REQ-050): a newly constructed store, or one in a restarted process, cannot be mistaken for
+verified absence of unresolved physical effects. Passive reads never consult it.
+
 Resolving never rewrites the Command: its record stays ``unknown_result`` and the entry keeps
 ``original_outcome``. Resolving twice is refused. The store is the ``UncertaintyView`` the safety gate
 consults; unusable identities answer ``UNKNOWN`` (fail closed).
@@ -25,14 +33,17 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable
 
+from .command_models import FreshnessRequirement
 from .errors import DeviceRuntimeError
 from .safety_gates import UncertaintyState
 
 __all__ = [
+    "BaselineRecovery",
     "RecoveryAssessor",
     "RecoveryVerdict",
     "Resolution",
     "ResolutionKind",
+    "BaselineAlreadyEstablished",
     "UncertaintyAlreadyResolved",
     "UncertaintyEntry",
     "UncertaintyStore",
@@ -46,6 +57,10 @@ class UnknownUncertainty(DeviceRuntimeError):
 
 class UncertaintyAlreadyResolved(DeviceRuntimeError):
     """The entry was already resolved; a resolution is never replaced."""
+
+
+class BaselineAlreadyEstablished(DeviceRuntimeError):
+    """The device already has a baseline or a resolved uncertainty in this process."""
 
 
 class ResolutionKind(Enum):
@@ -105,12 +120,32 @@ class RecoveryVerdict:
 RecoveryAssessor = Callable[[object, object, object, datetime], RecoveryVerdict]
 
 
+@dataclass(slots=True, frozen=True)
+class BaselineRecovery:
+    """How a device's unknown history may be established from fresh evidence (no defaults, no vendor logic).
+
+    ``freshness`` declares which evidence must be fresh and for how long, chosen by whoever configures it;
+    ``assessor`` decides from that evidence whether the device's observed state is acceptable to start from.
+    """
+
+    assessor: RecoveryAssessor
+    freshness: tuple[FreshnessRequirement, ...]
+
+    def __post_init__(self) -> None:
+        if not callable(self.assessor):
+            raise ValueError("assessor must be callable.")
+        object.__setattr__(self, "freshness", tuple(self.freshness))
+        if not self.freshness or not all(isinstance(r, FreshnessRequirement) for r in self.freshness):
+            raise ValueError("a baseline recovery declares at least one FreshnessRequirement.")
+
+
 class UncertaintyStore:
     """Thread-safe, in-process, never persisted."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._entries: dict[tuple[str, str], list[UncertaintyEntry]] = {}
+        self._baselines: dict[tuple[str, str], Resolution] = {}
 
     def open_entry(
         self, provider_id: str, device_ref: str, command_id: str, kind_id: str, at: datetime, connection_id: str
@@ -124,6 +159,27 @@ class UncertaintyStore:
             entry = UncertaintyEntry(provider_id, device_ref, command_id, kind_id, at, connection_id)
             entries.append(entry)
             return entry
+
+    def establish_baseline(self, provider_id: str, device_ref: str, resolution: Resolution) -> Resolution:
+        """Record that this process has explicitly established the device's history. Once per device;
+        authorization and evidence checks belong to the caller (the executor)."""
+        if not (isinstance(provider_id, str) and provider_id.strip() and isinstance(device_ref, str) and device_ref.strip()):
+            raise ValueError("baseline needs a Provider and a Device Reference.")
+        with self._lock:
+            key = (provider_id, device_ref)
+            if self._baselines.get(key) is not None or any(not e.unresolved for e in self._entries.get(key, ())):
+                raise BaselineAlreadyEstablished(device_ref)
+            self._baselines[key] = resolution
+            return resolution
+
+    def baseline(self, provider_id: str, device_ref: str) -> Resolution | None:
+        with self._lock:
+            return self._baselines.get((provider_id, device_ref))
+
+    def history_established(self, provider_id: str, device_ref: str) -> bool:
+        with self._lock:
+            key = (provider_id, device_ref)
+            return key in self._baselines or any(not e.unresolved for e in self._entries.get(key, ()))
 
     def get(self, provider_id: str, device_ref: str, command_id: str) -> UncertaintyEntry:
         with self._lock:
@@ -159,18 +215,20 @@ class UncertaintyStore:
     # --- UncertaintyView -----------------------------------------------------
 
     def state_for(self, provider_id: str, device_ref: str) -> UncertaintyState:
-        """Any open entry means ``UNRESOLVED``. With none open, the latest resolution decides how the
-        past was resolved; with no entries at all the answer is ``NONE_RECORDED``, which after a
-        restart means nothing. Unusable identities answer ``UNKNOWN``."""
+        """Any open entry means ``UNRESOLVED``. A device whose history this process never established
+        answers ``UNKNOWN`` (an empty store is not verified absence of uncertainty). Otherwise the latest
+        resolution or baseline says how the history was established. Unusable identities answer ``UNKNOWN``."""
         if not (isinstance(provider_id, str) and provider_id.strip() and isinstance(device_ref, str) and device_ref.strip()):
             return UncertaintyState.UNKNOWN
         with self._lock:
-            entries = self._entries.get((provider_id, device_ref), ())
-            if not entries:
-                return UncertaintyState.NONE_RECORDED
+            key = (provider_id, device_ref)
+            entries = self._entries.get(key, ())
             if any(e.unresolved for e in entries):
                 return UncertaintyState.UNRESOLVED
-            latest = max(entries, key=lambda e: e.resolution.resolved_at)  # type: ignore[union-attr]
-            if latest.resolution.kind is ResolutionKind.OPERATOR_CLEARANCE:  # type: ignore[union-attr]
+            established = [e.resolution for e in entries] + ([self._baselines[key]] if key in self._baselines else [])
+            if not established:
+                return UncertaintyState.UNKNOWN
+            latest = max(established, key=lambda r: r.resolved_at)
+            if latest.kind is ResolutionKind.OPERATOR_CLEARANCE:
                 return UncertaintyState.CLEARED_BY_OPERATOR
             return UncertaintyState.RESOLVED_BY_RECOVERY_EVIDENCE

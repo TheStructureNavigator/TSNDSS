@@ -68,7 +68,8 @@ class StoreTests(unittest.TestCase):
 
     def test_a_new_store_is_empty_and_says_nothing_about_safety(self) -> None:
         store = UncertaintyStore()
-        self.assertIs(store.state_for("p", "d"), U.NONE_RECORDED)
+        self.assertIs(store.state_for("p", "d"), U.UNKNOWN)  # not verified absence of uncertainty
+        self.assertFalse(store.history_established("p", "d"))
         self.assertEqual(store.unresolved_devices(), frozenset())
 
     def test_entries_are_keyed_by_provider_and_device_and_isolated(self) -> None:
@@ -76,7 +77,7 @@ class StoreTests(unittest.TestCase):
         self.open(store, "p1", "d1")
         self.assertIs(store.state_for("p1", "d1"), U.UNRESOLVED)
         for other in (("p1", "d2"), ("p2", "d1")):
-            self.assertIs(store.state_for(*other), U.NONE_RECORDED, other)
+            self.assertIs(store.state_for(*other), U.UNKNOWN, other)
         self.assertEqual(store.unresolved_devices(), {("p1", "d1")})
 
     def test_opening_the_same_command_twice_returns_the_same_entry(self) -> None:
@@ -438,21 +439,169 @@ class ClearanceTests(unittest.TestCase):
 
 
 class RestartTests(unittest.TestCase):
-    def test_an_empty_store_after_a_restart_does_not_prove_safety_and_nothing_is_persisted(self) -> None:
+    """A restarted process starts with an empty store. That is unknown history, never verified absence of
+    unresolved physical effects."""
+
+    def fresh_rig(self, **extra):
+        return Rig(baseline=False, store=UncertaintyStore(), **extra)
+
+    def test_a_new_store_blocks_safety_sensitive_commands_even_with_fresh_evidence(self) -> None:
         old, connection, record = uncertain_rig()
         self.assertEqual(len(old.executor.unresolved_devices()), 1)
-        fresh = Rig(store=UncertaintyStore())  # a restarted process: new runtime, new executor, empty store
+        fresh = self.fresh_rig()
         again = fresh.ready()
-        self.assertEqual(fresh.executor.unresolved_devices(), frozenset())
-        self.assertIs(fresh.executor.uncertainty_store.state_for(fresh.runtime.provider_id, again.device.device_ref), U.NONE_RECORDED)
+        self.assertEqual(fresh.executor.unresolved_devices(), frozenset())  # nothing persisted
+        self.assertIs(fresh.executor.uncertainty_store.state_for(fresh.runtime.provider_id, again.device.device_ref), U.UNKNOWN)
+        blocked = fresh.admit(again, "move")
+        self.assertIs(blocked.state, S.SAFETY_BLOCKED)
+        self.assertIn("uncertainty_unknown", blocked.history[-1].evidence)
+        self.assertEqual(fresh.submits(), [])
+        self.assertIs(again.state, C.READY)
+
+    def test_passive_reads_and_non_safety_kinds_are_unaffected(self) -> None:
+        fresh = self.fresh_rig()
+        connection = fresh.ready()
+        fresh.runtime.read_telemetry(connection)
+        fresh.runtime.describe_preview(connection)
+        fresh.runtime.capability_report(connection)
+        self.assertIs(fresh.runtime.refresh_evidence(connection), C.READY)
+        self.assertIs(fresh.admit(connection, "config").state, S.VALIDATED)
+
+    def test_a_configured_view_saying_nothing_recorded_does_not_pass(self) -> None:
+        class Nothing:
+            def state_for(self, provider_id, device_ref):
+                return U.NONE_RECORDED
+
+        rig = Rig(store=UncertaintyStore())
+        rig.executor._uncertainty = Nothing()
+        blocked = rig.admit(rig.ready(), "move")
+        self.assertIs(blocked.state, S.SAFETY_BLOCKED)
+        self.assertIn("history_not_established", blocked.history[-1].evidence)
+
+    def test_operator_baseline_establishes_unknown_history_and_freshness_is_still_required(self) -> None:
+        fresh = self.fresh_rig(clearance_authorizer=Op())
+        connection = fresh.ready()
+        ref = connection.device.device_ref
+        resolution = fresh.executor.establish_baseline_by_operator(ref, "alice", "inspected the device")
+        self.assertIs(resolution.kind, K.OPERATOR_CLEARANCE)
+        self.assertFalse(resolution.proves_physical_effect)
+        self.assertIs(fresh.executor.uncertainty_store.state_for(fresh.runtime.provider_id, ref), U.CLEARED_BY_OPERATOR)
         fresh.stale = True
-        self.assertIs(fresh.admit(again, "move").state, S.SAFETY_BLOCKED)  # fresh evidence is still required
+        self.assertIs(fresh.admit(connection, "move").state, S.SAFETY_BLOCKED)
         fresh.stale = False
-        self.assertIs(fresh.admit(again, "move").state, S.VALIDATED)
+        self.assertIs(fresh.admit(connection, "move").state, S.VALIDATED)
+
+    def test_operator_baseline_needs_authorization_operator_and_reason(self) -> None:
+        for extra in ({}, {"clearance_authorizer": Op(False)}):
+            fresh = self.fresh_rig(**extra)
+            ref = fresh.ready().device.device_ref
+            with self.assertRaises(ClearanceNotAuthorized):
+                fresh.executor.establish_baseline_by_operator(ref, "alice", "r")
+            self.assertFalse(fresh.executor.uncertainty_store.history_established(fresh.runtime.provider_id, ref))
+        fresh = self.fresh_rig(clearance_authorizer=Op())
+        ref = fresh.ready().device.device_ref
+        for operator, reason in (("", "r"), ("alice", " ")):
+            with self.assertRaises(ClearanceNotAuthorized):
+                fresh.executor.establish_baseline_by_operator(ref, operator, reason)
+
+    def baseline_recovery(self, resolved=True, basis=BASIS):
+        from tsn_dss.engine.device_runtime.command_models import FreshnessRequirement
+        from tsn_dss.engine.device_runtime.uncertainty import BaselineRecovery
+
+        return BaselineRecovery(lambda c, r, snap, now: RecoveryVerdict(resolved, "device state read back", basis),
+                                (FreshnessRequirement("pose", timedelta(minutes=1)),))
+
+    def test_recovery_baseline_needs_fresh_evidence_and_an_assessor_verdict(self) -> None:
+        fresh = self.fresh_rig(baseline_recovery=self.baseline_recovery())
+        connection = fresh.ready()
+        ref = connection.device.device_ref
+        fresh.stale = True
+        with self.assertRaises(RecoveryNotEstablished) as ctx:
+            fresh.executor.establish_baseline_by_recovery(connection)
+        self.assertIn("evidence_not_fresh", str(ctx.exception))
+        fresh.stale = False
+        resolution = fresh.executor.establish_baseline_by_recovery(connection)
+        self.assertIs(resolution.kind, K.RECOVERY_EVIDENCE)
+        self.assertEqual(resolution.basis, BASIS)
+        self.assertIs(fresh.executor.uncertainty_store.state_for(fresh.runtime.provider_id, ref), U.RESOLVED_BY_RECOVERY_EVIDENCE)
+        self.assertIs(fresh.admit(connection, "move").state, S.VALIDATED)
+
+    def test_recovery_baseline_refusals_leave_the_history_unknown(self) -> None:
+        cases = (
+            (Rig(baseline=False, store=UncertaintyStore()), "no_baseline_recovery_configured"),
+            (Rig(baseline=False, store=UncertaintyStore(), baseline_recovery=self.baseline_recovery(resolved=False)), "recovery_not_established"),
+            (Rig(baseline=False, store=UncertaintyStore(), baseline_recovery=self.baseline_recovery(basis=())), "rests on"),
+        )
+        for rig, fragment in cases:
+            connection = rig.ready()
+            with self.assertRaises(RecoveryNotEstablished) as ctx:
+                rig.executor.establish_baseline_by_recovery(connection)
+            self.assertIn(fragment, str(ctx.exception))
+            self.assertFalse(rig.executor.uncertainty_store.history_established(rig.runtime.provider_id, connection.device.device_ref))
+            self.assertIs(rig.admit(connection, "move").state, S.SAFETY_BLOCKED)
+
+    def test_recovery_baseline_connection_checks_and_double_establishment(self) -> None:
+        fresh = self.fresh_rig(baseline_recovery=self.baseline_recovery())
+        connection = fresh.ready()
+        with self.assertRaises(RecoveryNotEstablished):
+            fresh.executor.establish_baseline_by_recovery("nope")
+        fresh.executor.establish_baseline_by_recovery(connection)
+        with self.assertRaises(RecoveryNotEstablished) as ctx:
+            fresh.executor.establish_baseline_by_recovery(fresh.ready())
+        self.assertIn("already_established", str(ctx.exception))
+        from tsn_dss.engine.device_runtime.uncertainty import BaselineAlreadyEstablished
+
+        with self.assertRaises(BaselineAlreadyEstablished):
+            fresh.executor.uncertainty_store.establish_baseline(
+                fresh.runtime.provider_id, connection.device.device_ref,
+                Resolution(K.OPERATOR_CLEARANCE, T0, "again", resolved_by="op"))
+
+    def test_a_baseline_never_hides_an_open_uncertainty(self) -> None:
+        rig, connection, record = uncertain_rig(clearance_authorizer=Op(), baseline_recovery=self.baseline_recovery())
+        ref = connection.device.device_ref
+        with self.assertRaises(RecoveryNotEstablished) as ctx:
+            rig.executor.establish_baseline_by_recovery(rig.ready())
+        self.assertIn("unresolved_uncertainty_present", str(ctx.exception))
+        with self.assertRaises(ClearanceNotAuthorized):
+            rig.executor.establish_baseline_by_operator(ref, "alice", "r")
+        self.assertIs(rig.executor.uncertainty_store.state_for(rig.runtime.provider_id, ref), U.UNRESOLVED)
+
+    def test_established_history_survives_reconnect_but_not_a_new_store(self) -> None:
+        fresh = self.fresh_rig(clearance_authorizer=Op())
+        connection = fresh.ready()
+        fresh.executor.establish_baseline_by_operator(connection.device.device_ref, "alice", "r")
+        fresh.runtime.disconnect(connection)
+        self.assertIs(fresh.admit(fresh.ready(), "move").state, S.VALIDATED)
+        restarted = self.fresh_rig(clearance_authorizer=Op())
+        self.assertIs(restarted.admit(restarted.ready(), "move").state, S.SAFETY_BLOCKED)
+
+    def test_resolving_an_uncertainty_also_establishes_the_history(self) -> None:
+        rig = self.fresh_rig(clearance_authorizer=Op())
+        connection = rig.ready()
+        ref = connection.device.device_ref
+        rig.executor.establish_baseline_by_operator(ref, "alice", "start")
+        store, provider_id = rig.executor.uncertainty_store, rig.runtime.provider_id
+        fresh = self.fresh_rig()
+        store = fresh.executor.uncertainty_store
+        store.open_entry(provider_id, ref, "c-x", "move", T0, "conn")
+        self.assertIs(store.state_for(provider_id, ref), U.UNRESOLVED)
+        self.assertFalse(store.history_established(provider_id, ref))
+        store.resolve(provider_id, ref, "c-x", Resolution(K.RECOVERY_EVIDENCE, T0, "e", basis=BASIS))
+        self.assertTrue(store.history_established(provider_id, ref))
+        self.assertIs(store.state_for(provider_id, ref), U.RESOLVED_BY_RECOVERY_EVIDENCE)
 
     def test_the_package_does_no_io_for_uncertainty(self) -> None:
         text = (PACKAGE / "uncertainty.py").read_text(encoding="utf-8")
         self.assertNotRegex(text, r"\bopen\(|pickle|json|sqlite|shelve|pathlib|import os\b|socket")
+
+    def test_baseline_recovery_requires_declared_freshness(self) -> None:
+        from tsn_dss.engine.device_runtime.uncertainty import BaselineRecovery
+
+        for bad in ((), ("pose",)):
+            with self.assertRaises(ValueError):
+                BaselineRecovery(lambda *a: RecoveryVerdict(True, "e", BASIS), bad)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            BaselineRecovery("not callable", ())  # type: ignore[arg-type]
 
 
 class RuntimeCheckTests(unittest.TestCase):
