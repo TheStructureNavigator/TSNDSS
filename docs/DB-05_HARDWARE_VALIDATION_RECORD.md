@@ -22,7 +22,7 @@ Branch `feat/db05-slice0-gate-values` (Slice 0 `8c9530d`, Slice 1 `c12034d`, Sli
 
 What the supervised run shows on the real device: the DB-05 policies' preconditions were satisfiable from real DB-02 telemetry and capability reports; the baseline by recovery worked; each command was gated, authorized, submitted and verified by fresh provider-reported telemetry strictly after the submission boundary; the vocabulary `cancel` is what a stopped camera reports at rest on this firmware.
 
-Timing values (freshness windows, command deadline, poll interval, permit validity) used in the run are not recorded here. They remain operator choices and are **not** calibrated defaults of the code.
+Parameters used in the supervised run (operator-reported): telemetry freshness 10 s, capability freshness 10 s, command deadline 90 s, polling interval 2 s, permit validity 600 s, preview disabled (`--no-preview`). They are operator choices for that run and are **not** calibrated defaults of the code (the code has none).
 
 ## 4. Assessment against the roadmap criteria
 
@@ -44,14 +44,14 @@ Offline test evidence: `tests/test_seestar_control.py` (53), `test_seestar_contr
 
 ## 5. Limitations (part of the status)
 
-- **L1 — failure and recovery untested on hardware.** No unknown-result, lost-connection, deadline-expiry, failed-cleanup or operator-clearance path ran on the device. These are verified only against the simulator.
+- **L1 — failure and recovery untested on hardware.** No unknown-result, lost-connection, deadline-expiry, failed-cleanup or operator-clearance path ran on the device. These are verified only against the simulator. The CLI currently has no recovery action and recovery state is in-process only, so after an uncertain outcome the tool reports `recovery_required` and exits; exercising `recover()` on hardware needs a small CLI addition first.
 - **L2 — preview not exercised in DB-05.** DB-03 open gaps G1–G8 are unchanged by this record.
 - **L3 — camera items can be `unavailable` on a parked idle device.** An earlier H0 reported all four camera items `unavailable` (the provider maps an absent field to `unavailable`); a later H0 showed them known. The raw app-state shape that explains the difference was not recorded here. Physical mode refuses to start when the camera items are not known and stopped (fail-closed, nothing sent); the code does not treat `unavailable` as stopped.
-- **L4 — timing not calibrated.** Freshness windows, deadlines, poll intervals and permit validity have no defaults and one run is not calibration.
+- **L4 — timing not calibrated.** The values listed in section 3 worked in one run (deploy needed 7 polls and park 8 polls of 2 s, well inside the 90 s deadline). One run is not calibration and the code has no defaults.
 - **L5 — one device, one firmware, one supervised run.** Operator-reported and not independently reproduced.
 - **L6 — in-process only.** Uncertainty and the original command record live in the process; a restart loses them and requires an explicit baseline. No global arbitration across processes. Independent no-effect or failure evidence does not exist (DSS-CTR-013 D3, unchanged).
 - **L7 — stricter start precondition than the E2E tool.** `scenery.start` requires all four camera items known and stopped.
-- **L8 — no HTTP, MCP, frontend, acquisition or persistent registry.** The CLI is the only operator entry point.
+- **L8 — no GoTo, HTTP, MCP, frontend, acquisition or persistent registry.** DB-05 sends exactly four commands; GoTo / target slewing is outside it and not assigned to any stage (see the roadmap, DB-06A scope note). The CLI is the only operator entry point.
 
 ## 6. Closing the remaining criteria
 
