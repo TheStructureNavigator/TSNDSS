@@ -49,6 +49,30 @@ def both_open(rig: Rig):
     return a, b
 
 
+class SlowEvidenceTests(unittest.TestCase):
+    """Real hardware: a fresh device read is stamped with the host time at its end, later than the clock the manager read first."""
+
+    def test_evidence_stamped_during_the_read_opens_the_stream(self) -> None:
+        rig = Rig()
+        fast = rig.evidence.read_evidence
+
+        def slow(label):
+            rig.clock.advance(timedelta(milliseconds=300))                  # the device read takes host time ...
+            return fast(label)                                              # ... and the evidence is stamped at its end
+
+        rig.evidence.read_evidence = slow
+        outcome = rig.manager.open_stream(CAM_A)
+        self.assertEqual((outcome.opened, outcome.decision.reason), (True, G.ALLOWED))
+        self.assertEqual(rig.factory.calls, [CAM_A])
+
+    def test_a_real_clock_regression_is_still_refused_and_opens_nothing(self) -> None:
+        rig = Rig()
+        rig.evidence.override[CAM_A] = rig.evidence.live(CAM_A, host_observed_at=rig.clock() + timedelta(seconds=30))
+        outcome = rig.manager.open_stream(CAM_A)
+        self.assertEqual((outcome.opened, outcome.decision.reason), (False, G.CLOCK_REGRESSION))
+        self.assertEqual(rig.factory.calls, [])
+
+
 class ConstructionTests(unittest.TestCase):
     def test_camera_and_limit_validation(self) -> None:
         rig = Rig()

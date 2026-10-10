@@ -52,7 +52,7 @@ def build_isolated_preview_manager(
     )
 
     def still_allowed(camera: str | None) -> bool:
-        return bool(camera) and gate.check(identity, camera, clock()).allowed
+        return bool(camera) and gate.check(identity, camera, clock).allowed
 
     decoder_factory = make_isolated_decoder_factory(
         isolated, before_connect=still_allowed, _worker_factory=_worker_factory, _python_version=_python_version
