@@ -131,6 +131,8 @@ class Fixture(DecoderHandler):
         if isinstance(message, P.Init):
             self.write_report(stage="init_seen")
         result = super().handle(message)
+        if self.name == "pid_differs" and isinstance(message, P.Init) and self.slot is not None:
+            self.slot.record_handshake(message.nonce, os.getpid() + 1_000_000)        # as if a launcher stood between us and this process
         if isinstance(message, P.Close):
             self.write_report(stage="closed")                  # last write: the process exits right after the reply
         elif isinstance(message, (P.Open, P.Read)):

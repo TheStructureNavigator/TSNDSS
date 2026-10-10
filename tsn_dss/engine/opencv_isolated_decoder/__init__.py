@@ -26,9 +26,20 @@ from .process import (
 from .protocol import PROTOCOL_VERSION, STATUS_TABLE_VERSION, ProtocolError, Status, UnknownStatus
 from .states import WorkerEvent, WorkerState
 
+_LAZY = {"IsolatedDecoderConfig", "OperationTimings", "ProcessIsolatedDecoder", "make_isolated_decoder_factory"}
+
+
+def __getattr__(name: str):
+    """The parent-side adapter couples to ``seestar_preview``; load it only when asked, so a worker process starts light."""
+    if name in _LAZY:
+        from . import decoder
+        return getattr(decoder, name)
+    raise AttributeError(name)
+
+
 __all__ = [
     "DECODER_ENTRY", "MAX_LIVE_WORKERS", "PRODUCTION_ENTRY", "PROTOCOL_VERSION", "STATUS_TABLE_VERSION", "IsolationUnsupported", "ProtocolError", "Status",
     "StopReport", "UnknownStatus", "WorkerConfig", "WorkerError", "WorkerEvent", "WorkerImage", "WorkerProcess",
     "WorkerState", "abandoned_worker_count", "live_worker_count", "reclaim_abandoned_workers", "require_supported_python",
-    "stop_all_workers",
+    "stop_all_workers", "IsolatedDecoderConfig", "OperationTimings", "ProcessIsolatedDecoder", "make_isolated_decoder_factory",
 ]

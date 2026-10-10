@@ -366,7 +366,7 @@ class DecoderWorkerFlowTests(RealProcess):
         self.assertEqual(live_worker_count(), 1)                                   # still counted while it runs
         pid, worker_pid = w.pid, w.worker_pid
         report = w.stop()
-        self.assertEqual((report.steps, report.exit_code, report.uncertain), (("close",), 0, ()))
+        self.assertEqual((report.steps, report.exit_code, set(report.uncertain) - {"intermediate_launcher"}), (("close",), 0, set()))
         self.assertTrue(_gone_within(pid) and _gone_within(worker_pid))
         self.assertEqual(live_worker_count(), 0)                                   # released only after the confirmed exit
         self.assertTrue(report.slot_released and report.segment_released)

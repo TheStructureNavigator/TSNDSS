@@ -649,6 +649,8 @@ class WorkerProcess:
         uncertain: list = []
         if (had_stream or in_flight) and ("terminate" in steps or "kill" in steps):
             uncertain.append("operation_interrupted" if in_flight else "stream_terminated")   # effect on the device is unknown (U5)
+        if self.pid is not None and self.worker_pid is not None and self.pid != self.worker_pid:
+            uncertain.append("intermediate_launcher")      # diagnostic only (e.g. a Windows venv redirector); NOT proof of containment
         if containment_failed:
             uncertain.append("process_unreaped")
         popen = None

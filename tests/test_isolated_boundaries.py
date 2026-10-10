@@ -24,6 +24,7 @@ ALLOWED_STDLIB = {
                    "datetime", "pathlib", "multiprocessing"},
     "worker_main.py": {"__future__", "os", "queue", "sys", "threading", "multiprocessing"},
     "worker_decoder.py": {"__future__", "os", "time", "typing"},
+    "decoder.py": {"__future__", "threading", "time", "dataclasses", "typing"},
     "decoder_main.py": {"__future__", "sys"},
 }
 FORBIDDEN_EVERYWHERE = {"cv2", "numpy", "PIL", "av", "socket", "ssl", "select", "selectors", "asyncio", "http", "urllib", "ftplib", "ctypes",
@@ -31,7 +32,10 @@ FORBIDDEN_EVERYWHERE = {"cv2", "numpy", "PIL", "av", "socket", "ssl", "select", 
 LEVEL2_DEFAULT = {"device_runtime.errors", "device_runtime.lifecycle"}
 # Owner decision E2: coupling to the Wave 3/4 packages only in the four modules decoder.py, worker_decoder.py, decoder_main.py and
 # integration.py. 4B-3a contains the worker-side ones; the others arrive in 4B-3b/4B-3c and extend ONLY this table.
-LEVEL2_ALLOWED = {"worker_decoder.py": {"opencv_preview_decoder", "seestar_preview", "device_runtime.preview_models"}}
+LEVEL2_ALLOWED = {
+    "worker_decoder.py": {"opencv_preview_decoder", "seestar_preview", "device_runtime.preview_models"},
+    "decoder.py": {"seestar_preview", "device_runtime.preview_models", "device_runtime.errors"},
+}
 COUPLED_MODULES = {"decoder.py", "worker_decoder.py", "decoder_main.py", "integration.py"}
 COMMAND_WORDS = {"start_view", "stop_view", "start_scan", "scope", "park", "slew", "goto", "arm"}
 
@@ -59,7 +63,7 @@ def imports(path: Path):
 class ImportBoundaryTests(unittest.TestCase):
     def test_the_package_has_exactly_the_planned_files(self) -> None:
         self.assertEqual(set(FILES), {"__init__.py", "protocol.py", "segment.py", "shm.py", "states.py", "process.py", "worker_main.py",
-                                    "worker_decoder.py", "decoder_main.py"})
+                                    "worker_decoder.py", "decoder_main.py", "decoder.py"})
 
     def test_each_file_imports_only_what_it_is_allowed_to(self) -> None:
         for name, path in FILES.items():
@@ -136,6 +140,18 @@ class ImportBoundaryTests(unittest.TestCase):
             self.assertNotIn("DecoderHandler", code, name)
             self.assertNotIn("worker_decoder", code, name)
         self.assertIn('PRODUCTION_ENTRY = "tsn_dss.engine.opencv_isolated_decoder.worker_main"', (PACKAGE / "process.py").read_text(encoding="utf-8"))
+
+    def test_the_parent_adapter_uses_only_the_public_worker_api_and_keeps_no_address(self) -> None:
+        tree = ast.parse((PACKAGE / "decoder.py").read_text(encoding="utf-8"))
+        attributes = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        for private in ("_popen", "_conn", "_segment", "_send", "_expect", "_io", "_fail"):
+            self.assertNotIn(private, attributes, private)
+        stored = {t.attr for n in ast.walk(tree) if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Attribute)}
+        self.assertFalse({a for a in stored if "address" in a or "url" in a}, stored)
+        code = code_only(PACKAGE / "decoder.py")
+        for banned in ("subprocess", "shared_memory", "os.environ", "getpass", "logging", "print("):
+            self.assertNotIn(banned, code, banned)
+        self.assertNotIn("simulated = True", code)
 
     def test_the_decoder_worker_has_its_own_entry_module_and_the_same_numeric_command_line(self) -> None:
         text = code_only(PACKAGE / "decoder_main.py")
